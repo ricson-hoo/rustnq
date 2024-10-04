@@ -1,14 +1,9 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod query;
+pub mod db;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use db::base::Selectable;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+fn test(){
+
+
 }
