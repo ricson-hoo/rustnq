@@ -1,5 +1,17 @@
-use crate::db::base::Holding;
-use crate::query::base::Condition;
+use crate::mapping::description::Holding;
+use crate::query::builder::Condition;
+
+#[derive(Debug)]
+pub struct Table<'a>{
+    pub name: &'a str,
+    pub comment: &'a str
+}
+
+impl<'a> Table<'a> {
+    pub fn new(name: &'a str, comment: &'a str) -> Table<'a> {
+        Table { name, comment }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct Varchar<'a>{
