@@ -12,7 +12,7 @@ pub struct TableRow {
 #[derive(Debug)]
 pub struct TableFieldRow {
     pub(crate) name: String,
-    pub(crate) data_type: String,
+    pub(crate) data_type: String,//varchar(32),enum('a','b'),set('a','b'),tinyint(1)
     pub(crate) nullable:bool,
     pub(crate) is_primary_key:bool
 }

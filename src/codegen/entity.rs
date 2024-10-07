@@ -20,9 +20,9 @@ struct StructFieldType {
     import:Option<String>
 }
 
-struct GeneratedStructInfo {
-    file_name_without_ext : String,
-    struct_name: String
+pub(crate) struct GeneratedStructInfo {
+    pub file_name_without_ext : String,
+    pub struct_name: String
 }
 
 //generate entities according to db & table definitions
@@ -212,8 +212,8 @@ struct MysqlDataTypeProp {
 impl FromStr for MysqlDataType {
     type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> Result<Self, anyhow::Error> {
-        match s {
+    fn from_str(mysql_col_type: &str) -> Result<Self, anyhow::Error> {
+        match mysql_col_type.replace(" ", "_").to_uppercase().as_str() {
             "CHAR" => Ok(MysqlDataType::Char),
             "VARCHAR" => Ok(MysqlDataType::Varchar),
             "TINYTEXT" => Ok(MysqlDataType::Tinytext),

@@ -1,6 +1,6 @@
 use crate::mapping::description::Selectable;
 use crate::query::builder::QueryBuilder;
 
-fn select<'a>(fields: Vec<&'a  dyn Selectable<'a>>) -> QueryBuilder<'a>{
+fn select(fields: Vec<& dyn Selectable>) -> QueryBuilder{
     QueryBuilder::new(fields)
 }

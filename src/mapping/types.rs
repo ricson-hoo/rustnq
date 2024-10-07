@@ -1,4 +1,4 @@
-use crate::mapping::description::Holding;
+use crate::mapping::description::{Holding, Selectable};
 use crate::query::builder::Condition;
 
 #[derive(Debug)]
@@ -13,31 +13,30 @@ impl<'a> Table<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Varchar<'a>{
-    name: &'a str,
-    value: &'a str,
+pub struct Varchar{
+    name: String,
+    value: String,
     holding: Holding,
 }
 
-impl <'a> Varchar<'a> {
-    pub fn value(value: &'a str) -> Self {
-        Varchar { value, name:"" ,holding: Holding::Value }
+impl Varchar {
+    pub fn value(value: String) -> Self {
+        Varchar { value:value, name:"".to_string() ,holding: Holding::Value }
     }
 
-    pub fn name(name: &'static str) -> Self {
-        Varchar { name, value: "" ,holding: Holding::Name }
+    pub fn name(name: String) -> Self {
+        Varchar { name:name, value: "".to_string() ,holding: Holding::Name }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
     where
-        T: Into<Varchar<'a>>,
+        T: Into<Varchar>,
     {
         let varchar = input.into();
         let output = match varchar.holding {
             Holding::Name => varchar.name,
-            Holding::Value => &format!("'{}'",varchar.value),
-            _ => ""
+            Holding::Value => format!("'{}'",varchar.value),
+            _ => "".to_string()
         };
         Condition::new(format!("{} = {}", self.name, output))
     }
@@ -48,9 +47,33 @@ impl <'a> Varchar<'a> {
     }
 }
 
+impl Selectable for Varchar {
+    fn name(&self) -> &str {
+        let type_self: &Varchar = self as &Varchar;
+        &type_self.name
+    }
+}
+
+/*impl <'a> Column<'a> for Varchar<'a> {
+    fn name(&self) -> &'a str {
+        todo!()
+    }
+
+    fn value(&self) -> &'a str {
+        todo!()
+    }
+}*/
+
 pub struct Int{
     value: i32,
     name: &'static str,
     holding: Holding
+}
+
+impl Selectable for Int {
+    fn name(&self) -> &str {
+        let type_self: &Int = self as &Int;
+        &type_self.name
+    }
 }
 
