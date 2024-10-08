@@ -53,7 +53,7 @@ pub struct TableFieldConstructInfo {
     pub field_name:String,
     pub file_type:String,
     pub default_value_on_new:String,
-    pub import_statement:String
+    pub import_statements:Vec<String>
 }
 
 /*
@@ -166,7 +166,7 @@ pub fn get_construct_info_from_column_definition(table_name:&str,mysql_col_defin
     let column_name = mysql_col_definitin.name;
     let mut file_type = "";
     let mut default_value = "".to_string();
-    let import_statement = "";
+    let mut import_statements : Vec<String> = vec![];
 
     match column_type_parse_result{
         Ok(column_type) => {
@@ -180,20 +180,26 @@ pub fn get_construct_info_from_column_definition(table_name:&str,mysql_col_defin
                     default_value = format!("Int::name(\"{}\")",mysql_col_definitin.name_unmodified);
                 },
                 ColumnType::Enum => {
-                    let mut enumType = format!("entity::enums::{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
+                    let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
+                    let mut enumType = format!("entity::enums::{}",&short_enum_name);
                     if !name_of_crate_holds_enums.is_empty(){
                         enumType = format!("{}::{}",name_of_crate_holds_enums, enumType);
                     }
                     file_type = "Enum";
-                    default_value = format!("Enum<{}>::name(\"{}\")",enumType, mysql_col_definitin.name_unmodified);
+                    default_value = format!("Enum<{}>::name(\"{}\")",short_enum_name, mysql_col_definitin.name_unmodified);
+                    //import enum
+                    import_statements.push(enumType);
                 },
                 ColumnType::Set => {
-                    let mut enumType = format!("entity::enums::{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
+                    let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
+                    let mut enumType = format!("entity::enums::{}",&short_enum_name);
                     if !name_of_crate_holds_enums.is_empty(){
                         enumType = format!("{}::{}",name_of_crate_holds_enums, enumType);
                     }
                     file_type = "Set";
-                    default_value = format!("Set<{}>::name(\"{}\")",enumType, mysql_col_definitin.name_unmodified);
+                    default_value = format!("Set<{}>::name(\"{}\")",short_enum_name, mysql_col_definitin.name_unmodified);
+                    //import enum
+                    import_statements.push(enumType);
                 },
                 ColumnType::Datetime => {
                     file_type = "Datetime";
@@ -205,12 +211,14 @@ pub fn get_construct_info_from_column_definition(table_name:&str,mysql_col_defin
 
         }
     };
+    //add current type to import statements
+    import_statements.push(format!("rustnq::types::{}",file_type));
 
     Ok(TableFieldConstructInfo{
         field_name : column_name,
         file_type:file_type.to_string(),
         default_value_on_new:default_value,
-        import_statement: format!("rustnq::types::{}",file_type)
+        import_statements: import_statements
     })
 
 }

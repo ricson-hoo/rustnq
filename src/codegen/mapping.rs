@@ -92,8 +92,12 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
                 };
                 let columnConstructInfo:TableFieldConstructInfo = get_construct_info_from_column_definition(&table.name,mysql_cloumn_definition, name_of_crate_holds_enums.clone()).expect(&format!("Failed to get construct info from table {}",table.name));
 
-                if !columnConstructInfo.import_statement.is_empty() && !items_to_be_imported.contains(&columnConstructInfo.import_statement) {
-                    items_to_be_imported.push(columnConstructInfo.import_statement);
+                if !columnConstructInfo.import_statements.is_empty() {
+                    for import_statement in &columnConstructInfo.import_statements {
+                       if !items_to_be_imported.contains(&import_statement){
+                           items_to_be_imported.push(import_statement.to_string());
+                       }
+                    }
                 }
 
                 struct_fields.push(format!("{}:{},",&column_name,columnConstructInfo.file_type));
