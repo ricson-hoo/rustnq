@@ -71,7 +71,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                         boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>) -> GeneratedStructInfo{
     let struct_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
-    let out_file = output_path.join(format!("{}.rs", table.name));
+    let out_file = output_path.join(format!("{}.rs", stringUtils::to_camel_case(&table.name)));
 
     utils::prepare_directory(&out_file);
     // Open the file for writing
