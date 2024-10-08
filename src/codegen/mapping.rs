@@ -28,7 +28,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     match tables {
         Ok(tables) => {
             for table in tables {
-                let generated_entity_info = generate_mapping(conn, table, output_path, name_of_crate_holds_enums.clone(), boolean_columns, trait_for_enum_types).await;
+                let generated_entity_info = generate_mapping(conn, table, mappings_out_path, name_of_crate_holds_enums.clone(), boolean_columns, trait_for_enum_types).await;
                 generated_entities.push(generated_entity_info);
             }
             println!("entities generated successfully");
