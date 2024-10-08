@@ -60,7 +60,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
                           boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>) -> GeneratedStructInfo{
     let struct_name = format!("{}Table",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name)));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
-    let out_file_name_without_ext = format!("{}Table",table.name);
+    let out_file_name_without_ext = format!("{}Table",stringUtils::to_camel_case(&table.name));
     let out_file = output_path.join(format!("{}.rs", out_file_name_without_ext));
 
     utils::prepare_directory(&out_file);
