@@ -14,7 +14,11 @@ use std::any::Any;
 use std::error::Error;
 
 //generate table mappings to db & table definitions
-pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, output_path:&Path, name_of_crate_holds_enums: String, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
+pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, mappings_out_dir:&str, name_of_crate_holds_enums: String, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
+
+    let mappings_out_path = std::path::Path::new(&mappings_out_dir);
+    prepare_directory(mappings_out_path);
+
     let tables = utils::get_tables(conn).await;
     println!("{:#?}",tables);
 

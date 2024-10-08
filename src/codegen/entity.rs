@@ -27,7 +27,10 @@ pub(crate) struct GeneratedStructInfo {
 }
 
 //generate entities according to db & table definitions
-pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, output_path:&Path,boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
+pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, entity_out_dir:&str, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
+    let entity_out_path = std::path::Path::new(&entity_out_dir);
+    utils::prepare_directory(entity_out_path);
+
     let tables = utils::get_tables(conn).await;
     println!("{:#?}",tables);
 

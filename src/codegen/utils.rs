@@ -151,7 +151,7 @@ pub fn prepare_directory(path:& std::path::Path){
             fs::create_dir_all(parent).expect(&format!("Failed to create directory {}", parent.display()));
         }
     }
-    if path.is_dir() && !path.exists() {
+    if !path.exists() {
         fs::create_dir_all(path).expect(&format!("Failed to create directory {}", path.display()));
     }
 }
