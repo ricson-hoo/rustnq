@@ -8,11 +8,12 @@ use sqlx_mysql::MySql;
 use crate::codegen::entity::GeneratedStructInfo;
 use crate::codegen::utils;
 use crate::codegen::utils::TableRow;
-use crate::mapping::description::{ColumnType, Selectable};
+use crate::mapping::description::{ColumnType, Column, TableFieldConstructInfo, get_construct_info_from_column_definition, MysqlColumnDefinition};
 use crate::utils::stringUtils;
+use std::any::Any;
 
 //generate table mappings to db & table definitions
-pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, output_path:&Path,boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
+pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, output_path:&Path, name_of_crate_holds_enums: String, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
     let tables = utils::get_tables(conn).await;
     println!("{:#?}",tables);
 
@@ -22,7 +23,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     match tables {
         Ok(tables) => {
             for table in tables {
-                let generated_entity_info = generate_mapping(conn, table, output_path, boolean_columns, trait_for_enum_types).await;
+                let generated_entity_info = generate_mapping(conn, table, output_path, name_of_crate_holds_enums.clone(), boolean_columns, trait_for_enum_types).await;
                 generated_entities.push(generated_entity_info);
             }
             println!("entities generated successfully");
@@ -46,7 +47,6 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 
     let mut buf_writer = BufWriter::new(file);
 
-    writeln!(buf_writer,"pub mod enums;").expect("Failed to write entity/mod.rs");
     for generated_entity_info in generated_entities {
         writeln!(buf_writer,"pub mod {};",generated_entity_info.file_name_without_ext).expect("Failed to write entity/mod.rs");
         writeln!(buf_writer,"pub use {}::{};",generated_entity_info.file_name_without_ext,generated_entity_info.struct_name).expect("Failed to write entity/mod.rs");
@@ -56,11 +56,12 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 
 }
 
-async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path,
-                         boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>) -> GeneratedStructInfo{
-    let struct_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name));
+async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path, name_of_crate_holds_enums: String,
+                          boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>) -> GeneratedStructInfo{
+    let struct_name = format!("{}Table",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name)));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
-    let out_file = output_path.join(format!("{}Table.rs", table.name));
+    let out_file_name_without_ext = format!("{}Table",table.name);
+    let out_file = output_path.join(format!("{}.rs", out_file_name_without_ext));
 
     utils::prepare_directory(&out_file);
     // Open the file for writing
@@ -83,15 +84,19 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
             for it in fields {
                 let column_name = if utils::reserved_field_names().contains(&it.name) { format!("{}_", it.name) } else { it.name };
                 let field_definition: String = it.data_type;
-                let column_type = resolve_type_from_column_definition(&table.name, &column_name, &field_definition,boolean_columns, trait_for_enum_types, output_path);
-                let columnConstructInfo = column_type.constructInfo();
+                let mysql_cloumn_definition = MysqlColumnDefinition{
+                    name:column_name.clone(),
+                    column_definition:field_definition,
+                    default_value:"".to_string() //all empty for now
+                };
+                let columnConstructInfo:TableFieldConstructInfo = get_construct_info_from_column_definition(&table.name,mysql_cloumn_definition, name_of_crate_holds_enums.clone()).expect(&format!("Failed to get construct info from table {}",table.name));
 
                 if !columnConstructInfo.import_statement.is_empty() && !items_to_be_imported.contains(&columnConstructInfo.import_statement) {
                     items_to_be_imported.push(columnConstructInfo.import_statement);
                 }
 
-                struct_fields.push(format!("{}:{},",column_name,columnConstructInfo.type_name));
-                instance_fields.push(format!("{}:{},",column_name,columnConstructInfo.default_value_str));
+                struct_fields.push(format!("{}:{},",&column_name,columnConstructInfo.file_type));
+                instance_fields.push(format!("{}:{},",&column_name,columnConstructInfo.default_value_on_new));
             }
         }
         Err(error) => {
@@ -113,61 +118,39 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     writeln!(buf_writer,"}}").expect("Failed to table mapping code");
 
     writeln!(buf_writer,"impl {} {{", struct_name).expect("Failed to table mapping code");
-    writeln!(buf_writer,"    pub fn new(&self) {{").expect("Failed to table mapping code");
+    writeln!(buf_writer,"    pub fn new(&self) ->Self {{").expect("Failed to table mapping code");
+    writeln!(buf_writer,"        {} {{",struct_name).expect("Failed to table mapping code");
     for field in instance_fields{
-        writeln!(buf_writer,"    {}",field).expect("Failed to table mapping code");
+        writeln!(buf_writer,"            {}",field).expect("Failed to table mapping code");
     }
+    writeln!(buf_writer,"        }}").expect("Failed to table mapping code");
+    writeln!(buf_writer,"    }}").expect("Failed to table mapping code");
     writeln!(buf_writer,"}}").expect("Failed to table mapping code");
 
     drop(buf_writer);
 
     GeneratedStructInfo{
-        file_name_without_ext : table.name,
+        file_name_without_ext : out_file_name_without_ext,
         struct_name
     }
 }
 
 //convert mysql data field type to a type Description in rust
-fn resolve_type_from_column_definition<'a>(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>, generated_code_dir: &Path) -> ColumnType {
+/*fn resolve_type_from_column_definition<'a>(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, HashSet<String>>,
+                                              trait_for_enum_types: &HashMap<&str, &str>, generated_code_dir: &Path) -> ColumnType<'a> {
     let definition_array: Vec<&str> = column_definition.split('(').collect();
     let column_type = definition_array[0].replace(" ", "_").to_uppercase();
     let column_type_and_name = format!("{},{}", column_type, column_name);
-    let mut field_type_qualified_name = "".to_string();
+    //let mut field_type_qualified_name = "".to_string();
     //let mut container_struct = "";
-    let mut is_primitive_type: bool;
+    //let mut is_primitive_type: bool;
 
     match column_type_and_name.parse::<ColumnType>() {
         Ok(col_info) => {
             col_info
-            /*if mysql_data_type_prop.is_conditional_type {
-                match mysql_data_type {
-                    crate::codegen::entity::MysqlDataType::Tinyint => {
-                        field_type_qualified_name = if boolean_columns.contains_key(table_name){
-                            "bool".to_string()
-                        }else{
-                            mysql_data_type_prop.rust_type.resolve_qualified_type_name(None, None)
-                        };
-                    }
-                    crate::codegen::entity::MysqlDataType::Enum | crate::codegen::entity::MysqlDataType::Set => {
-                        is_primitive_type = false;
-                        let enum_name = &crate::codegen::entity::generate_and_get_enum_name(&table_name, &column_name, &column_definition, trait_for_enum_types, generated_code_dir);
-                        mysql_data_type_prop.import = Some(format!("enums::{}",enum_name));
-                        field_type_qualified_name = mysql_data_type_prop.rust_type.resolve_qualified_type_name(mysql_data_type_prop.container_type, Some(enum_name))
-                    }
-                    _ => {}
-                }
-            }else{
-                field_type_qualified_name = mysql_data_type_prop.rust_type.resolve_qualified_type_name(None, None)
-            }
-            crate::codegen::entity::StructFieldType {
-                qualified_name: field_type_qualified_name,
-                is_primitive_type,
-                import : mysql_data_type_prop.import
-                //generic_type_qualified_name: container_struct.to_string(),
-            }*/
         }
         Err(_) => {
             panic!("{}.{} {} is not supported", table_name, column_name, column_definition);
         }
     }
-}
+}*/

@@ -8,5 +8,6 @@ sqlx = { version = "0.8.2"}
 sqlx-mysql = "0.8.2"
 anyhow = "1.0.89"
 serde = "1.0.210"
+chrono = "0.4.38"
 
 

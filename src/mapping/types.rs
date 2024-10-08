@@ -1,5 +1,7 @@
-use crate::mapping::description::{Holding, Selectable};
+use crate::mapping::description::{Holding, Column, MappedEnum};
 use crate::query::builder::Condition;
+use chrono::Local;
+
 
 #[derive(Debug)]
 pub struct Table<'a>{
@@ -20,12 +22,8 @@ pub struct Varchar{
 }
 
 impl Varchar {
-    pub fn value(value: String) -> Self {
+    fn value(value: String) -> Self {
         Varchar { value:value, name:"".to_string() ,holding: Holding::Value }
-    }
-
-    pub fn name(name: String) -> Self {
-        Varchar { name:name, value: "".to_string() ,holding: Holding::Name }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -47,10 +45,14 @@ impl Varchar {
     }
 }
 
-impl Selectable for Varchar {
+impl Column for Varchar {
     fn name(&self) -> &str {
         let type_self: &Varchar = self as &Varchar;
         &type_self.name
+    }
+
+    fn new(name: String) -> Self {
+        Varchar { name:name, value: "".to_string() ,holding: Holding::Name }
     }
 }
 
@@ -66,14 +68,96 @@ impl Selectable for Varchar {
 
 pub struct Int{
     value: i32,
-    name: &'static str,
+    name: String,
     holding: Holding
 }
 
-impl Selectable for Int {
+impl Int {
+    fn value(value: i32) -> Self {
+        Int { value:value, name:"".to_string() ,holding: Holding::Value }
+    }
+}
+
+pub struct Enum<T:MappedEnum> {
+    value: Option<T>,
+    name: String,
+    holding: Holding
+}
+
+impl<T:MappedEnum> Enum<T> {
+    fn value(value: T) -> Self {
+        Enum { value:Some(value), name:"".to_string() ,holding: Holding::Value }
+    }
+}
+
+
+
+pub struct Set<T>{
+    value: Vec<T>,
+    name: String,
+    holding: Holding
+}
+
+impl<T> Set<T> {
+    fn value(value: Vec<T>) -> Self {
+        Set { value:value, name:"".to_string() ,holding: Holding::Value }
+    }
+}
+
+pub struct DateTime{
+    value: chrono::DateTime<Local>,
+    name: String,
+    holding: Holding
+}
+
+impl DateTime {
+    fn value(value: chrono::DateTime<Local>) -> Self {
+        DateTime { value:value, name:"".to_string() ,holding: Holding::Value }
+    }
+}
+
+impl Column for Int {
     fn name(&self) -> &str {
         let type_self: &Int = self as &Int;
         &type_self.name
     }
+
+    fn new(name: String) -> Self {
+        Int { name:name, value: 0 ,holding: Holding::Name }
+    }
 }
+
+impl <T> Column for Set<T> {
+    fn name(&self) -> &str {
+        //let type_self: Set<T> = self as Set<T>;
+        &self.name
+    }
+
+    fn new(name: String) -> Self {
+        Set { name:name, value:vec![] ,holding: Holding::Name }
+    }
+}
+
+impl <T:MappedEnum> Column for Enum<T> {
+    fn name(&self) -> &str {
+        //let type_self: &Set = self as &Set;
+        &self.name
+    }
+
+    fn new(name: String) -> Self {
+        Enum { name:name, value: None ,holding: Holding::Name }
+    }
+}
+
+impl Column for DateTime {
+    fn name(&self) -> &str {
+        let type_self: &DateTime = self as &DateTime;
+        &type_self.name
+    }
+
+    fn new(name: String) -> Self {
+        DateTime { name:name, value: Local::now() ,holding: Holding::Name }
+    }
+}
+
 

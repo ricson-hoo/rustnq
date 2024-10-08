@@ -1,4 +1,4 @@
-use crate::mapping::description::{Selectable};
+use crate::mapping::description::{Column};
 use std::{fmt,fmt::write, format};
 use std::io::Write;
 use crate::mapping::types::Table;
@@ -42,7 +42,7 @@ pub struct QueryBuilder<'a> {
 
 impl <'a> QueryBuilder<'a> {
 
-    pub fn new(fields: Vec<&'a dyn Selectable>) -> QueryBuilder<'a> {
+    pub fn new(fields: Vec<&'a impl Column>) -> QueryBuilder<'a> {
         let fields_strs = fields.iter().map(|field| field.name()).collect();
         QueryBuilder { from:None, fields:fields_strs, conditions: vec![] }
     }
