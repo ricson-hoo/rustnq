@@ -8,9 +8,10 @@ use sqlx_mysql::MySql;
 use crate::codegen::entity::GeneratedStructInfo;
 use crate::codegen::utils;
 use crate::codegen::utils::TableRow;
-use crate::mapping::description::{ColumnType, Column, TableFieldConstructInfo, get_construct_info_from_column_definition, MysqlColumnDefinition};
+use crate::mapping::description::{MysqlColumnType, Column, TableFieldConstructInfo, MysqlColumnDefinition};
 use crate::utils::stringUtils;
 use std::any::Any;
+use std::error::Error;
 
 //generate table mappings to db & table definitions
 pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, output_path:&Path, name_of_crate_holds_enums: String, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
@@ -140,22 +141,150 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     }
 }
 
-//convert mysql data field type to a type Description in rust
-/*fn resolve_type_from_column_definition<'a>(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, HashSet<String>>,
-                                              trait_for_enum_types: &HashMap<&str, &str>, generated_code_dir: &Path) -> ColumnType<'a> {
-    let definition_array: Vec<&str> = column_definition.split('(').collect();
-    let column_type = definition_array[0].replace(" ", "_").to_uppercase();
-    let column_type_and_name = format!("{},{}", column_type, column_name);
-    //let mut field_type_qualified_name = "".to_string();
-    //let mut container_struct = "";
-    //let mut is_primitive_type: bool;
 
-    match column_type_and_name.parse::<ColumnType>() {
-        Ok(col_info) => {
-            col_info
-        }
-        Err(_) => {
-            panic!("{}.{} {} is not supported", table_name, column_name, column_definition);
-        }
+pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_definition:MysqlColumnDefinition, name_of_crate_holds_enums: String) -> Result<TableFieldConstructInfo,Box<dyn Error>>{
+
+    let col_definition = mysql_col_definition.column_definition;
+    let mut column_type_name = "".to_string();
+    if !col_definition.contains("("){
+        column_type_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&col_definition.replace(" ", "_")));
+    }else{
+        let parts = col_definition.split("(").map(|s| s.to_string()).collect::<Vec<String>>();
+        column_type_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&parts[0]));
     }
-}*/
+    let column_type_parse_result = column_type_name.parse::<MysqlColumnType>();
+    let column_name = mysql_col_definition.name;
+    let mut file_type = "";
+    let mut default_value = "".to_string();
+    let mut import_statements : Vec<String> = vec![];
+
+    match column_type_parse_result{
+        Ok(column_type) => {
+            match column_type {
+                MysqlColumnType::Varchar => {
+                    file_type = "Varchar";
+                    default_value = format!("Varchar::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Char => {
+                    file_type = "Char";
+                    default_value = format!("Char::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Tinytext => {
+                    file_type = "Tinytext";
+                    default_value = format!("Tinytext::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Text => {
+                    file_type = "Text";
+                    default_value = format!("Text::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Mediumtext => {
+                    file_type = "Mediumtext";
+                    default_value = format!("Mediumtext::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Longtext => {
+                    file_type = "Longtext";
+                    default_value = format!("Longtext::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Int => {
+                    file_type = "Int";
+                    default_value = format!("Int::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Year => {
+                    file_type = "Year";
+                    default_value = format!("Year::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Enum => {
+                    let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
+                    let mut enumType = format!("entity::enums::{}",&short_enum_name);
+                    if !name_of_crate_holds_enums.is_empty(){
+                        enumType = format!("{}::{}",name_of_crate_holds_enums, enumType);
+                    }
+                    file_type = "Enum";
+                    default_value = format!("Enum<{}>::name(\"{}\")", short_enum_name, mysql_col_definition.name_unmodified);
+                    //import enum
+                    import_statements.push(enumType);
+                },
+                MysqlColumnType::Set => {
+                    let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
+                    let mut enumType = format!("entity::enums::{}",&short_enum_name);
+                    if !name_of_crate_holds_enums.is_empty(){
+                        enumType = format!("{}::{}",name_of_crate_holds_enums, enumType);
+                    }
+                    file_type = "Set";
+                    default_value = format!("Set<{}>::name(\"{}\")", short_enum_name, mysql_col_definition.name_unmodified);
+                    //import enum
+                    import_statements.push(enumType);
+                },
+                MysqlColumnType::Datetime => {
+                    file_type = "Datetime";
+                    default_value = format!("Datetime::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Timestamp => {
+                    file_type = "Timestamp";
+                    default_value = format!("Timestamp::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Tinyint => {
+                    file_type = "Tinyint";
+                    default_value = format!("Tinyint::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Smallint => {
+                    file_type = "Smallint";
+                    default_value = format!("Smallint::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Bigint => {
+                    file_type = "Bigint";
+                    default_value = format!("Bigint::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::BigintUnsigned => {
+                    file_type = "BigintUnsigned";
+                    default_value = format!("BigintUnsigned::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Numeric => {
+                    file_type = "Numeric";
+                    default_value = format!("Numeric::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Float => {
+                    file_type = "Float";
+                    default_value = format!("Float::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Double => {
+                    file_type = "Double";
+                    default_value = format!("Double::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Decimal => {
+                    file_type = "Varchar";
+                    default_value = format!("Varchar::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Date => {
+                    file_type = "Date";
+                    default_value = format!("Date::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Time => {
+                    file_type = "Time";
+                    default_value = format!("Time::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Blob => {
+                    file_type = "Blob";
+                    default_value = format!("Blob::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+                MysqlColumnType::Json => {
+                    file_type = "Json";
+                    default_value = format!("Json::name(\"{}\")", mysql_col_definition.name_unmodified);
+                },
+            }
+        },
+        Err(_) => {
+
+        }
+    };
+    //add current type to import statements
+    import_statements.push(format!("rustnq::types::{}",file_type));
+
+    Ok(TableFieldConstructInfo{
+        field_name : column_name,
+        file_type:file_type.to_string(),
+        default_value_on_new:default_value,
+        import_statements: import_statements
+    })
+
+}

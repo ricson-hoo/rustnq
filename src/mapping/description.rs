@@ -34,12 +34,65 @@ pub trait MappedEnum {
 
 //pub struct ColumnType<'a>(Box<dyn Column<'a>>);
 
-pub enum ColumnType {
+pub enum MysqlColumnType {
+    Char,
     Varchar,
-    Int,
+    Tinytext,
+    Text,
+    Mediumtext,
+    Longtext,
     Enum,
     Set,
+    Tinyint,
+    Smallint,
+    Int,
+    Bigint,
+    BigintUnsigned,
+    Numeric,
+    Float,
+    Double,
+    Decimal,
+    Date,
+    Time,
     Datetime,
+    Timestamp,
+    Year,
+    Blob,
+    Json
+}
+
+impl FromStr for MysqlColumnType {
+    type Err = anyhow::Error;
+    fn from_str(mysql_col_type: &str) -> Result<Self, anyhow::Error> {
+        let typeName = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&mysql_col_type.replace(" ", "_")));
+        match typeName.as_str() {
+            "Char" => Ok(MysqlColumnType::Char),
+            "Varchar" => Ok(MysqlColumnType::Varchar),
+            "Tinytext" => Ok(MysqlColumnType::Tinytext),
+            "Text" => Ok(MysqlColumnType::Text),
+            "Mediumtext" => Ok(MysqlColumnType::Mediumtext),
+            "Longtext" => Ok(MysqlColumnType::Longtext),
+            "Enum" => Ok(MysqlColumnType::Enum),
+            "Set" => Ok(MysqlColumnType::Set),
+            "Tinyint" => Ok(MysqlColumnType::Tinyint),
+            "Smallint" => Ok(MysqlColumnType::Smallint),
+            "Int" => Ok(MysqlColumnType::Int),
+            "Bigint" => Ok(MysqlColumnType::Bigint),
+            "BigintUnsigned" => Ok(MysqlColumnType::BigintUnsigned),
+            "Numeric" => Ok(MysqlColumnType::Numeric),
+            "Float" => Ok(MysqlColumnType::Float),
+            "Double" => Ok(MysqlColumnType::Double),
+            "Decimal" => Ok(MysqlColumnType::Decimal),
+            "Date" => Ok(MysqlColumnType::Date),
+            "Time" => Ok(MysqlColumnType::Time),
+            "Datetime" => Ok(MysqlColumnType::Datetime),
+            "Timestamp" => Ok(MysqlColumnType::Timestamp),
+            "Year" => Ok(MysqlColumnType::Year),
+            "Blob" => Ok(MysqlColumnType::Blob),
+            "Json" => Ok(MysqlColumnType::Json),
+            _ => bail!("Unknown MysqlDataType"),
+        }
+    }
 }
 
 pub struct MysqlColumnDefinition{
@@ -54,171 +107,4 @@ pub struct TableFieldConstructInfo {
     pub file_type:String,
     pub default_value_on_new:String,
     pub import_statements:Vec<String>
-}
-
-/*
-impl <'a> ColumnType<'a> {
-    pub(crate) fn constructInfo(&self)-> ColumnConstructInfo {
-        let mut type_name_str = "".to_string();
-        let mut import_statement_str = "".to_string();
-        let mut column_name_str = "".to_string();
-        match self {
-            ColumnType::Varchar(instance, type_name, import_statement) => {
-                type_name_str = type_name.to_string();
-                import_statement_str = import_statement.to_string();
-                column_name_str = instance.name().to_string();
-            }
-            ColumnType::Int(instance, type_name, import_statement) => {
-                type_name_str = type_name.to_string();
-                import_statement_str = import_statement.to_string();
-                column_name_str = instance.name().to_string();
-            }
-            ColumnType::Enum(instance, type_name, import_statement) => {
-                type_name_str = format!("{}<T>",type_name);
-                import_statement_str = import_statement.to_string();
-                column_name_str = instance.name().to_string();
-            }
-            ColumnType::Set(instance, type_name, import_statement) => {
-                type_name_str = format!("{}<T>",type_name);
-                import_statement_str = import_statement.to_string();
-                column_name_str = instance.name().to_string();
-            }
-            ColumnType::Datetime(instance, type_name, import_statement) => {
-                type_name_str = type_name.to_string();
-                import_statement_str = import_statement.to_string();
-                column_name_str = instance.name().to_string();
-            }
-            _ => {
-                type_name_str = "unsupported".to_string();
-                import_statement_str = "".to_string();
-                column_name_str = "unsupported".to_string();
-            }
-        }
-        ColumnConstructInfo{
-            type_name:type_name_str.clone(),
-            default_value_str:format!("{}({}::name(\"{}\"))",type_name_str.clone(),type_name_str,column_name_str),
-            import_statement:import_statement_str
-        }
-    }
-}*/
-
-impl FromStr for ColumnType {
-    type Err = ();
-
-    fn from_str(mysql_col_type: &str) -> Result<Self, Self::Err> {
-        //let mysql_col_type_and_name_final = mysql_col_type_and_name.replace(" ", "_");
-        //let parts = mysql_col_type_and_name_final.split(",").map(|s| s.to_string()).collect::<Vec<String>>();
-        //let type_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&parts[0]));
-
-        match mysql_col_type {
-            //"CHAR" => ColumnType(Box::new(Char::name(""))),
-            "Varchar" => Ok(ColumnType::Varchar/*(Varchar::new(parts[1].clone()),type_name.clone(),format!("types::{}",type_name))*/),
-            /*"TINYTEXT" => Ok(crate::codegen::entity::MysqlDataType::Tinytext),
-            "TEXT" => Ok(crate::codegen::entity::MysqlDataType::Text),
-            "MEDIUMTEXT" => Ok(crate::codegen::entity::MysqlDataType::Mediumtext),
-            "LONGTEXT" => Ok(crate::codegen::entity::MysqlDataType::Longtext),*/
-            "Enum" => Ok(ColumnType::Enum/*(Enum::new(parts[1].clone()),type_name.clone(),format!("types::{}",type_name))*/),
-            "Set" => Ok(ColumnType::Set/*(Set::new(parts[1].clone()),type_name.clone(),format!("types::{}",type_name))*/),
-            /*"TINYINT" => Ok(crate::codegen::entity::MysqlDataType::Tinyint),
-            "SMALLINT" => Ok(crate::codegen::entity::MysqlDataType::Smallint),*/
-            "Int" => Ok(ColumnType::Int/*(Int::new(parts[1].clone()),type_name.clone(),format!("types::{}",type_name))*/),
-            /*"BIGINT" => Ok(crate::codegen::entity::MysqlDataType::Bigint),
-            "BIGINT_UNSIGNED" => Ok(crate::codegen::entity::MysqlDataType::BigintUnsigned),
-            "NUMERIC" => Ok(crate::codegen::entity::MysqlDataType::Numeric),
-            "FLOAT" => Ok(crate::codegen::entity::MysqlDataType::Float),
-            "DOUBLE" => Ok(crate::codegen::entity::MysqlDataType::Double),
-            "DECIMAL" => Ok(crate::codegen::entity::MysqlDataType::Decimal),
-            "DATE" => Ok(crate::codegen::entity::MysqlDataType::Date),
-            "TIME" => Ok(crate::codegen::entity::MysqlDataType::Time),*/
-            "Datetime" => Ok(ColumnType::Datetime/*(DateTime::new(parts[1].clone()),type_name.clone(),format!("types::{}",type_name))*/),
-            "Timestamp" => Ok(ColumnType::Datetime/*(DateTime::new(parts[1].clone()),type_name.clone(),format!("types::{}",type_name))*/),
-            /*"YEAR" => Ok(crate::codegen::entity::MysqlDataType::Year),
-            "BLOB" => Ok(crate::codegen::entity::MysqlDataType::Blob),
-            "JSON" => Ok(crate::codegen::entity::MysqlDataType::Json),*/
-            _ => {
-                Err(())
-            }
-        }
-    }
-}
-
-/*impl <'a> From<&'a str> for ColumnType {
-    fn from(mysql_col_type_and_name: &'a str) -> ColumnType {
-
-    }
-}*/
-
-pub fn get_construct_info_from_column_definition(table_name:&str,mysql_col_definitin:MysqlColumnDefinition, name_of_crate_holds_enums: String)-> Result<TableFieldConstructInfo,Box<dyn Error>>{
-
-    /*pub type_name:String,
-    pub default_value_str:String,
-    pub import_statement:String*/
-
-    let col_definition = mysql_col_definitin.column_definition;
-    let mut column_type_name = "".to_string();
-    if !col_definition.contains("("){
-        column_type_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&col_definition.replace(" ", "_")));
-    }else{
-        let parts = col_definition.split("(").map(|s| s.to_string()).collect::<Vec<String>>();
-        column_type_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&parts[0]));
-    }
-    let column_type_parse_result = column_type_name.parse::<ColumnType>();
-    let column_name = mysql_col_definitin.name;
-    let mut file_type = "";
-    let mut default_value = "".to_string();
-    let mut import_statements : Vec<String> = vec![];
-
-    match column_type_parse_result{
-        Ok(column_type) => {
-            match column_type {
-                ColumnType::Varchar => {
-                    file_type = "Varchar";
-                    default_value = format!("Varchar::name(\"{}\")",mysql_col_definitin.name_unmodified);
-                },
-                ColumnType::Int => {
-                    file_type = "Int";
-                    default_value = format!("Int::name(\"{}\")",mysql_col_definitin.name_unmodified);
-                },
-                ColumnType::Enum => {
-                    let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
-                    let mut enumType = format!("entity::enums::{}",&short_enum_name);
-                    if !name_of_crate_holds_enums.is_empty(){
-                        enumType = format!("{}::{}",name_of_crate_holds_enums, enumType);
-                    }
-                    file_type = "Enum";
-                    default_value = format!("Enum<{}>::name(\"{}\")",short_enum_name, mysql_col_definitin.name_unmodified);
-                    //import enum
-                    import_statements.push(enumType);
-                },
-                ColumnType::Set => {
-                    let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
-                    let mut enumType = format!("entity::enums::{}",&short_enum_name);
-                    if !name_of_crate_holds_enums.is_empty(){
-                        enumType = format!("{}::{}",name_of_crate_holds_enums, enumType);
-                    }
-                    file_type = "Set";
-                    default_value = format!("Set<{}>::name(\"{}\")",short_enum_name, mysql_col_definitin.name_unmodified);
-                    //import enum
-                    import_statements.push(enumType);
-                },
-                ColumnType::Datetime => {
-                    file_type = "Datetime";
-                    default_value = format!("Datetime::name(\"{}\")",mysql_col_definitin.name_unmodified);
-                },
-            }
-        },
-        Err(_) => {
-
-        }
-    };
-    //add current type to import statements
-    import_statements.push(format!("rustnq::types::{}",file_type));
-
-    Ok(TableFieldConstructInfo{
-        field_name : column_name,
-        file_type:file_type.to_string(),
-        default_value_on_new:default_value,
-        import_statements: import_statements
-    })
-
 }
