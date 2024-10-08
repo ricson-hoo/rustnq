@@ -7,7 +7,7 @@ use sqlx::{AnyConnection, AnyPool, Pool};
 use sqlx_mysql::MySql;
 use crate::codegen::entity::GeneratedStructInfo;
 use crate::codegen::utils;
-use crate::codegen::utils::TableRow;
+use crate::codegen::utils::{prepare_directory, TableRow};
 use crate::mapping::description::{MysqlColumnType, Column, TableFieldConstructInfo, MysqlColumnDefinition};
 use crate::utils::stringUtils;
 use std::any::Any;
@@ -39,7 +39,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     }
 
     //generate a mod.rs
-    let out_file = output_path.join("mod.rs");
+    let out_file = mappings_out_path.join("mod.rs");
 
     utils::prepare_directory(&out_file);
     // Open the file for writing

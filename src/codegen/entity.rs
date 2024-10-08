@@ -51,7 +51,7 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     }
 
     //generate a mod.rs
-    let out_file = output_path.join("mod.rs");
+    let out_file = entity_out_path.join("mod.rs");
 
     utils::prepare_directory(&out_file);
     // Open the file for writing
