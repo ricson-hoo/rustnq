@@ -82,10 +82,11 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     match fields_result {
         Ok(fields) => {
             for it in fields {
-                let column_name = if utils::reserved_field_names().contains(&it.name) { format!("{}_", it.name) } else { it.name };
+                let column_name = if utils::reserved_field_names().contains(&it.name) { format!("{}_", it.name) } else { it.name.clone() };
                 let field_definition: String = it.data_type;
                 let mysql_cloumn_definition = MysqlColumnDefinition{
                     name:column_name.clone(),
+                    name_unmodified : it.name,
                     column_definition:field_definition,
                     default_value:"".to_string() //all empty for now
                 };

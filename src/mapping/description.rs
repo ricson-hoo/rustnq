@@ -44,6 +44,7 @@ pub enum ColumnType {
 
 pub struct MysqlColumnDefinition{
     pub name: String,
+    pub name_unmodified: String,
     pub column_definition: String,
     pub default_value: String,
 }
@@ -172,11 +173,11 @@ pub fn get_construct_info_from_column_definition(table_name:&str,mysql_col_defin
             match column_type {
                 ColumnType::Varchar => {
                     file_type = "Varchar";
-                    default_value = format!("Varchar::name(\"{}\")",column_name);
+                    default_value = format!("Varchar::name(\"{}\")",mysql_col_definitin.name_unmodified);
                 },
                 ColumnType::Int => {
                     file_type = "Int";
-                    default_value = format!("Int::name(\"{}\")",column_name);
+                    default_value = format!("Int::name(\"{}\")",mysql_col_definitin.name_unmodified);
                 },
                 ColumnType::Enum => {
                     let mut enumType = format!("entity::enums::{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
@@ -184,7 +185,7 @@ pub fn get_construct_info_from_column_definition(table_name:&str,mysql_col_defin
                         enumType = format!("{}::{}",name_of_crate_holds_enums, enumType);
                     }
                     file_type = "Enum";
-                    default_value = format!("Enum<{}>::name(\"{}\")",enumType, column_name);
+                    default_value = format!("Enum<{}>::name(\"{}\")",enumType, mysql_col_definitin.name_unmodified);
                 },
                 ColumnType::Set => {
                     let mut enumType = format!("entity::enums::{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
@@ -192,11 +193,11 @@ pub fn get_construct_info_from_column_definition(table_name:&str,mysql_col_defin
                         enumType = format!("{}::{}",name_of_crate_holds_enums, enumType);
                     }
                     file_type = "Set";
-                    default_value = format!("Set<{}>::name(\"{}\")",enumType, column_name);
+                    default_value = format!("Set<{}>::name(\"{}\")",enumType, mysql_col_definitin.name_unmodified);
                 },
                 ColumnType::Datetime => {
                     file_type = "Datetime";
-                    default_value = format!("Datetime::name(\"{}\")",column_name);
+                    default_value = format!("Datetime::name(\"{}\")",mysql_col_definitin.name_unmodified);
                 },
             }
         },
