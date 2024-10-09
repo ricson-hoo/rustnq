@@ -3,17 +3,15 @@ use crate::query::builder::Condition;
 use chrono::{Local, NaiveDate, NaiveTime};
 
 
-#[derive(Debug)]
-pub struct Table<'a>{
-    pub name: &'a str,
-    pub comment: &'a str
+pub trait Table{
+    fn name(&self) -> String;
 }
 
-impl<'a> Table<'a> {
-    pub fn new(name: &'a str, comment: &'a str) -> Table<'a> {
+/*impl<'a> Table<'a> {
+    fn new(name: &'a str, comment: &'a str) -> Table<'a> {
         Table { name, comment }
     }
-}
+}*/
 
 pub struct Enum<T:MappedEnum> {
     value: Option<T>,
@@ -22,6 +20,10 @@ pub struct Enum<T:MappedEnum> {
 }
 
 impl<T:MappedEnum> Enum<T> {
+    pub fn new(name: String) -> Self {
+        Enum { name:name, value: None ,holding: Holding::Name }
+    }
+
     fn value(value: T) -> Self {
         Enum { value:Some(value), name:"".to_string() ,holding: Holding::Value }
     }
@@ -34,6 +36,10 @@ pub struct Varchar{
 }
 
 impl Varchar {
+    pub fn new(name: String) -> Self {
+        Varchar { name:name, value: "".to_string() ,holding: Holding::Name }
+    }
+
     fn value(value: String) -> Self {
         Varchar { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -63,9 +69,6 @@ impl Column for Varchar {
         &type_self.name
     }
 
-    fn new(name: String) -> Self {
-        Varchar { name:name, value: "".to_string() ,holding: Holding::Name }
-    }
 }
 
 pub struct Char{
@@ -75,6 +78,10 @@ pub struct Char{
 }
 
 impl Char {
+    fn new(name: String) -> Self {
+        Char { name:name, value: "".to_string() ,holding: Holding::Name }
+    }
+
     fn value(value: String) -> Self {
         Char { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -103,10 +110,6 @@ impl Column for Char {
         let type_self: &Char = self as &Char;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        Char { name:name, value: "".to_string() ,holding: Holding::Name }
-    }
 }
 
 pub struct Tinytext{
@@ -116,6 +119,10 @@ pub struct Tinytext{
 }
 
 impl crate::mapping::types::Tinytext {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Tinytext { name:name, value: "".to_string() ,holding: Holding::Name }
+    }
+
     fn value(value: String) -> Self {
         crate::mapping::types::Tinytext { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -139,14 +146,10 @@ impl crate::mapping::types::Tinytext {
     }
 }
 
-impl Column for crate::mapping::types::Tinytext {
+impl Column for Tinytext {
     fn name(&self) -> &str {
         let type_self: &crate::mapping::types::Tinytext = self as &crate::mapping::types::Tinytext;
         &type_self.name
-    }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Tinytext { name:name, value: "".to_string() ,holding: Holding::Name }
     }
 }
 
@@ -157,6 +160,10 @@ pub struct Text{
 }
 
 impl crate::mapping::types::Text {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Text { name:name, value: "".to_string() ,holding: Holding::Name }
+    }
+
     fn value(value: String) -> Self {
         crate::mapping::types::Text { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -185,10 +192,6 @@ impl Column for crate::mapping::types::Text {
         let type_self: &crate::mapping::types::Text = self as &crate::mapping::types::Text;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Text { name:name, value: "".to_string() ,holding: Holding::Name }
-    }
 }
 
 
@@ -200,6 +203,10 @@ pub struct Mediumtext{
 }
 
 impl crate::mapping::types::Mediumtext {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Mediumtext { name:name, value: "".to_string() ,holding: Holding::Name }
+    }
+
     fn value(value: String) -> Self {
         crate::mapping::types::Mediumtext { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -228,10 +235,6 @@ impl Column for crate::mapping::types::Mediumtext {
         let type_self: &crate::mapping::types::Mediumtext = self as &crate::mapping::types::Mediumtext;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Mediumtext { name:name, value: "".to_string() ,holding: Holding::Name }
-    }
 }
 
 
@@ -242,6 +245,10 @@ pub struct Longtext{
 }
 
 impl crate::mapping::types::Longtext {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Longtext { name:name, value: "".to_string() ,holding: Holding::Name }
+    }
+
     fn value(value: String) -> Self {
         crate::mapping::types::Longtext { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -271,9 +278,6 @@ impl Column for crate::mapping::types::Longtext {
         &type_self.name
     }
 
-    fn new(name: String) -> Self {
-        crate::mapping::types::Longtext { name:name, value: "".to_string() ,holding: Holding::Name }
-    }
 }
 
 pub struct Int{
@@ -283,7 +287,11 @@ pub struct Int{
 }
 
 impl Int {
-    fn value(value: i32) -> Self {
+    pub fn new(name: String) -> Self {
+        Int { name:name, value: 0 ,holding: Holding::Name }
+    }
+
+    pub fn value(value: i32) -> Self {
         Int { value:value, name:"".to_string() ,holding: Holding::Value }
     }
 }
@@ -292,10 +300,6 @@ impl Column for Int {
     fn name(&self) -> &str {
         let type_self: &Int = self as &Int;
         &type_self.name
-    }
-
-    fn new(name: String) -> Self {
-        Int { name:name, value: 0 ,holding: Holding::Name }
     }
 }
 
@@ -307,6 +311,10 @@ pub struct Year{
 }
 
 impl crate::mapping::types::Year {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Year { name:name, value: 0 ,holding: Holding::Name }
+    }
+
     fn value(value: i32) -> Self {
         crate::mapping::types::Year { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -316,10 +324,6 @@ impl Column for crate::mapping::types::Year {
     fn name(&self) -> &str {
         let type_self: &crate::mapping::types::Year = self as &crate::mapping::types::Year;
         &type_self.name
-    }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Year { name:name, value: 0 ,holding: Holding::Name }
     }
 }
 
@@ -331,7 +335,11 @@ pub struct Set<T>{
 }
 
 impl<T> Set<T> {
-    fn value(value: Vec<T>) -> Self {
+    pub fn new(name: String) -> Self {
+        Set { name:name, value:vec![] ,holding: Holding::Name }
+    }
+
+    pub fn value(value: Vec<T>) -> Self {
         Set { value:value, name:"".to_string() ,holding: Holding::Value }
     }
 }
@@ -341,20 +349,12 @@ impl <T> Column for Set<T> {
         //let type_self: Set<T> = self as Set<T>;
         &self.name
     }
-
-    fn new(name: String) -> Self {
-        Set { name:name, value:vec![] ,holding: Holding::Name }
-    }
 }
 
 impl <T:MappedEnum> Column for Enum<T> {
     fn name(&self) -> &str {
         //let type_self: &Set = self as &Set;
         &self.name
-    }
-
-    fn new(name: String) -> Self {
-        Enum { name:name, value: None ,holding: Holding::Name }
     }
 }
 
@@ -365,6 +365,10 @@ pub struct Tinyint{
 }
 
 impl Tinyint {
+    fn new(name: String) -> Self {
+        Tinyint { name:name, value: 0 ,holding: Holding::Name }
+    }
+
     fn value(value: i8) -> Self {
         Tinyint { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -375,10 +379,6 @@ impl Column for crate::mapping::types::Tinyint {
         let type_self: &Tinyint = self;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        Tinyint { name:name, value: 0 ,holding: Holding::Name }
-    }
 }
 
 pub struct Smallint{
@@ -388,6 +388,10 @@ pub struct Smallint{
 }
 
 impl crate::mapping::types::Smallint {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Smallint { name:name, value: 0 ,holding: Holding::Name }
+    }
+
     fn value(value: i16) -> Self {
         crate::mapping::types::Smallint { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -398,10 +402,6 @@ impl Column for crate::mapping::types::Smallint {
         let type_self: &crate::mapping::types::Smallint = self;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Smallint { name:name, value: 0 ,holding: Holding::Name }
-    }
 }
 
 pub struct Bigint{
@@ -410,20 +410,20 @@ pub struct Bigint{
     holding: Holding
 }
 
-impl crate::mapping::types::Bigint {
+impl Bigint {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Bigint { name:name, value: 0 ,holding: Holding::Name }
+    }
+
     fn value(value: i64) -> Self {
         crate::mapping::types::Bigint { value:value, name:"".to_string() ,holding: Holding::Value }
     }
 }
 
-impl Column for crate::mapping::types::Bigint {
+impl Column for Bigint {
     fn name(&self) -> &str {
         let type_self: &crate::mapping::types::Bigint = self;
         &type_self.name
-    }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Bigint { name:name, value: 0 ,holding: Holding::Name }
     }
 }
 
@@ -434,6 +434,10 @@ pub struct BigintUnsigned{
 }
 
 impl crate::mapping::types::BigintUnsigned {
+    fn new(name: String) -> Self {
+        crate::mapping::types::BigintUnsigned { name:name, value: 0 ,holding: Holding::Name }
+    }
+
     fn value(value: u64) -> Self {
         crate::mapping::types::BigintUnsigned { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -444,10 +448,6 @@ impl Column for crate::mapping::types::BigintUnsigned {
         let type_self: &crate::mapping::types::BigintUnsigned = self;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::BigintUnsigned { name:name, value: 0 ,holding: Holding::Name }
-    }
 }
 
 pub struct Numeric{
@@ -457,6 +457,10 @@ pub struct Numeric{
 }
 
 impl crate::mapping::types::Numeric {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Numeric { name:name, value: 0.0 ,holding: Holding::Name }
+    }
+
     fn value(value: f64) -> Self {
         crate::mapping::types::Numeric { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -467,10 +471,6 @@ impl Column for crate::mapping::types::Numeric {
         let type_self: &crate::mapping::types::Numeric = self;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Numeric { name:name, value: 0.0 ,holding: Holding::Name }
-    }
 }
 
 pub struct Float{
@@ -480,6 +480,10 @@ pub struct Float{
 }
 
 impl crate::mapping::types::Float {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Float { name:name, value: 0.0 ,holding: Holding::Name }
+    }
+
     fn value(value: f32) -> Self {
         crate::mapping::types::Float { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -490,10 +494,6 @@ impl Column for crate::mapping::types::Float {
         let type_self: &crate::mapping::types::Float = self;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Float { name:name, value: 0.0 ,holding: Holding::Name }
-    }
 }
 
 pub struct Double{
@@ -503,6 +503,10 @@ pub struct Double{
 }
 
 impl crate::mapping::types::Double {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Double { name:name, value: 0.0 ,holding: Holding::Name }
+    }
+
     fn value(value: f64) -> Self {
         crate::mapping::types::Double { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -513,10 +517,6 @@ impl Column for crate::mapping::types::Double {
         let type_self: &crate::mapping::types::Double = self;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Double { name:name, value: 0.0 ,holding: Holding::Name }
-    }
 }
 
 pub struct Decimal{
@@ -526,6 +526,10 @@ pub struct Decimal{
 }
 
 impl crate::mapping::types::Decimal {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Decimal { name:name, value: 0.0 ,holding: Holding::Name }
+    }
+
     fn value(value: f64) -> Self {
         crate::mapping::types::Decimal { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -536,10 +540,6 @@ impl Column for crate::mapping::types::Decimal {
         let type_self: &crate::mapping::types::Decimal = self;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Decimal { name:name, value: 0.0 ,holding: Holding::Name }
-    }
 }
 
 pub struct Date{
@@ -549,7 +549,11 @@ pub struct Date{
 }
 
 impl crate::mapping::types::Date {
-    fn value(value: chrono::NaiveDate) -> Self {
+    pub fn new(name: String) -> Self {
+        crate::mapping::types::Date { name:name, value: NaiveDate::default() ,holding: Holding::Name }
+    }
+
+    pub fn value(value: chrono::NaiveDate) -> Self {
         crate::mapping::types::Date { value:value, name:"".to_string() ,holding: Holding::Value }
     }
 }
@@ -558,10 +562,6 @@ impl Column for crate::mapping::types::Date {
     fn name(&self) -> &str {
         let type_self: &crate::mapping::types::Date = self;
         &type_self.name
-    }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Date { name:name, value: NaiveDate::default() ,holding: Holding::Name }
     }
 }
 
@@ -572,6 +572,10 @@ pub struct Time{
 }
 
 impl crate::mapping::types::Time {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Time { name:name, value: NaiveTime::default() ,holding: Holding::Name }
+    }
+
     fn value(value: chrono::NaiveTime) -> Self {
         crate::mapping::types::Time { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -582,10 +586,6 @@ impl Column for crate::mapping::types::Time {
         let type_self: &crate::mapping::types::Time = self;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Time { name:name, value: NaiveTime::default() ,holding: Holding::Name }
-    }
 }
 
 pub struct DateTime{
@@ -595,6 +595,10 @@ pub struct DateTime{
 }
 
 impl DateTime {
+    fn new(name: String) -> Self {
+        DateTime { name:name, value: Local::now() ,holding: Holding::Name }
+    }
+
     fn value(value: chrono::DateTime<Local>) -> Self {
         DateTime { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -605,9 +609,29 @@ impl Column for DateTime {
         let type_self: &DateTime = self as &DateTime;
         &type_self.name
     }
+}
 
+
+pub struct Datetime{
+    value: chrono::DateTime<Local>,
+    name: String,
+    holding: Holding
+}
+
+impl crate::mapping::types::Datetime {
     fn new(name: String) -> Self {
-        DateTime { name:name, value: Local::now() ,holding: Holding::Name }
+        crate::mapping::types::Datetime { name:name, value: Local::now() ,holding: Holding::Name }
+    }
+
+    fn value(value: chrono::DateTime<Local>) -> Self {
+        crate::mapping::types::Datetime { value:value, name:"".to_string() ,holding: Holding::Value }
+    }
+}
+
+impl Column for crate::mapping::types::Datetime {
+    fn name(&self) -> &str {
+        let type_self: &crate::mapping::types::Datetime = self as &crate::mapping::types::Datetime;
+        &type_self.name
     }
 }
 
@@ -618,6 +642,10 @@ pub struct Timestamp{
 }
 
 impl crate::mapping::types::Timestamp {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Timestamp { name:name, value: Local::now() ,holding: Holding::Name }
+    }
+
     fn value(value: chrono::DateTime<Local>) -> Self {
         crate::mapping::types::Timestamp { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -628,10 +656,6 @@ impl Column for crate::mapping::types::Timestamp {
         let type_self: &crate::mapping::types::Timestamp = self as &crate::mapping::types::Timestamp;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Timestamp { name:name, value: Local::now() ,holding: Holding::Name }
-    }
 }
 
 pub struct Json{
@@ -641,6 +665,10 @@ pub struct Json{
 }
 
 impl crate::mapping::types::Json {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Json { name:name, value: "".to_string() ,holding: Holding::Name }
+    }
+
     fn value(value: String) -> Self {
         crate::mapping::types::Json { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -669,10 +697,6 @@ impl Column for crate::mapping::types::Json {
         let type_self: &crate::mapping::types::Json = self as &crate::mapping::types::Json;
         &type_self.name
     }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Json { name:name, value: "".to_string() ,holding: Holding::Name }
-    }
 }
 
 
@@ -683,6 +707,10 @@ pub struct Blob{
 }
 
 impl crate::mapping::types::Blob {
+    fn new(name: String) -> Self {
+        crate::mapping::types::Blob { name:name, value: vec![] ,holding: Holding::Name }
+    }
+
     fn value(value: Vec<u8>) -> Self {
         crate::mapping::types::Blob { value:value, name:"".to_string() ,holding: Holding::Value }
     }
@@ -692,9 +720,5 @@ impl Column for crate::mapping::types::Blob {
     fn name(&self) -> &str {
         let type_self: &crate::mapping::types::Blob = self as &crate::mapping::types::Blob;
         &type_self.name
-    }
-
-    fn new(name: String) -> Self {
-        crate::mapping::types::Blob { name:name, value: vec![] ,holding: Holding::Name }
     }
 }

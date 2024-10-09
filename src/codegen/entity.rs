@@ -18,12 +18,14 @@ use crate::mapping::description::MysqlColumnType;
 struct StructFieldType {
     qualified_name: String,
     is_primitive_type: bool,
-    import:Option<String>
+    import:Option<String>,
+    enum_file_name_without_ext: String
 }
 
 pub(crate) struct GeneratedStructInfo {
     pub file_name_without_ext : String,
-    pub struct_name: String
+    pub struct_name: String,
+    pub enum_file_names_without_ext: Vec<String>,//camelCase
 }
 
 //generate entities according to db & table definitions
@@ -50,25 +52,44 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
         }
     }
 
-    //generate a mod.rs
-    let out_file = entity_out_path.join("mod.rs");
+    //generate mod.rs
+    let entity_mod_out_file = entity_out_path.join("mod.rs");
+    let entity_enum_mod_out_file = entity_out_path.join("enums/mod.rs");
 
-    utils::prepare_directory(&out_file);
+    utils::prepare_directory(&entity_mod_out_file);
     // Open the file for writing
-    let file = OpenOptions::new()
+    let entity_mod_out_file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(&out_file)
+        .open(&entity_mod_out_file)
         .expect("Failed to open mod.rs for writing");
 
-    let mut buf_writer = BufWriter::new(file);
+    let entity_enum_mod_out_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&entity_enum_mod_out_file)
+        .expect("Failed to open mod.rs for writing");
 
-    writeln!(buf_writer,"pub mod enums;").expect("Failed to write entity/mod.rs");
+    let mut entity_mod_out_file_buf_writer = BufWriter::new(entity_mod_out_file);
+    let mut entity_enum_mod_out_file_buf_writer = BufWriter::new(entity_enum_mod_out_file);
+
+    writeln!(entity_mod_out_file_buf_writer,"pub mod enums;").expect("Failed to write entity/mod.rs");
     for generated_entity_info in generated_entities {
-        writeln!(buf_writer,"pub mod {};",generated_entity_info.file_name_without_ext).expect("Failed to write entity/mod.rs");
-        writeln!(buf_writer,"pub use {}::{};",generated_entity_info.file_name_without_ext,generated_entity_info.struct_name).expect("Failed to write entity/mod.rs");
+        writeln!(entity_mod_out_file_buf_writer,"pub mod {};",stringUtils::to_camel_case(&generated_entity_info.file_name_without_ext)).expect("Failed to write entity/mod.rs");
+        writeln!(entity_mod_out_file_buf_writer,"pub use {}::{};",stringUtils::to_camel_case(&generated_entity_info.file_name_without_ext),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&generated_entity_info.struct_name))).expect("Failed to write entity/mod.rs");
+        if !generated_entity_info.enum_file_names_without_ext.is_empty(){
+            for enum_file_name in generated_entity_info.enum_file_names_without_ext{
+                writeln!(entity_enum_mod_out_file_buf_writer,"pub mod {};",enum_file_name).expect("Failed to write entity/enum/mod.rs");
+                writeln!(entity_enum_mod_out_file_buf_writer,"pub use {}::{};",enum_file_name,stringUtils::begin_with_upper_case(&enum_file_name)).expect("Failed to write entity/mod.rs");
+            }
+        }
     }
+    // Remember to flush the buffer to ensure all data is written to the file
+    entity_mod_out_file_buf_writer.flush().expect("Failed to flush buffer");
+    // Remember to flush the buffer to ensure all data is written to the file
+    entity_enum_mod_out_file_buf_writer.flush().expect("Failed to flush buffer");
 }
 
 async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path,
@@ -90,6 +111,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
 
     let mut items_to_be_imported = vec!["serde::Deserialize".to_string(), "serde::Serialize".to_string()];
     let mut struct_fields = vec![];
+    let mut enum_file_names_without_ext = vec![];
     //let mut primary_key = String::new();
 
     match fields_result {
@@ -99,7 +121,10 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                 let field_definition: String = it.data_type;
                 let nullable = it.nullable;
                 let is_primary_key = it.is_primary_key;
-                let field_type = resolve_type_from_column_definition(&table.name, &field_name, &field_definition,boolean_columns, trait_for_enum_types, output_path);
+                let field_type = resolve_type_from_column_definition(&table.name, &field_name, &field_definition, boolean_columns, trait_for_enum_types, output_path);
+                if !field_type.enum_file_name_without_ext.is_empty() {
+                    enum_file_names_without_ext.push(field_type.enum_file_name_without_ext);
+                }
                 let field_type_qualified_name = field_type.qualified_name;
 
                 if let Some(import) = field_type.import {
@@ -134,7 +159,8 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
 
     GeneratedStructInfo{
         file_name_without_ext : table.name,
-        struct_name: struct_name
+        struct_name: struct_name,
+        enum_file_names_without_ext: enum_file_names_without_ext
     }
 }
 
@@ -382,6 +408,7 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
                 None => false,
                 Some(_) => true
             };
+            let mut enum_file_name_without_ext: String = "".to_string();
 
             if mysql_data_type_prop.is_conditional_type {
                 match mysql_data_type {
@@ -394,8 +421,9 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
                     }
                     MysqlColumnType::Enum | MysqlColumnType::Set => {
                         is_primitive_type = false;
-                        let enum_name = &generate_and_get_enum_name(&table_name, &column_name, &column_definition, trait_for_enum_types, generated_code_dir);
+                        let (enum_name, enum_file_name_no_ext) = &generate_and_get_enum_name(&table_name, &column_name, &column_definition, trait_for_enum_types, generated_code_dir);
                         mysql_data_type_prop.import = Some(format!("enums::{}",enum_name));
+                        enum_file_name_without_ext = enum_file_name_no_ext.to_string();
                         field_type_qualified_name = mysql_data_type_prop.rust_type.resolve_qualified_type_name(mysql_data_type_prop.container_type, Some(enum_name))
                     }
                     _ => {}
@@ -406,7 +434,8 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
             StructFieldType{
                 qualified_name: field_type_qualified_name,
                 is_primitive_type,
-                import : mysql_data_type_prop.import
+                import : mysql_data_type_prop.import,
+                enum_file_name_without_ext
                 //generic_type_qualified_name: container_struct.to_string(),
             }
         }
@@ -438,16 +467,17 @@ fn get_qualified_enum_key(enum_value: &str, unsupported_char_in_enum_key: &HashS
     qualified_key
 }
 
-fn generate_and_get_enum_name(table_name: &str, column_name: &str, column_definition: &str, trait_for_enum_types: &HashMap<&str, &str>, generated_code_dir:&Path) -> String {
+fn generate_and_get_enum_name(table_name: &str, column_name: &str, column_definition: &str, trait_for_enum_types: &HashMap<&str, &str>, generated_code_dir:&Path) -> (String,String) {
     let enum_name = get_enum_name(table_name, column_name);
     let enum_dir = generated_code_dir.join("enums");
-    generate_enum(&enum_name, column_definition, table_name, column_name, &enum_dir, trait_for_enum_types);
-    enum_name
+    let enum_file_name_without_ext = format!("{}{}",stringUtils::to_camel_case(table_name),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(column_name)));
+    generate_enum(&enum_name, column_definition, table_name, column_name, &enum_dir, &enum_file_name_without_ext, trait_for_enum_types);
+    (enum_name,enum_file_name_without_ext)
     //format!("{}.{}", get_package_from_directory(generated_enum_path), enum_class_name)
 }
 
-fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, column_name: &str, enum_dir: &std::path::PathBuf, trait_for_enum_types: &HashMap<&str, &str>) {
-    let file_path = enum_dir.join(format!("{}.rs",enum_name));
+fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, column_name: &str, enum_dir: &std::path::PathBuf, enum_file_name_without_ext: &str, trait_for_enum_types: &HashMap<&str, &str>) {
+    let file_path = enum_dir.join(format!("{}.rs",enum_file_name_without_ext));
     utils::prepare_directory(&file_path);
     // Open the file for writing
     let file = OpenOptions::new()
@@ -472,7 +502,7 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     enum_to_string_code_lines.push("        match item {".to_string());
 
     enum_from_string_code_lines.push(format!("impl From<&str> for {} {{",enum_name));
-    enum_from_string_code_lines.push("    fn from(s: &str) -> Self {{".to_string());
+    enum_from_string_code_lines.push("    fn from(s: &str) -> Self {".to_string());
     enum_from_string_code_lines.push("        match s {".to_string());
     
     let enum_definition = column_definition.replace("'", "").replace("set(","").replace("enum(","").replace(")","");
@@ -484,15 +514,17 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
         enum_to_string_code_lines.push(format!("            {}::{} => \"{}\".to_string(),", enum_name, enum_item,enum_item));
         enum_from_string_code_lines.push(format!("            \"{}\" => {}::{},",enum_item, enum_name, enum_item));
     }
-    enum_code_lines.push("}}\n".to_string());
 
-    enum_to_string_code_lines.push("        }}".to_string());
-    enum_to_string_code_lines.push("    }}".to_string());
-    enum_to_string_code_lines.push("}}\n".to_string());
+    enum_from_string_code_lines.push("            &_ => todo!(),".to_string());
+    enum_code_lines.push("}\n".to_string());
 
-    enum_from_string_code_lines.push("        }}".to_string());
-    enum_from_string_code_lines.push("    }}".to_string());
-    enum_from_string_code_lines.push("}}".to_string());
+    enum_to_string_code_lines.push("        }".to_string());
+    enum_to_string_code_lines.push("    }".to_string());
+    enum_to_string_code_lines.push("}\n".to_string());
+
+    enum_from_string_code_lines.push("        }".to_string());
+    enum_from_string_code_lines.push("    }".to_string());
+    enum_from_string_code_lines.push("}".to_string());
 
     for line in enum_code_lines {
         writeln!(buf_writer,"{}",line).expect("Failed to write enum code");

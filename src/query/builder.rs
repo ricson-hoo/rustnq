@@ -33,9 +33,8 @@ impl fmt::Display for Condition {
 }
 
 
-#[derive(Debug)]
 pub struct QueryBuilder<'a> {
-    from: Option<&'a Table<'a>>,
+    from: Option<&'a dyn Table>,
     fields: Vec<&'a str>,
     conditions: Vec<Condition>,
 }
@@ -47,7 +46,7 @@ impl <'a> QueryBuilder<'a> {
         QueryBuilder { from:None, fields:fields_strs, conditions: vec![] }
     }
 
-    fn from(mut self, table:&'a Table) -> QueryBuilder<'a> {
+    pub fn from(mut self, table:&'a dyn Table) -> QueryBuilder<'a> {
         self.from = Some(table);
         self
     }

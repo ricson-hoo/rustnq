@@ -12,7 +12,7 @@ pub enum Holding{
 pub trait Column {
     fn name(&self) -> &str;
     //fn value(value: String) -> Self;
-    fn new(name: String) -> Self;
+    //fn new(name: String) -> Self;
 }
 
 pub trait MappedEnum {
