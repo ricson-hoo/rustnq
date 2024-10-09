@@ -282,7 +282,7 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
         }
     };
     //add current type to import statements
-    import_statements.push(format!("rustnq::types::{}",file_type));
+    import_statements.push(format!("rustnq::mapping::types::{}",file_type));
 
     Ok(TableFieldConstructInfo{
         field_name : column_name,
