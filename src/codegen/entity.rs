@@ -108,7 +108,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                     }
                 }
 
-                let mut struct_field_definition = format!("{}:{},",field_name,field_type_qualified_name);
+                let mut struct_field_definition = format!("pub {}:{},",field_name,field_type_qualified_name);
                 struct_fields.push(struct_field_definition);
             }
         }

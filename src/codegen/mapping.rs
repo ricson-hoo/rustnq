@@ -105,7 +105,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
                     }
                 }
 
-                struct_fields.push(format!("{}:{},",&column_name,columnConstructInfo.file_type));
+                struct_fields.push(format!("pub {}:{},",&column_name,columnConstructInfo.file_type));
                 instance_fields.push(format!("{}:{},",&column_name,columnConstructInfo.default_value_on_new));
             }
         }
