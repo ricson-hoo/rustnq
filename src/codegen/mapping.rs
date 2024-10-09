@@ -128,7 +128,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     writeln!(buf_writer,"}}").expect("Failed to table mapping code");
 
     writeln!(buf_writer,"impl {} {{", struct_name).expect("Failed to table mapping code");
-    writeln!(buf_writer,"    pub fn new(&self) ->Self {{").expect("Failed to table mapping code");
+    writeln!(buf_writer,"    pub fn new() ->Self {{").expect("Failed to table mapping code");
     writeln!(buf_writer,"        {} {{",struct_name).expect("Failed to table mapping code");
     for field in instance_fields{
         writeln!(buf_writer,"            {}",field).expect("Failed to table mapping code");
