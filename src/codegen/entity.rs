@@ -146,9 +146,16 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                     }
                 }
 
-                //here we need to modify the field name if it match one of the rust keyword
-                let mut struct_field_definition = format!("pub {}:{},",if utils::reserved_field_names().contains(&it.name) { format!("{}_", &it.name) } else {stringUtils::to_camel_case(&it.name)},field_type_qualified_name);
-                struct_fields.push(struct_field_definition);
+                //here we need to modify the field name if it matchs one of the rust keyword
+                if utils::reserved_field_names().contains(&it.name){
+                    let mut struct_field_definition = format!("#[serde(rename = \"{}\")] pub {}_:{},",&it.name, &it.name,field_type_qualified_name);
+                    struct_fields.push(struct_field_definition);
+                }else {
+                    //todo: snake_case or camelCase configurable
+                    let mut struct_field_definition = format!("pub {}:{},",stringUtils::to_camel_case(&it.name),field_type_qualified_name);
+                    struct_fields.push(struct_field_definition);
+                }
+
             }
         }
         Err(error) => {
