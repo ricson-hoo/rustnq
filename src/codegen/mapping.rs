@@ -79,7 +79,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 
     let mut buf_writer = BufWriter::new(file);
 
-    let mut items_to_be_imported : Vec<String> = Vec::new();
+    let mut items_to_be_imported : Vec<String> = vec!["serde::Deserialize".to_string(), "serde::Serialize".to_string()];
     items_to_be_imported.push("rustnq::mapping::types::Table".to_string());
     let mut struct_fields = vec![];
     let mut instance_fields = vec![];
@@ -119,7 +119,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
         writeln!(buf_writer,"use {};",import).expect("Failed to table mapping code");
     }
 
-    writeln!(buf_writer,"\n#[derive(Serialize,Deserialize)]").expect("Failed to table mapping code");
+    writeln!(buf_writer,"\n#[derive(Serialize,Deserialize,Clone,Debug)]").expect("Failed to table mapping code");
     writeln!(buf_writer,"pub struct {} {{", struct_name).expect("Failed to table mapping code");
 
     for field in struct_fields{

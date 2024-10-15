@@ -888,9 +888,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "lazy_static",
  "serde",
+ "serde_json",
  "sqlx",
  "sqlx-mysql",
+ "url",
 ]
 
 [[package]]

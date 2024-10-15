@@ -3,8 +3,10 @@ use std::error::Error;
 use anyhow::bail;
 use crate::mapping::types::{Int, Varchar,Enum,Set,DateTime};
 use crate::utils::stringUtils;
+use serde::{Serialize,Deserialize};
 
 #[derive(Clone, Copy)]
+#[derive(Serialize,Deserialize)]
 pub enum Holding{
     Name,Value,Full
 }

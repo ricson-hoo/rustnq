@@ -1,7 +1,7 @@
 use crate::mapping::description::{Holding, Column, MappedEnum};
 use crate::query::builder::Condition;
 use chrono::{Local, NaiveDate, NaiveTime};
-
+use serde::{Serialize,Deserialize};
 
 pub trait Table{
     fn name(&self) -> String;
@@ -13,13 +13,14 @@ pub trait Table{
     }
 }*/
 
-pub struct Enum<T:MappedEnum> {
+#[derive(Serialize,Deserialize)]
+pub struct Enum<T/*:MappedEnum*/> {
     value: Option<T>,
     name: String,
     holding: Holding
 }
 
-impl<T:MappedEnum> Enum<T> {
+impl<T/*:MappedEnum*/> Enum<T> {
     pub fn new(name: String) -> Self {
         Enum { name:name, value: None ,holding: Holding::Name }
     }
@@ -29,6 +30,7 @@ impl<T:MappedEnum> Enum<T> {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Varchar{
     name: String,
     value: String,
@@ -63,6 +65,14 @@ impl Varchar {
     }
 }
 
+impl From<&str> for Varchar {
+    fn from(s: &str) -> Self {
+        Varchar::value(s.to_string())
+    }
+}
+
+
+
 impl Column for Varchar {
     fn name(&self) -> &str {
         let type_self: &Varchar = self as &Varchar;
@@ -71,6 +81,7 @@ impl Column for Varchar {
 
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Char{
     name: String,
     value: String,
@@ -78,7 +89,7 @@ pub struct Char{
 }
 
 impl Char {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         Char { name:name, value: "".to_string() ,holding: Holding::Name }
     }
 
@@ -112,6 +123,7 @@ impl Column for Char {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Tinytext{
     name: String,
     value: String,
@@ -153,6 +165,7 @@ impl Column for Tinytext {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Text{
     name: String,
     value: String,
@@ -160,7 +173,7 @@ pub struct Text{
 }
 
 impl crate::mapping::types::Text {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Text { name:name, value: "".to_string() ,holding: Holding::Name }
     }
 
@@ -194,8 +207,7 @@ impl Column for crate::mapping::types::Text {
     }
 }
 
-
-
+#[derive(Serialize,Deserialize)]
 pub struct Mediumtext{
     name: String,
     value: String,
@@ -237,7 +249,7 @@ impl Column for crate::mapping::types::Mediumtext {
     }
 }
 
-
+#[derive(Serialize,Deserialize)]
 pub struct Longtext{
     name: String,
     value: String,
@@ -245,7 +257,7 @@ pub struct Longtext{
 }
 
 impl crate::mapping::types::Longtext {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Longtext { name:name, value: "".to_string() ,holding: Holding::Name }
     }
 
@@ -280,6 +292,7 @@ impl Column for crate::mapping::types::Longtext {
 
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Int{
     value: i32,
     name: String,
@@ -303,7 +316,7 @@ impl Column for Int {
     }
 }
 
-
+#[derive(Serialize,Deserialize)]
 pub struct Year{
     value: i32,
     name: String,
@@ -327,7 +340,7 @@ impl Column for crate::mapping::types::Year {
     }
 }
 
-
+#[derive(Serialize,Deserialize)]
 pub struct Set<T>{
     value: Vec<T>,
     name: String,
@@ -358,6 +371,7 @@ impl <T:MappedEnum> Column for Enum<T> {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Tinyint{
     value: i8,
     name: String,
@@ -365,7 +379,7 @@ pub struct Tinyint{
 }
 
 impl Tinyint {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         Tinyint { name:name, value: 0 ,holding: Holding::Name }
     }
 
@@ -381,6 +395,7 @@ impl Column for crate::mapping::types::Tinyint {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Smallint{
     value: i16,
     name: String,
@@ -404,6 +419,7 @@ impl Column for crate::mapping::types::Smallint {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Bigint{
     value: i64,
     name: String,
@@ -411,7 +427,7 @@ pub struct Bigint{
 }
 
 impl Bigint {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Bigint { name:name, value: 0 ,holding: Holding::Name }
     }
 
@@ -427,6 +443,7 @@ impl Column for Bigint {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct BigintUnsigned{
     value: u64,
     name: String,
@@ -450,6 +467,7 @@ impl Column for crate::mapping::types::BigintUnsigned {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Numeric{
     value: f64,
     name: String,
@@ -473,6 +491,7 @@ impl Column for crate::mapping::types::Numeric {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Float{
     value: f32,
     name: String,
@@ -480,7 +499,7 @@ pub struct Float{
 }
 
 impl crate::mapping::types::Float {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Float { name:name, value: 0.0 ,holding: Holding::Name }
     }
 
@@ -496,6 +515,7 @@ impl Column for crate::mapping::types::Float {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Double{
     value: f64,
     name: String,
@@ -503,7 +523,7 @@ pub struct Double{
 }
 
 impl crate::mapping::types::Double {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Double { name:name, value: 0.0 ,holding: Holding::Name }
     }
 
@@ -519,6 +539,7 @@ impl Column for crate::mapping::types::Double {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Decimal{
     value: f64,
     name: String,
@@ -542,6 +563,7 @@ impl Column for crate::mapping::types::Decimal {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Date{
     value: chrono::NaiveDate,
     name: String,
@@ -565,6 +587,7 @@ impl Column for crate::mapping::types::Date {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Time{
     value: chrono::NaiveTime,
     name: String,
@@ -572,7 +595,7 @@ pub struct Time{
 }
 
 impl crate::mapping::types::Time {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Time { name:name, value: NaiveTime::default() ,holding: Holding::Name }
     }
 
@@ -588,6 +611,7 @@ impl Column for crate::mapping::types::Time {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct DateTime{
     value: chrono::DateTime<Local>,
     name: String,
@@ -611,7 +635,7 @@ impl Column for DateTime {
     }
 }
 
-
+#[derive(Serialize,Deserialize)]
 pub struct Datetime{
     value: chrono::DateTime<Local>,
     name: String,
@@ -619,7 +643,7 @@ pub struct Datetime{
 }
 
 impl crate::mapping::types::Datetime {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Datetime { name:name, value: Local::now() ,holding: Holding::Name }
     }
 
@@ -635,6 +659,7 @@ impl Column for crate::mapping::types::Datetime {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Timestamp{
     value: chrono::DateTime<Local>,
     name: String,
@@ -642,7 +667,7 @@ pub struct Timestamp{
 }
 
 impl crate::mapping::types::Timestamp {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Timestamp { name:name, value: Local::now() ,holding: Holding::Name }
     }
 
@@ -658,6 +683,7 @@ impl Column for crate::mapping::types::Timestamp {
     }
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct Json{
     name: String,
     value: String,
@@ -665,7 +691,7 @@ pub struct Json{
 }
 
 impl crate::mapping::types::Json {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         crate::mapping::types::Json { name:name, value: "".to_string() ,holding: Holding::Name }
     }
 
@@ -699,7 +725,7 @@ impl Column for crate::mapping::types::Json {
     }
 }
 
-
+#[derive(Serialize,Deserialize)]
 pub struct Blob{
     name: String,
     value: Vec<u8>,
