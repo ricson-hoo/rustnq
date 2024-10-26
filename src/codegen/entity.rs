@@ -14,6 +14,7 @@ use crate::codegen::utils::TableRow;
 use crate::utils::stringUtils;
 use serde::{Serialize, Deserialize};
 use crate::mapping::description::MysqlColumnType;
+use crate::query::builder::Condition;
 
 struct StructFieldType {
     qualified_name: String,
@@ -34,7 +35,7 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     utils::prepare_directory(entity_out_path);
 
     let tables = utils::get_tables(conn).await;
-    println!("{:#?}",tables);
+    //println!("{:#?}",tables);
 
     //collect what has been generated
     let mut generated_entities:Vec<GeneratedStructInfo> = Vec::new();
@@ -75,7 +76,10 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     let mut entity_mod_out_file_buf_writer = BufWriter::new(entity_mod_out_file);
     let mut entity_enum_mod_out_file_buf_writer = BufWriter::new(entity_enum_mod_out_file);
 
+    writeln!(entity_enum_mod_out_file_buf_writer,"#[allow(non_snake_case)]").expect("Failed to write entity/enum/mod.rs");
+    writeln!(entity_mod_out_file_buf_writer,"#[allow(non_snake_case)]").expect("Failed to write entity/mod.rs");
     writeln!(entity_mod_out_file_buf_writer,"pub mod enums;").expect("Failed to write entity/mod.rs");
+
     for generated_entity_info in generated_entities {
         writeln!(entity_mod_out_file_buf_writer,"pub mod {};",stringUtils::to_camel_case(&generated_entity_info.file_name_without_ext)).expect("Failed to write entity/mod.rs");
         writeln!(entity_mod_out_file_buf_writer,"pub use {}::{};",stringUtils::to_camel_case(&generated_entity_info.file_name_without_ext),stringUtils::begin_with_upper_case(&generated_entity_info.struct_name)).expect("Failed to write entity/mod.rs");
@@ -121,6 +125,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
 
     let mut items_to_be_imported = vec!["serde::Deserialize".to_string(), "serde::Serialize".to_string()];
     let mut struct_fields = vec![];
+    let mut struct_fields_init = vec![];
     let mut enum_file_names_without_ext = vec![];
     //let mut primary_key = String::new();
 
@@ -150,12 +155,20 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                 if utils::reserved_field_names().contains(&it.name){
                     let mut struct_field_definition = format!("#[serde(rename = \"{}\")] pub {}_:{},",&it.name, &it.name,field_type_qualified_name);
                     struct_fields.push(struct_field_definition);
+                    struct_fields_init.push(format!("{}_:{},",&it.name, if field_type_qualified_name.starts_with("Vec") {"vec![]"} else {"None"}));
                 }else {
                     //todo: snake_case or camelCase configurable
+                    if field_type_qualified_name.clone().contains("NaiveDateTime"){
+                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_datetime\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime\")]".to_string()); //note:this is a temp solution
+                    }else if field_type_qualified_name.clone().contains("NaiveDate"){
+                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_date\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_date\")]".to_string()); //note:this is a temp solution
+                    }
                     let mut struct_field_definition = format!("pub {}:{},",stringUtils::to_camel_case(&it.name),field_type_qualified_name);
                     struct_fields.push(struct_field_definition);
+                    struct_fields_init.push(format!("{}:{},",stringUtils::to_camel_case(&it.name),"None"));
                 }
-
             }
         }
         Err(error) => {
@@ -168,13 +181,28 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
     }
 
     writeln!(buf_writer,"\n#[derive(Serialize,Deserialize,Clone,Debug)]").expect("Failed to write entity code");
-    writeln!(buf_writer,"pub struct {} {{", struct_name).expect("Failed to write entity code");
+    writeln!(buf_writer,"#[allow(non_snake_case)]").expect("Failed to write entity code");
+    writeln!(buf_writer,"pub struct {}<D = ()> {{", struct_name).expect("Failed to write entity code");
 
     for field in struct_fields{
         writeln!(buf_writer,"    {}",field).expect("Failed to write field definition code");
     }
+    //add a _ext for easy extension
+    writeln!(buf_writer,"    pub _associated: Option<D>,").expect("Failed to write field definition code");
 
     writeln!(buf_writer,"}}").expect("Failed to write entity code");
+
+    //associated new fn
+    writeln!(buf_writer,"impl {} {{", struct_name).expect("Failed to write entity impl code");
+    writeln!(buf_writer,"    pub fn new() -> {} {{", struct_name).expect("Failed to write entity impl code");
+    writeln!(buf_writer,"        {} {{", struct_name).expect("Failed to write entity impl code");
+    for field in struct_fields_init{
+        writeln!(buf_writer,"            {}",field).expect("Failed to write field definition code");
+    }
+    writeln!(buf_writer,"            _associated: None,").expect("Failed to write field definition code");
+    writeln!(buf_writer,"        }}").expect("Failed to write entity impl code");
+    writeln!(buf_writer,"    }}").expect("Failed to write entity impl code");
+    writeln!(buf_writer,"}}").expect("Failed to write entity impl code");
 
     drop(buf_writer);
 
@@ -184,7 +212,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
         enum_file_names_without_ext: enum_file_names_without_ext
     }
 }
-
+#[derive(Debug,Clone)]
 enum RustDataType {
     String,
     Enum,
@@ -206,8 +234,13 @@ impl RustDataType {
     fn resolve_qualified_type_name(&self, containerType:Option<RustDataType>, enumName:Option<&str>) -> String {
         let type_str = match self {
             RustDataType::String => "Option<String>",
-            RustDataType::Enum => &format!("Option<{}>",enumName.unwrap_or("")),
-            RustDataType::Vec => &format!("Option<{}>",enumName.unwrap_or("")),
+            RustDataType::Enum => {
+                match containerType {
+                    Some(RustDataType::Vec) => &format!("Option<Vec<{}>>",enumName.unwrap_or("")),
+                    _ => &format!("Option<{}>",enumName.unwrap_or("")),
+                }
+            },
+            RustDataType::Vec => &format!("Option<Vec<{}>>",enumName.unwrap_or("")),
             RustDataType::i8 => "Option<i8>",
             RustDataType::i16 => "Option<i16>",
             RustDataType::i32 => "Option<i32>",
@@ -215,15 +248,21 @@ impl RustDataType {
             RustDataType::u64 => "Option<u64>",
             RustDataType::f64 => "Option<f64>",
             RustDataType::f32 => "Option<f32>",
-            RustDataType::u8 => "Option<u8>",
+            RustDataType::u8 => {
+                match containerType {
+                    Some(RustDataType::Vec) => "Option<Vec<u8>>",
+                    _ => "Option<u8>",
+                }
+            }
             RustDataType::chronoNaiveDate => "Option<chrono::NaiveDate>",
             RustDataType::chronoNaiveTime => "Option<chrono::NaiveTime>",
             RustDataType::chronoNaiveDateTime => "Option<chrono::NaiveDateTime>",
         };
-        match containerType {
+        /*match containerType {
             Some(RustDataType::Vec)  => format!("Vec<{}>",type_str),
             _ => type_str.to_string()
-        }
+        }*/
+        type_str.to_string()
     }
 }
 
@@ -254,6 +293,7 @@ enum MysqlDataType {
     Blob,
     Json
 }*/
+#[derive(Debug,Clone)]
 struct MysqlDataTypeProp {
     rust_type:  RustDataType,
     is_conditional_type: bool,
@@ -307,7 +347,7 @@ impl MysqlColumnType {
                 import:None
             },
             MysqlColumnType::Set => MysqlDataTypeProp {
-                rust_type: RustDataType::Enum,
+                rust_type: RustDataType::Vec,
                 is_conditional_type: true,
                 container_type: Some(RustDataType::Vec),
                 import:None
@@ -445,7 +485,9 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
                         let (enum_name, enum_file_name_no_ext) = &generate_and_get_enum_name(&table_name, &column_name, &column_definition, trait_for_enum_types, generated_code_dir);
                         mysql_data_type_prop.import = Some(format!("crate::entity::enums::{}",enum_name));
                         enum_file_name_without_ext = enum_file_name_no_ext.to_string();
-                        field_type_qualified_name = mysql_data_type_prop.rust_type.resolve_qualified_type_name(mysql_data_type_prop.container_type, Some(enum_name))
+                        let prop = mysql_data_type_prop.clone();
+                        field_type_qualified_name = mysql_data_type_prop.rust_type.resolve_qualified_type_name(mysql_data_type_prop.container_type, Some(enum_name));
+                        //println!("{:#?},{:#?},{:#?},{}",data_type.clone(),mysql_data_type.clone(),prop,field_type_qualified_name.clone());
                     }
                     _ => {}
                 }
@@ -523,13 +565,17 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     let mut enum_code_lines: Vec<String> = Vec::new();
     let mut enum_to_string_code_lines: Vec<String> = Vec::new();
     let mut enum_from_string_code_lines: Vec<String> = Vec::new();
+    let mut enum_display_code_lines: Vec<String> = Vec::new();
 
     if !trait_to_be_implemented.is_empty() {
         enum_code_lines.push(format!("use crate::entity::enums::{};",trait_to_be_implemented));
     }
     enum_code_lines.push("use serde::{{Serialize, Deserialize}};\n".to_string());
+    enum_code_lines.push("use std::fmt;\n".to_string());
 
-    enum_code_lines.push("#[derive(Serialize,Deserialize,Clone,Debug)]".to_string());
+    enum_code_lines.push("#[derive(Serialize,Deserialize,Clone,Debug,Copy)]".to_string());
+    enum_code_lines.push("#[allow(clippy::upper_case_acronyms)]".to_string());
+    enum_code_lines.push("#[allow(non_camel_case_types)]".to_string());
 
     enum_code_lines.push(format!("pub enum {} {{", enum_name));
 
@@ -540,6 +586,10 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     enum_from_string_code_lines.push(format!("impl From<&str> for {} {{",enum_name));
     enum_from_string_code_lines.push("    fn from(s: &str) -> Self {".to_string());
     enum_from_string_code_lines.push("        match s {".to_string());
+
+    enum_display_code_lines.push(format!("impl fmt::Display for {} {{",enum_name));
+    enum_display_code_lines.push("    fn fmt(&self,f: &mut fmt::Formatter) -> fmt::Result {".to_string());
+    enum_display_code_lines.push("        match self {".to_string());
     
     let enum_definition = column_definition.replace("'", "").replace("set(","").replace("enum(","").replace(")","");
     let enum_items: Vec<&str> = enum_definition.split(',').collect();
@@ -549,6 +599,7 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
         enum_code_lines.push(format!("    {},", enum_item));
         enum_to_string_code_lines.push(format!("            {}::{} => \"{}\".to_string(),", enum_name, enum_item,enum_item));
         enum_from_string_code_lines.push(format!("            \"{}\" => {}::{},",enum_item, enum_name, enum_item));
+        enum_display_code_lines.push(format!("            {}::{} => write!(f,\"{}\"),",enum_name, enum_item, enum_item));
     }
 
     enum_from_string_code_lines.push("            &_ => todo!(),".to_string());
@@ -562,6 +613,10 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     enum_from_string_code_lines.push("    }".to_string());
     enum_from_string_code_lines.push("}".to_string());
 
+    enum_display_code_lines.push("        }".to_string());
+    enum_display_code_lines.push("    }".to_string());
+    enum_display_code_lines.push("}".to_string());
+
     for line in enum_code_lines {
         writeln!(buf_writer,"{}",line).expect("Failed to write enum code");
     }
@@ -574,9 +629,23 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
         writeln!(buf_writer,"{}",line).expect("Failed to write enum from String code");
     }
 
+    for line in enum_display_code_lines {
+        writeln!(buf_writer,"{}",line).expect("Failed to write enum from String code");
+    }
+
     if !trait_to_be_implemented.is_empty() {
         writeln!(buf_writer,"impl {} for {} {{}}",trait_to_be_implemented, enum_name).expect("Failed to write trait code");
     }
+
+    writeln!(buf_writer,"impl {} {{",enum_name).expect("Failed to write enum::values code");
+    writeln!(buf_writer,"    pub fn values() -> Vec<{}> {{",enum_name);
+    write!(buf_writer,"        vec![");
+    for (index, item) in enum_items.iter().enumerate() {
+        write!(buf_writer,"{}::{},",enum_name,item);
+    }
+    write!(buf_writer,"]\n");
+    writeln!(buf_writer,"    }}");
+    writeln!(buf_writer,"}}");
 
     buf_writer.flush().expect("Failed to flush buffer");
 

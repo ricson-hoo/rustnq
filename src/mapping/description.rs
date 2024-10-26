@@ -5,14 +5,13 @@ use crate::mapping::types::{Int, Varchar,Enum,Set,DateTime};
 use crate::utils::stringUtils;
 use serde::{Serialize,Deserialize};
 
-#[derive(Clone, Copy)]
-#[derive(Serialize,Deserialize)]
+#[derive(Serialize,Deserialize,Clone,Copy,Debug)]
 pub enum Holding{
-    Name,Value,Full
+    Name,Value,NameValue,SubQuery
 }
 
 pub trait Column {
-    fn name(&self) -> &str;
+    fn name(&self) -> String;
     //fn value(value: String) -> Self;
     //fn new(name: String) -> Self;
 }
@@ -36,6 +35,7 @@ pub trait MappedEnum {
 
 //pub struct ColumnType<'a>(Box<dyn Column<'a>>);
 
+#[derive(Clone,Debug)]
 pub enum MysqlColumnType {
     Char,
     Varchar,
