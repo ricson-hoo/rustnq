@@ -13,7 +13,7 @@ use crate::codegen::utils;
 use crate::codegen::utils::TableRow;
 use crate::utils::stringUtils;
 use serde::{Serialize, Deserialize};
-use crate::mapping::description::MysqlColumnType;
+use crate::mapping::description::SqlColumnType;
 use crate::query::builder::Condition;
 
 struct StructFieldType {
@@ -301,148 +301,148 @@ struct MysqlDataTypeProp {
     import: Option<String>
 }
 
-impl MysqlColumnType {
+impl SqlColumnType {
     fn properties(&self) -> MysqlDataTypeProp {
         match self {
-            MysqlColumnType::Char => MysqlDataTypeProp {
+            SqlColumnType::Char => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Varchar => MysqlDataTypeProp {
+            SqlColumnType::Varchar => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Tinytext => MysqlDataTypeProp {
+            SqlColumnType::Tinytext => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Text => MysqlDataTypeProp {
+            SqlColumnType::Text => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Mediumtext => MysqlDataTypeProp {
+            SqlColumnType::Mediumtext => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Longtext => MysqlDataTypeProp {
+            SqlColumnType::Longtext => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Enum => MysqlDataTypeProp {
+            SqlColumnType::Enum => MysqlDataTypeProp {
                 rust_type: RustDataType::Enum,
                 is_conditional_type: true,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Set => MysqlDataTypeProp {
+            SqlColumnType::Set => MysqlDataTypeProp {
                 rust_type: RustDataType::Vec,
                 is_conditional_type: true,
                 container_type: Some(RustDataType::Vec),
                 import:None
             },
-            MysqlColumnType::Tinyint => MysqlDataTypeProp {
+            SqlColumnType::Tinyint => MysqlDataTypeProp {
                 rust_type: RustDataType::i8,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Smallint => MysqlDataTypeProp {
+            SqlColumnType::Smallint => MysqlDataTypeProp {
                 rust_type: RustDataType::i16,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Int => MysqlDataTypeProp {
+            SqlColumnType::Int => MysqlDataTypeProp {
                 rust_type: RustDataType::i32,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Bigint => MysqlDataTypeProp {
+            SqlColumnType::Bigint => MysqlDataTypeProp {
                 rust_type: RustDataType::i64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::BigintUnsigned => MysqlDataTypeProp {
+            SqlColumnType::BigintUnsigned => MysqlDataTypeProp {
                 rust_type: RustDataType::u64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Numeric => MysqlDataTypeProp {
+            SqlColumnType::Numeric => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Float => MysqlDataTypeProp {
+            SqlColumnType::Float => MysqlDataTypeProp {
                 rust_type: RustDataType::f32,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Double => MysqlDataTypeProp {
+            SqlColumnType::Double => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Decimal => MysqlDataTypeProp {
+            SqlColumnType::Decimal => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Date => MysqlDataTypeProp {
+            SqlColumnType::Date => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveDate,
                 is_conditional_type: false,
                 container_type: None,
                 import:Some("chrono".to_string())
             },
-            MysqlColumnType::Time => MysqlDataTypeProp {
+            SqlColumnType::Time => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveTime,
                 is_conditional_type: false,
                 container_type: None,
                 import:Some("chrono".to_string())
             },
-            MysqlColumnType::Datetime => MysqlDataTypeProp {
+            SqlColumnType::Datetime => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveDateTime,
                 is_conditional_type: false,
                 container_type: None,
                 import:Some("chrono".to_string())
             },
-            MysqlColumnType::Timestamp => MysqlDataTypeProp {
+            SqlColumnType::Timestamp => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveDateTime,
                 is_conditional_type: false,
                 container_type: None,
                 import:Some("chrono".to_string())
             },
-            MysqlColumnType::Year => MysqlDataTypeProp {
+            SqlColumnType::Year => MysqlDataTypeProp {
                 rust_type: RustDataType::i32,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            MysqlColumnType::Blob => MysqlDataTypeProp {
+            SqlColumnType::Blob => MysqlDataTypeProp {
                 rust_type: RustDataType::u8,
                 is_conditional_type: false,
                 container_type: Some(RustDataType::Vec),
                 import:None
             },
-            MysqlColumnType::Json => MysqlDataTypeProp {
+            SqlColumnType::Json => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
@@ -461,7 +461,7 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
     //let mut container_struct = "";
     let mut is_primitive_type: bool;
 
-    match data_type.parse::<MysqlColumnType>() {
+    match data_type.parse::<SqlColumnType>() {
         Ok(mysql_data_type) => {
             let mut mysql_data_type_prop = mysql_data_type.properties();
             //container_struct = mysql_data_type_prop.container_type;
@@ -473,14 +473,14 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
 
             if mysql_data_type_prop.is_conditional_type {
                 match mysql_data_type {
-                    MysqlColumnType::Tinyint => {
+                    SqlColumnType::Tinyint => {
                         field_type_qualified_name = if boolean_columns.contains_key(table_name){
                             "bool".to_string()
                         }else{
                             mysql_data_type_prop.rust_type.resolve_qualified_type_name(None, None)
                         };
                     }
-                    MysqlColumnType::Enum | MysqlColumnType::Set => {
+                    SqlColumnType::Enum | SqlColumnType::Set => {
                         is_primitive_type = false;
                         let (enum_name, enum_file_name_no_ext) = &generate_and_get_enum_name(&table_name, &column_name, &column_definition, trait_for_enum_types, generated_code_dir);
                         mysql_data_type_prop.import = Some(format!("crate::entity::enums::{}",enum_name));

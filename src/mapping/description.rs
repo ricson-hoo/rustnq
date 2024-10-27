@@ -1,19 +1,46 @@
 use std::str::FromStr;
 use std::error::Error;
 use anyhow::bail;
-use crate::mapping::types::{Int, Varchar,Enum,Set,DateTime};
+use chrono::Local;
+use crate::mapping::types::{Int, Varchar, Enum, Set, DateTime};
 use crate::utils::stringUtils;
 use serde::{Serialize,Deserialize};
+use sqlx::encode::IsNull;
 
 #[derive(Serialize,Deserialize,Clone,Copy,Debug)]
 pub enum Holding{
     Name,Value,NameValue,SubQuery
 }
 
+pub enum SqlColumnNameAndValue {
+    Char(String, Option<String>),
+    Varchar(String, Option<String>),
+    Tinytext(String, Option<String>),
+    Text(String, Option<String>),
+    Mediumtext(String, Option<String>),
+    Longtext(String, Option<String>),
+    Enum(String, Option<String>),
+    Set(String, Option<Vec<String>>),
+    Tinyint(String, Option<Vec<String>>),
+    Smallint(String, Option<i16>),
+    Int(String, Option<i32>),
+    Bigint(String, Option<i64>),
+    BigintUnsigned(String, Option<u64>),
+    Numeric(String, Option<f64>),
+    Float(String, Option<f64>),
+    Double(String, Option<f64>),
+    Decimal(String, Option<f64>),
+    Date(String, Option<chrono::NaiveDate>),
+    Time(String, Option<chrono::NaiveTime>),
+    Datetime(String, Option<chrono::NaiveDateTime>),
+    Timestamp(String, Option<chrono::NaiveDateTime>),
+    Year(String, Option<i32>),
+    Blob(String, Option<Vec<u8>>),
+    Json(String, Option<String>),
+}
+
 pub trait Column {
     fn name(&self) -> String;
-    //fn value(value: String) -> Self;
-    //fn new(name: String) -> Self;
 }
 
 pub trait MappedEnum {
@@ -36,7 +63,7 @@ pub trait MappedEnum {
 //pub struct ColumnType<'a>(Box<dyn Column<'a>>);
 
 #[derive(Clone,Debug)]
-pub enum MysqlColumnType {
+pub enum SqlColumnType {
     Char,
     Varchar,
     Tinytext,
@@ -63,35 +90,35 @@ pub enum MysqlColumnType {
     Json
 }
 
-impl FromStr for MysqlColumnType {
+impl FromStr for SqlColumnType {
     type Err = anyhow::Error;
     fn from_str(mysql_col_type: &str) -> Result<Self, anyhow::Error> {
         let typeName = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&mysql_col_type.replace(" ", "_")));
         match typeName.as_str() {
-            "Char" => Ok(MysqlColumnType::Char),
-            "Varchar" => Ok(MysqlColumnType::Varchar),
-            "Tinytext" => Ok(MysqlColumnType::Tinytext),
-            "Text" => Ok(MysqlColumnType::Text),
-            "Mediumtext" => Ok(MysqlColumnType::Mediumtext),
-            "Longtext" => Ok(MysqlColumnType::Longtext),
-            "Enum" => Ok(MysqlColumnType::Enum),
-            "Set" => Ok(MysqlColumnType::Set),
-            "Tinyint" => Ok(MysqlColumnType::Tinyint),
-            "Smallint" => Ok(MysqlColumnType::Smallint),
-            "Int" => Ok(MysqlColumnType::Int),
-            "Bigint" => Ok(MysqlColumnType::Bigint),
-            "BigintUnsigned" => Ok(MysqlColumnType::BigintUnsigned),
-            "Numeric" => Ok(MysqlColumnType::Numeric),
-            "Float" => Ok(MysqlColumnType::Float),
-            "Double" => Ok(MysqlColumnType::Double),
-            "Decimal" => Ok(MysqlColumnType::Decimal),
-            "Date" => Ok(MysqlColumnType::Date),
-            "Time" => Ok(MysqlColumnType::Time),
-            "Datetime" => Ok(MysqlColumnType::Datetime),
-            "Timestamp" => Ok(MysqlColumnType::Timestamp),
-            "Year" => Ok(MysqlColumnType::Year),
-            "Blob" => Ok(MysqlColumnType::Blob),
-            "Json" => Ok(MysqlColumnType::Json),
+            "Char" => Ok(SqlColumnType::Char),
+            "Varchar" => Ok(SqlColumnType::Varchar),
+            "Tinytext" => Ok(SqlColumnType::Tinytext),
+            "Text" => Ok(SqlColumnType::Text),
+            "Mediumtext" => Ok(SqlColumnType::Mediumtext),
+            "Longtext" => Ok(SqlColumnType::Longtext),
+            "Enum" => Ok(SqlColumnType::Enum),
+            "Set" => Ok(SqlColumnType::Set),
+            "Tinyint" => Ok(SqlColumnType::Tinyint),
+            "Smallint" => Ok(SqlColumnType::Smallint),
+            "Int" => Ok(SqlColumnType::Int),
+            "Bigint" => Ok(SqlColumnType::Bigint),
+            "BigintUnsigned" => Ok(SqlColumnType::BigintUnsigned),
+            "Numeric" => Ok(SqlColumnType::Numeric),
+            "Float" => Ok(SqlColumnType::Float),
+            "Double" => Ok(SqlColumnType::Double),
+            "Decimal" => Ok(SqlColumnType::Decimal),
+            "Date" => Ok(SqlColumnType::Date),
+            "Time" => Ok(SqlColumnType::Time),
+            "Datetime" => Ok(SqlColumnType::Datetime),
+            "Timestamp" => Ok(SqlColumnType::Timestamp),
+            "Year" => Ok(SqlColumnType::Year),
+            "Blob" => Ok(SqlColumnType::Blob),
+            "Json" => Ok(SqlColumnType::Json),
             _ => bail!("Unknown MysqlDataType"),
         }
     }
@@ -102,11 +129,13 @@ pub struct MysqlColumnDefinition{
     pub name_unmodified: String,
     pub column_definition: String,
     pub default_value: String,
+    pub is_primary_key: bool,
 }
 
 pub struct TableFieldConstructInfo {
     pub field_name:String,
-    pub file_type:String,
+    pub field_type:String,
     pub default_value_on_new:String,
-    pub import_statements:Vec<String>
+    pub import_statements:Vec<String>,
+    pub sql_raw_type:String, //如Char,Varchar,Tinytext,Datetime,Timestamp...
 }

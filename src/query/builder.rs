@@ -46,7 +46,6 @@ pub trait RowMappable{
 }
 
 #[derive(Debug,Clone)]
-#[derive(Debug)]
 pub struct Condition {
     pub query: String,
 }
@@ -106,24 +105,58 @@ pub struct QueryBuilder {
     //from: Option<&'a dyn Table>,
     target_table: Option<String>,//Option<&'a dyn Table>,
     fields: Vec<String>,
+    values: Vec<String>,//insert values or update values
     conditions: Vec<Condition>,
+    limit:Option<i32>,
 }
 
-impl <'a> QueryBuilder<'a> {
+impl QueryBuilder {
 
-    pub fn select_fields(fields: Vec<&'a impl Column>) -> QueryBuilder<'a> {
+    pub fn init_with_select_fields(fields: Vec<&impl Column>) -> QueryBuilder {
         let fields_strs = fields.iter().map(|field| field.name()).collect();
         QueryBuilder { operation:Operation::Select, target_table:None, fields:fields_strs, conditions: vec![] }
     }
 
-    pub fn insert_or_update<A>(table:&'a A) -> QueryBuilder<'a> where A : Table{
-        QueryBuilder { action:Operation::Insert_Or_Update,target_table:Some(table.name()), fields:vec![], conditions: vec![] }
+    pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
+        table.insert_query_builder()
+        /*QueryBuilder { operation:Operation::Insert,target_table:Some(table.name()), fields:vec![], conditions: vec![] }*/
     }
 
-    pub fn from<A>(mut self, table:&'a A) -> QueryBuilder<'a> where A : Table{
+    pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
+        table.update_query_builder()
+        /*QueryBuilder { operation:Operation::Update,target_table:Some(table.name()), fields:vec![], conditions: vec![] }*/
+    }
+
+    pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
+        table.upsert_query_builder()
+        /*QueryBuilder { operation:Operation::Insert_Or_Update,target_table:Some(table.name()), fields:vec![], conditions: vec![] }*/
+    }
+
+    pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
+        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![], limit: Some(1) }
+    }
+
+    pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
+        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![condition], limit: Some(1) }
+    }
+
+    pub fn delete_rows_with_conditions<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
+        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![condition], limit: None }
+    }
+
+    pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
         self.target_table = Some(table.name());
         self
     }
+
+    pub fn add_select_fields(){
+
+    }
+
+    pub fn add_upsert_fields(){ //need key_values
+
+    }
+
 
 /*    pub fn with_entity(mut self, table:&'a A) -> QueryBuilder<'a> {
         self.target_table = Some(table);
@@ -131,13 +164,18 @@ impl <'a> QueryBuilder<'a> {
     }*/
 
     ///every call to where_, put a new condition or condition group to conditions
-    pub fn where_(mut self, condition: Condition) -> QueryBuilder<'a> {
+    pub fn where_(mut self, condition: Condition) -> QueryBuilder {
         self.conditions.push(condition);
         self
     }
 
-    pub fn asVachar(mut self, name: &'a str) -> Varchar {
-        Varchar::name_query(name,self)
+    pub fn limit(mut self, limit:i32) -> QueryBuilder {
+        self.limit = limit;
+        self
+    }
+
+    pub fn asVachar(mut self, name: &str) -> Varchar {
+        Varchar::name_query(name.to_string(),Some(self))
     }
 
     /*pub fn fetch_one_into<T: RowMappable>(&self) -> T {
@@ -158,8 +196,10 @@ impl <'a> QueryBuilder<'a> {
     pub async fn execute(&self) -> Result<u64,Error> {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
-        if let Ok(result) = build_result {
-            let result = sqlx::query(&result).execute(pool).await? as MySqlQueryResult; // Pass the reference to sqlx::query()
+        if let Ok(query_string) = build_result {
+            println!("query string {}", query_string);
+
+            let result = sqlx::query(&query_string).execute(pool).await? as MySqlQueryResult; // Pass the reference to sqlx::query()
             Ok(result.rows_affected())
         }else if let Err(e) = build_result {
             Err(Error::Configuration(e.message.into()))
@@ -168,44 +208,64 @@ impl <'a> QueryBuilder<'a> {
         }
     }
 
-    pub async fn fetch<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Vec<T> {
+    pub async fn fetch<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<Vec<T>, Error> {
 
         let pool = POOL.get().unwrap();
-        let jsons = sqlx::query(&self.build())
-            .try_map(|row:MySqlRow| {
-                let mut json_obj = json!({});
-                let columns = row.columns();
-                for column in columns {
-                    let column_name = column.name();
-                    let value_result: Result<JsonValue, _> = row.try_get(&column_name);
-                    if let Ok(value) = value_result {
-                        json_obj[column_name] = value;
-                    }
-                }
-                Ok(json_obj)
-            })
-            .fetch_all(pool)
-            .await.unwrap();
+        let build_result = self.build();
+        if let Ok(query_string) = build_result {
+            println!("query string {}", query_string);
 
-        jsons.iter()
-            .map(|json| serde_json::from_value(json.clone()).unwrap())
-            .collect()
+            let jsons = sqlx::query(&query_string)
+                .try_map(|row:MySqlRow| {
+                    let mut json_obj = json!({});
+                    let columns = row.columns();
+                    for column in columns {
+                        let column_name = column.name();
+                        let value_result: Result<JsonValue, _> = row.try_get(&column_name);
+                        if let Ok(value) = value_result {
+                            json_obj[column_name] = value;
+                        }
+                    }
+                    Ok(json_obj)
+                })
+                .fetch_all(pool)
+                .await?;
+
+            Ok(jsons.iter()
+                .map(|json| serde_json::from_value::<T>(json.clone()).unwrap())
+                .collect::<Vec<_>>())
+        }else if let Err(e) = build_result {
+            Err(Error::Configuration(e.message.into()))
+        }else {
+            Err(Error::Configuration("未知错误".into()))
+        }
     }
 
-    pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> T {
+    pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<T,Error> {
+
+        self.limit = Some(1);
+
         let pool = POOL.get().unwrap();
-        let query_str = &self.build();
-        println!("query str {:#?}", query_str);
-        let json = sqlx::query(query_str)
-            .try_map(|row:MySqlRow| {
-                self.convert_to_json_value(row)
-            })
-            .fetch_one(pool)
-            .await.unwrap();
+        let build_result = self.build();
+        if let Ok(query_string) = build_result {
+            println!("query string {}", query_string);
 
-        println!("json of product {:#?}", json);
+            let json = sqlx::query(&query_string)
+                .try_map(|row:MySqlRow| {
+                    self.convert_to_json_value(row)
+                })
+                .fetch_one(pool)
+                .await.unwrap();
 
-        serde_json::from_value(json).expect("Failed to deserialize row")
+            println!("json of product {:#?}", json);
+
+            Ok(serde_json::from_value(json).expect("Failed to deserialize row"))
+
+        }else if let Err(e) = build_result {
+            Err(Error::Configuration(e.message.into()))
+        }else {
+            Err(Error::Configuration("未知错误".into()))
+        }
     }
 
     ///将mysql数据行转为JsonValue
@@ -271,14 +331,75 @@ impl <'a> QueryBuilder<'a> {
     }
 
     pub fn build(&self) -> Result<String,QueryBuildError> {
-        let queryString = "";
+        let mut queryString = "".to_string();
         match self.operation {
-            Operation::Select => {},
-            Operation::Insert => {},
-            Operation::Update => {},
-            Operation::Insert_Or_Update => {},
-            Operation::Delete => {},
-            _ => Err(QueryBuildError::new(BuildErrorType::MissingOperation,"please provide one of these operation Select, Insert, Update, Delete, Insert_Or_Update".to_string()))
+            Operation::Select => {
+                if(self.fields.is_empty()){
+                    queryString = format!("select {}",self.fields.join(", "));
+                }else {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
+                }
+                if self.target_table.is_some() {
+                    queryString = format!("{} from {}",queryString, self.target_table.as_ref().unwrap());
+                }else {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"please provide table name to select from".to_string()));
+                }
+                if self.conditions.len() > 0 {
+                    queryString = format!("{} where {}",queryString,self.conditions.join(" AND "));
+                }
+                if self.limit.is_some() {
+                    queryString = format!("{} limit {}",queryString,self.limit.unwrap());
+                }
+            },
+            Operation::Insert => {
+                if self.target_table.is_none() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for insert operation".to_string()));
+                }
+
+                if self.values.is_empty() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingValues, "please provide values for insert operation".to_string()));
+                }
+
+                let columns: Vec<&str> = self.insert_values.keys().map(|s| s.as_str()).collect();
+                let values: Vec<String> = self.insert_values.values().map(|v| v.to_string()).collect();
+
+                queryString = format!("insert into {} ({}) values ({})", self.target_table.as_ref().unwrap(), columns.join(", "), values.join(", "));
+            },
+            Operation::Update => {
+                if self.target_table.is_none() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
+                }
+
+                if self.update_values.is_empty() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingValues, "please provide values for update operation".to_string()));
+                }
+
+                if self.conditions.len() <= 0 {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide filters for Update operation".to_string()));
+                }
+
+                let mut set_values: Vec<String> = Vec::new();
+                for (column, value) in &self.update_values {
+                    set_values.push(format!("{} = {}", column, value));
+                }
+
+                queryString = format!("update {} set {} where {}", self.target_table.as_ref().unwrap(), set_values.join(", "), self.conditions.join(" AND "));
+            },
+            Operation::Insert_Or_Update => {
+                //write code for me
+            },
+            Operation::Delete => {
+                if self.target_table.is_none() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for delete operation".to_string()));
+                }
+                if self.conditions.len() <= 0 {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide filters for  delete operation".to_string()));
+                }
+                queryString = format!("delete from {} where {}", self.target_table.as_ref().unwrap(), self.conditions.join(" AND "));
+            },
+            _ => {
+                return Err(QueryBuildError::new(BuildErrorType::MissingOperation,"please provide one of these operation Select, Insert, Update, Delete, Insert_Or_Update".to_string()));
+            }
         }
         println!("buider: {:#?}",self);
         println!("queryString: {:#?}",queryString);

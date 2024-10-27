@@ -1,10 +1,12 @@
-use crate::mapping::description::{Holding, Column, MappedEnum};
+use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumnType, SqlColumnNameAndValue};
 use crate::query::builder::{Condition, QueryBuilder};
 use chrono::{Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
 
 pub trait Table{
     fn name(&self) -> String;
+    fn columns(&self) -> Vec<SqlColumnNameAndValue>;
+    fn primary_key_as_condition(&self) -> Condition;
 }
 
 /*impl<'a> Table<'a> {
@@ -46,11 +48,11 @@ impl <'a> Varchar2<'a> {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
-pub struct Varchar<'a> {
+#[derive(Clone,Debug)]
+pub struct Varchar {
     name: String,
     value: Option<String>,
-    sub_query: Option<QueryBuilder<'a>>,
+    sub_query: Option<QueryBuilder>,
     holding: Holding,
 }
 
@@ -68,7 +70,7 @@ impl Varchar {
     }
 
     pub fn name_query(name: String, sub_query: Option<QueryBuilder>) -> Self {
-        Varchar { name:name, value:"".to_string(), holding: Holding::SubQuery, sub_query:sub_query }
+        Varchar { name:name, value:Some("".to_string()), holding: Holding::SubQuery, sub_query:sub_query }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -99,11 +101,18 @@ impl From<&str> for Varchar {
 
 
 impl Column for Varchar {
-    fn name(&self) -> &str {
-        let type_self: &Varchar = self as &Varchar;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: Varchar = self as Varchar;
+        self.name.clone()
     }
 
+    fn value(&self) -> NullableSqlValue {
+        self.value.clone().unwrap()
+    }
+
+    fn sql_type(&self) -> SqlColumnType {
+        SqlColumnType::Varchar
+    }
 }
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
@@ -142,9 +151,9 @@ impl Char {
 }
 
 impl Column for Char {
-    fn name(&self) -> &str {
-        let type_self: &Char = self as &Char;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: Char = self as Char;
+        self.name.clone()
     }
 }
 
@@ -184,9 +193,9 @@ impl crate::mapping::types::Tinytext {
 }
 
 impl Column for Tinytext {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Tinytext = self as &crate::mapping::types::Tinytext;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: Tinytext = self as Tinytext;
+        self.name.clone()
     }
 }
 
@@ -226,9 +235,9 @@ impl crate::mapping::types::Text {
 }
 
 impl Column for crate::mapping::types::Text {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Text = self as &crate::mapping::types::Text;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: Text = self as Text;
+        self.name.clone()
     }
 }
 
@@ -268,9 +277,9 @@ impl crate::mapping::types::Mediumtext {
 }
 
 impl Column for crate::mapping::types::Mediumtext {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Mediumtext = self as &crate::mapping::types::Mediumtext;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: Mediumtext = self as Mediumtext;
+        self.name.clone()
     }
 }
 
@@ -310,9 +319,9 @@ impl crate::mapping::types::Longtext {
 }
 
 impl Column for crate::mapping::types::Longtext {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Longtext = self as &crate::mapping::types::Longtext;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: Longtext = self as Longtext;
+        self.name.clone()
     }
 
 }
@@ -339,9 +348,9 @@ impl Int {
 }
 
 impl Column for Int {
-    fn name(&self) -> &str {
-        let type_self: &Int = self as &Int;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: Int = self as Int;
+        self.name.clone()
     }
 }
 
@@ -363,9 +372,9 @@ impl crate::mapping::types::Year {
 }
 
 impl Column for crate::mapping::types::Year {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Year = self as &crate::mapping::types::Year;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: Year = self as Year;
+        self.name.clone()
     }
 }
 
@@ -391,16 +400,16 @@ impl<T> Set<T> {
 }
 
 impl <T> Column for Set<T> {
-    fn name(&self) -> &str {
+    fn name(&self) -> String {
         //let type_self: Set<T> = self as Set<T>;
-        &self.name
+        self.name.clone()
     }
 }
 
 impl <T:MappedEnum> Column for Enum<T> {
-    fn name(&self) -> &str {
+    fn name(&self) -> String {
         //let type_self: &Set = self as &Set;
-        &self.name
+        self.name.clone()
     }
 }
 
@@ -421,10 +430,10 @@ impl Tinyint {
     }
 }
 
-impl Column for crate::mapping::types::Tinyint {
-    fn name(&self) -> &str {
-        let type_self: &Tinyint = self;
-        &type_self.name
+impl Column for Tinyint {
+    fn name(&self) -> String {
+        //let type_self: &Tinyint = self;
+        self.name.clone()
     }
 }
 
@@ -446,9 +455,9 @@ impl crate::mapping::types::Smallint {
 }
 
 impl Column for crate::mapping::types::Smallint {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Smallint = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Smallint = self;
+        self.name.clone()
     }
 }
 
@@ -470,9 +479,9 @@ impl Bigint {
 }
 
 impl Column for Bigint {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Bigint = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Bigint = self;
+        self.name.clone()
     }
 }
 
@@ -494,9 +503,9 @@ impl crate::mapping::types::BigintUnsigned {
 }
 
 impl Column for crate::mapping::types::BigintUnsigned {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::BigintUnsigned = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::BigintUnsigned = self;
+        self.name.clone()
     }
 }
 
@@ -518,9 +527,9 @@ impl crate::mapping::types::Numeric {
 }
 
 impl Column for crate::mapping::types::Numeric {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Numeric = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Numeric = self;
+        self.name.clone()
     }
 }
 
@@ -542,9 +551,9 @@ impl crate::mapping::types::Float {
 }
 
 impl Column for crate::mapping::types::Float {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Float = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Float = self;
+        self.name.clone()
     }
 }
 
@@ -566,9 +575,9 @@ impl crate::mapping::types::Double {
 }
 
 impl Column for crate::mapping::types::Double {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Double = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Double = self;
+        self.name.clone()
     }
 }
 
@@ -590,9 +599,9 @@ impl crate::mapping::types::Decimal {
 }
 
 impl Column for crate::mapping::types::Decimal {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Decimal = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Decimal = self;
+        self.name.clone()
     }
 }
 
@@ -614,9 +623,9 @@ impl crate::mapping::types::Date {
 }
 
 impl Column for crate::mapping::types::Date {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Date = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Date = self;
+        self.name.clone()
     }
 }
 
@@ -638,9 +647,9 @@ impl crate::mapping::types::Time {
 }
 
 impl Column for crate::mapping::types::Time {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Time = self;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Time = self;
+        self.name.clone()
     }
 }
 
@@ -662,9 +671,9 @@ impl DateTime {
 }
 
 impl Column for DateTime {
-    fn name(&self) -> &str {
-        let type_self: &DateTime = self as &DateTime;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &DateTime = self as &DateTime;
+        self.name.clone()
     }
 }
 
@@ -690,9 +699,9 @@ impl crate::mapping::types::Datetime {
 }
 
 impl Column for crate::mapping::types::Datetime {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Datetime = self as &crate::mapping::types::Datetime;
-        &type_self.name
+    fn name(&self) -> String {
+       // let type_self: &crate::mapping::types::Datetime = self as &crate::mapping::types::Datetime;
+        self.name.clone()
     }
 }
 
@@ -718,9 +727,9 @@ impl crate::mapping::types::Timestamp {
 }
 
 impl Column for crate::mapping::types::Timestamp {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Timestamp = self as &crate::mapping::types::Timestamp;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Timestamp = self as &crate::mapping::types::Timestamp;
+        self.name.clone()
     }
 }
 
@@ -760,9 +769,9 @@ impl crate::mapping::types::Json {
 }
 
 impl Column for crate::mapping::types::Json {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Json = self as &crate::mapping::types::Json;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Json = self as &crate::mapping::types::Json;
+        self.name.clone()
     }
 }
 
@@ -784,8 +793,8 @@ impl crate::mapping::types::Blob {
 }
 
 impl Column for crate::mapping::types::Blob {
-    fn name(&self) -> &str {
-        let type_self: &crate::mapping::types::Blob = self as &crate::mapping::types::Blob;
-        &type_self.name
+    fn name(&self) -> String {
+        //let type_self: &crate::mapping::types::Blob = self as &crate::mapping::types::Blob;
+        self.name.clone()
     }
 }
