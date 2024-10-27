@@ -15,12 +15,47 @@ use std::error::Error;
 use crate::query::builder::{Condition, QueryBuilder};
 
 pub struct MappingGenerateConfig{
-    
+    pub output_dir:String,
+    pub name_of_crate_holds_enums: String,
+    pub boolean_columns: HashMap<String, HashSet<String>>,
+    pub trait_for_enum_types: HashMap<String, String>
+}
+
+impl MappingGenerateConfig{
+    pub fn new(output_dir:String, name_of_crate_holds_enums:String, boolean_columns:HashMap<String, HashSet<String>>, trait_for_enum_types:HashMap<String, String>)->Self{
+        MappingGenerateConfig{
+            output_dir,
+            name_of_crate_holds_enums,
+            boolean_columns,
+            trait_for_enum_types
+        }
+    }
+
+    pub fn default()->Self{
+        MappingGenerateConfig{
+            output_dir:"target/generated/mapping".to_string(),
+            name_of_crate_holds_enums : "shared".to_string(),
+            boolean_columns:HashMap::new(),
+            trait_for_enum_types:HashMap::new()
+        }
+    }
+
+    pub fn default_with_enum_crate_name(enum_crate_name:String)->Self{
+        MappingGenerateConfig{
+            output_dir:"target/generated/mapping".to_string(),
+            name_of_crate_holds_enums : enum_crate_name,
+            boolean_columns:HashMap::new(),
+            trait_for_enum_types:HashMap::new()
+        }
+    }
 }
 
 //generate table mappings to db & table definitions
-pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, mappings_out_dir:&str, name_of_crate_holds_enums: String, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
-
+pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, config: MappingGenerateConfig){ ///*mappings_out_dir:&str, name_of_crate_holds_enums: String, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>*/
+    let mappings_out_dir = config.output_dir.clone();
+    let name_of_crate_holds_enums = config.name_of_crate_holds_enums.clone();
+    let boolean_columns = config.boolean_columns.clone();
+    let trait_for_enum_types = config.trait_for_enum_types.clone();
     let mappings_out_path = std::path::Path::new(&mappings_out_dir);
     prepare_directory(mappings_out_path);
 
@@ -33,7 +68,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     match tables {
         Ok(tables) => {
             for table in tables {
-                let generated_entity_info = generate_mapping(conn, table, mappings_out_path, name_of_crate_holds_enums.clone(), boolean_columns, trait_for_enum_types).await;
+                let generated_entity_info = generate_mapping(conn, table, mappings_out_path, name_of_crate_holds_enums.clone(), &boolean_columns, &trait_for_enum_types).await;
                 generated_entities.push(generated_entity_info);
             }
             println!("entities generated successfully");
@@ -67,7 +102,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 }
 
 async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path, name_of_crate_holds_enums: String,
-                          boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>) -> GeneratedStructInfo{
+                          boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<String, String>) -> GeneratedStructInfo{
     let struct_name = format!("{}Table",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name)));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
     let out_file_name_without_ext = format!("{}Table",stringUtils::to_camel_case(&table.name));

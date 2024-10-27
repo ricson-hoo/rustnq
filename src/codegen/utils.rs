@@ -3,6 +3,8 @@ use std::fs;
 use sqlx::{AnyConnection, AnyPool, Column, Row};
 use sqlx::any::AnyRow;
 use sqlx_mysql::MySqlRow;
+use crate::codegen::entity::FieldNamingConvention;
+use crate::utils::stringUtils;
 
 #[derive(Debug)]
 pub struct TableRow {
@@ -40,34 +42,6 @@ impl From<&MySqlRow> for TableRow {
     }
 }
 
-//这里用不了
-/*impl<'r> sqlx::FromRow<'r, MySqlRow> for TableRow {
-    fn from_row(row: &'r MySqlRow) -> Result<Self, sqlx::Error> {
-        let mut str = "";
-        for (column, value) in row.columns().iter().zip(row.clone().values) {
-            if column.name().starts_with("Tables_in_") {
-                str = row.try_get(column.name())?;
-                break;
-            }
-        }
-        Ok(TableRow {
-            name: str.to_string()
-        })
-    }
-}
-
-//这里用不了
-impl<'r> sqlx::FromRow<'r, AnyRow> for TableFieldRow {
-    fn from_row(row: &'r AnyRow) -> Result<Self, sqlx::Error> {
-        Ok(TableFieldRow {
-            name: row.try_get("Field").unwrap_or("".to_string()),
-            data_type: row.try_get("Type").unwrap_or("".to_string()),
-            nullable: "Yes" == row.try_get("Null").unwrap_or("".to_string()),
-            is_primary_key: "PRI" == row.try_get("Key").unwrap_or("".to_string()),
-        })
-    }
-}
-*/
 impl From<&MySqlRow> for TableFieldRow {
     fn from(row: &MySqlRow) -> Self {
         let name_value = row.try_get::<String,_>("Field").unwrap_or_else(|error|{
@@ -153,5 +127,25 @@ pub fn prepare_directory(path:& std::path::Path){
     }
     if path.is_dir() && !path.exists() {
         fs::create_dir_all(path).expect(&format!("Failed to create directory {}", path.display()));
+    }
+}
+
+pub fn format_name(name:String, convention:FieldNamingConvention) -> String{
+    match convention {
+       FieldNamingConvention::CamelCase => {
+           stringUtils::to_camel_case(&name)
+       }
+        FieldNamingConvention::SnakeCase => {
+            let mut result = String::new();
+            let mut first = true;
+            for c in name.chars() {
+                if c.is_uppercase() && !first {
+                    result.push('_');
+                }
+                result.push(c.to_lowercase().next().unwrap());
+                first = false;
+            }
+            result
+        }
     }
 }

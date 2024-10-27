@@ -29,8 +29,54 @@ pub(crate) struct GeneratedStructInfo {
     pub enum_file_names_without_ext: Vec<String>,//camelCase
 }
 
+pub(crate) enum FieldNamingConvention {
+    CamelCase,
+    SnakeCase
+}
+
+pub struct EntityGenerateConfig{
+    pub output_dir:String,
+    pub naming_convention: FieldNamingConvention,
+    pub boolean_columns: HashMap<String, HashSet<String>>,
+    pub trait_for_enum_types: HashMap<String, String>
+}
+
+impl EntityGenerateConfig{
+    fn new(output_dir:String, naming_convention: FieldNamingConvention, boolean_columns: HashMap<String, HashSet<String>>, trait_for_enum_types: HashMap<String, String>)->Self{
+        EntityGenerateConfig{
+            output_dir,
+            naming_convention,
+            boolean_columns,
+            trait_for_enum_types
+        }
+    }
+    fn default()->Self{
+        EntityGenerateConfig{
+            output_dir : "target/generated/entity".to_string(),
+            naming_convention: FieldNamingConvention::SnakeCase,
+            boolean_columns:HashMap::new(),
+            trait_for_enum_types:HashMap::new()
+        }
+    }
+
+    fn default_with_naming_convention(naming_convention:FieldNamingConvention)->Self{
+        EntityGenerateConfig{
+            output_dir : "target/generated/entity".to_string(),
+            naming_convention,
+            boolean_columns:HashMap::new(),
+            trait_for_enum_types:HashMap::new()
+        }
+    }
+}
+
+
 //generate entities according to db & table definitions
-pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, entity_out_dir:&str, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>){
+pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, config:EntityGenerateConfig){/*entity_out_dir:&str, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>*/
+    let entity_out_dir = config.output_dir.clone();
+    let boolean_columns = config.boolean_columns.clone();
+    let trait_for_enum_types = config.trait_for_enum_types.clone();
+    let naming_convention = config.naming_convention;
+
     let entity_out_path = std::path::Path::new(&entity_out_dir);
     utils::prepare_directory(entity_out_path);
 
@@ -43,7 +89,7 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     match tables {
         Ok(tables) => {
             for table in tables {
-                let generated_entity_info = generate_entity(conn, table, entity_out_path, boolean_columns, trait_for_enum_types).await;
+                let generated_entity_info = generate_entity(conn, table, entity_out_path, &boolean_columns, &trait_for_enum_types).await;
                 generated_entities.push(generated_entity_info);
             }
             println!("entities generated successfully");
@@ -107,7 +153,7 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 }
 
 async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path,
-                        boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>) -> GeneratedStructInfo{
+                        boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<String, String>) -> GeneratedStructInfo{
     let struct_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
     let out_file = output_path.join(format!("{}.rs", stringUtils::to_camel_case(&table.name)));
@@ -454,7 +500,7 @@ impl SqlColumnType {
 
 
 //convert mysql data field type to rust type
-fn resolve_type_from_column_definition(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>, generated_code_dir: &Path) -> StructFieldType {
+fn resolve_type_from_column_definition(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<String, String>, generated_code_dir: &Path) -> StructFieldType {
     let definition_array: Vec<&str> = column_definition.split('(').collect();
     let data_type = definition_array[0];//.replace(" ", "_");
     let mut field_type_qualified_name = "".to_string();
@@ -530,7 +576,7 @@ fn get_qualified_enum_key(enum_value: &str, unsupported_char_in_enum_key: &HashS
     qualified_key
 }
 
-fn generate_and_get_enum_name(table_name: &str, column_name: &str, column_definition: &str, trait_for_enum_types: &HashMap<&str, &str>, generated_code_dir:&Path) -> (String,String) {
+fn generate_and_get_enum_name(table_name: &str, column_name: &str, column_definition: &str, trait_for_enum_types: &HashMap<String, String>, generated_code_dir:&Path) -> (String,String) {
     let enum_name = get_enum_name(table_name, column_name);
     let enum_dir = generated_code_dir.join("enums");
     let enum_file_name_without_ext = format!("{}{}",stringUtils::to_camel_case(table_name),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(column_name)));
@@ -539,7 +585,7 @@ fn generate_and_get_enum_name(table_name: &str, column_name: &str, column_defini
     //format!("{}.{}", get_package_from_directory(generated_enum_path), enum_class_name)
 }
 
-fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, column_name: &str, enum_dir: &std::path::PathBuf, enum_file_name_without_ext: &str, trait_for_enum_types: &HashMap<&str, &str>) {
+fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, column_name: &str, enum_dir: &std::path::PathBuf, enum_file_name_without_ext: &str, trait_for_enum_types: &HashMap<String, String>) {
     let file_path = enum_dir.join(format!("{}.rs",enum_file_name_without_ext));
     utils::prepare_directory(&file_path);
     // Open the file for writing
@@ -555,9 +601,9 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     let pattern2 = format!("{}*",table_name);
 
     if trait_for_enum_types.contains_key(&pattern1.as_str()) {
-        trait_to_be_implemented = trait_for_enum_types[pattern1.as_str()];
+        trait_to_be_implemented = &*trait_for_enum_types[pattern1.as_str()];
     } else if trait_for_enum_types.contains_key(&pattern2.as_str()){
-        trait_to_be_implemented = trait_for_enum_types[pattern2.as_str()];
+        trait_to_be_implemented = &*trait_for_enum_types[pattern2.as_str()];
     }
 
     let mut buf_writer = BufWriter::new(file);
