@@ -58,14 +58,14 @@ impl From<&MySqlRow> for TableFieldRow {
         let nullable_value = match row.try_get::<String, _>("Null") {
             Ok(value) => value,
             Err(_) => {
-                let blob_value: Vec<u8> = row.try_get("Type").expect("Failed to get BLOB value");
+                let blob_value: Vec<u8> = row.try_get("Null").expect("Failed to get BLOB value");
                 String::from_utf8_lossy(&blob_value).to_string()
             }
         };
         let primary_value = match row.try_get::<String, _>("Key") {
             Ok(value) => value,
             Err(_) => {
-                let blob_value: Vec<u8> = row.try_get("Type").expect("Failed to get BLOB value");
+                let blob_value: Vec<u8> = row.try_get("Key").expect("Failed to get BLOB value");
                 String::from_utf8_lossy(&blob_value).to_string()
             }
         };
@@ -73,8 +73,8 @@ impl From<&MySqlRow> for TableFieldRow {
         TableFieldRow {
             name: name_value,
             data_type: type_value,
-            nullable: "Yes" == nullable_value,
-            is_primary_key: "PRI" == primary_value,
+            nullable: "Yes" == nullable_value || "YES" == nullable_value,
+            is_primary_key: "Pri" == primary_value || "PRI" == primary_value,
         }
     }
 }
@@ -130,12 +130,12 @@ pub fn prepare_directory(path:& std::path::Path){
     }
 }
 
-pub fn format_name(name:String, convention:FieldNamingConvention) -> String{
+pub fn format_name(name:&str, convention:FieldNamingConvention) -> String{
     match convention {
        FieldNamingConvention::CamelCase => {
-           stringUtils::to_camel_case(&name)
+           stringUtils::to_camel_case(name)
        }
-        FieldNamingConvention::SnakeCase => {
+       FieldNamingConvention::SnakeCase => {
             let mut result = String::new();
             let mut first = true;
             for c in name.chars() {
@@ -144,6 +144,23 @@ pub fn format_name(name:String, convention:FieldNamingConvention) -> String{
                 }
                 result.push(c.to_lowercase().next().unwrap());
                 first = false;
+            }
+            result
+        }
+        FieldNamingConvention::PascalCase => {
+            let mut result = String::new();
+            let mut capitalize_next = true;
+            for c in name.chars() {
+                if c.is_alphanumeric() {
+                    if capitalize_next {
+                        result.push(c.to_uppercase().next().unwrap());
+                        capitalize_next = false;
+                    } else {
+                        result.push(c.to_lowercase().next().unwrap());
+                    }
+                } else {
+                    capitalize_next = true;
+                }
             }
             result
         }

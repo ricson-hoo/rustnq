@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::error::Error;
 use anyhow::bail;
 use chrono::Local;
-use crate::mapping::types::{Int, Varchar, Enum, Set, DateTime};
+use crate::mapping::types::*;
 use crate::utils::stringUtils;
 use serde::{Serialize,Deserialize};
 use sqlx::encode::IsNull;
@@ -12,58 +12,36 @@ pub enum Holding{
     Name,Value,NameValue,SubQuery
 }
 
-pub enum SqlColumnNameAndValue {
-    Char(String, Option<String>),
-    Varchar(String, Option<String>),
-    Tinytext(String, Option<String>),
-    Text(String, Option<String>),
-    Mediumtext(String, Option<String>),
-    Longtext(String, Option<String>),
-    Enum(String, Option<String>),
-    Set(String, Option<Vec<String>>),
-    Tinyint(String, Option<Vec<String>>),
-    Smallint(String, Option<i16>),
-    Int(String, Option<i32>),
-    Bigint(String, Option<i64>),
-    BigintUnsigned(String, Option<u64>),
-    Numeric(String, Option<f64>),
-    Float(String, Option<f64>),
-    Double(String, Option<f64>),
-    Decimal(String, Option<f64>),
-    Date(String, Option<chrono::NaiveDate>),
-    Time(String, Option<chrono::NaiveTime>),
-    Datetime(String, Option<chrono::NaiveDateTime>),
-    Timestamp(String, Option<chrono::NaiveDateTime>),
-    Year(String, Option<i32>),
-    Blob(String, Option<Vec<u8>>),
-    Json(String, Option<String>),
-}
-
-pub trait Column {
-    fn name(&self) -> String;
-}
-
-pub trait MappedEnum {
-    fn name(&self) -> &str;
-}
-
-// Implement MappedEnum for any type T that implements MappedEnum
-/*impl<'a, T: MappedEnum> MappedEnum for &'a T {
-    fn name(&self) -> &str {
-        (*self).name()
-    }
-}*/
-
-
-/*pub trait Column<'a> {
-    fn name(&self) -> &'a str;
-    fn value(&self) -> &'a str;
-}*/
-
-//pub struct ColumnType<'a>(Box<dyn Column<'a>>);
-
 #[derive(Clone,Debug)]
-pub enum SqlColumnType {
+pub enum SqlColumn<T = ()> {
+    Char(Char),
+    Varchar(Varchar),
+    Tinytext(Tinytext),
+    Text(Text),
+    Mediumtext(Mediumtext),
+    Longtext(Longtext),
+    Enum(Enum<T>),
+    Set(Set<T>),
+    Tinyint(Tinyint),
+    Smallint(Smallint),
+    Int(Int),
+    Bigint(Bigint),
+    BigintUnsigned(BigintUnsigned),
+    Numeric(Numeric),
+    Float(Float),
+    Double(Double),
+    Decimal(Decimal),
+    Date(Date),
+    Time(Time),
+    Datetime(Datetime),
+    Timestamp(Timestamp),
+    Year(Year),
+    Blob(Blob),
+    Json(Json),
+}
+
+//#[derive(Clone,Debug)]
+/*pub enum SqlColumnType {
     Char,
     Varchar,
     Tinytext,
@@ -88,6 +66,33 @@ pub enum SqlColumnType {
     Year,
     Blob,
     Json
+}*/
+
+#[derive(Debug,Clone)]
+enum RustDataType {
+    String,
+    Enum,
+    Vec,
+    i8,
+    i16,
+    i32,
+    i64,
+    u64,
+    f64,
+    f32,
+    u8,//byte
+    chronoNaiveDate,
+    chronoNaiveTime,
+    chronoNaiveDateTime,
+}
+
+pub trait Column {
+    fn name(&self) -> String;
+    //fn value(&self) -> String;//?
+}
+
+pub trait MappedEnum {
+    fn name(&self) -> &str;
 }
 
 impl FromStr for SqlColumnType {
@@ -135,7 +140,8 @@ pub struct MysqlColumnDefinition{
 pub struct TableFieldConstructInfo {
     pub field_name:String,
     pub field_type:String,
-    pub default_value_on_new:String,
+    pub initial_assignment_with_name:String,
+    pub initial_assignment_with_name_and_value:String,
     pub import_statements:Vec<String>,
     pub sql_raw_type:String, //如Char,Varchar,Tinytext,Datetime,Timestamp...
 }

@@ -24,6 +24,7 @@ pub enum BuildErrorType {
     MissingCondition,
     MissingTargetTable,
     MissingFields,
+    MissingValues,
     OtherError,
 }
 
@@ -105,7 +106,7 @@ pub struct QueryBuilder {
     //from: Option<&'a dyn Table>,
     target_table: Option<String>,//Option<&'a dyn Table>,
     fields: Vec<String>,
-    values: Vec<String>,//insert values or update values
+    upsert_values: Vec<String>,//insert values or update values
     conditions: Vec<Condition>,
     limit:Option<i32>,
 }
@@ -114,34 +115,34 @@ impl QueryBuilder {
 
     pub fn init_with_select_fields(fields: Vec<&impl Column>) -> QueryBuilder {
         let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, target_table:None, fields:fields_strs, conditions: vec![] }
+        QueryBuilder { operation:Operation::Select, target_table:None, fields:fields_strs, conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        table.insert_query_builder()
-        /*QueryBuilder { operation:Operation::Insert,target_table:Some(table.name()), fields:vec![], conditions: vec![] }*/
+        //table.insert_query_builder()
+        QueryBuilder { operation:Operation::Insert,target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        table.update_query_builder()
-        /*QueryBuilder { operation:Operation::Update,target_table:Some(table.name()), fields:vec![], conditions: vec![] }*/
+        //table.update_query_builder()
+        QueryBuilder { operation:Operation::Update,target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        table.upsert_query_builder()
-        /*QueryBuilder { operation:Operation::Insert_Or_Update,target_table:Some(table.name()), fields:vec![], conditions: vec![] }*/
+        //table.upsert_query_builder()
+        QueryBuilder { operation:Operation::Insert_Or_Update,target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![], limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: Some(1) }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![condition], limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: Some(1) }
     }
 
     pub fn delete_rows_with_conditions<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![condition], limit: None }
+        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: None }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
@@ -170,7 +171,7 @@ impl QueryBuilder {
     }
 
     pub fn limit(mut self, limit:i32) -> QueryBuilder {
-        self.limit = limit;
+        self.limit = Some(limit);
         self
     }
 
@@ -241,7 +242,7 @@ impl QueryBuilder {
         }
     }
 
-    pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<T,Error> {
+    pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&mut self) -> Result<T,Error> {
 
         self.limit = Some(1);
 
@@ -345,7 +346,10 @@ impl QueryBuilder {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"please provide table name to select from".to_string()));
                 }
                 if self.conditions.len() > 0 {
-                    queryString = format!("{} where {}",queryString,self.conditions.join(" AND "));
+                    queryString = format!("{} where {}",queryString, self.conditions.iter()
+                            .map(|condition| condition.query.clone())
+                            .collect::<Vec<String>>()
+                            .join(" AND "));
                 }
                 if self.limit.is_some() {
                     queryString = format!("{} limit {}",queryString,self.limit.unwrap());
@@ -356,12 +360,12 @@ impl QueryBuilder {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for insert operation".to_string()));
                 }
 
-                if self.values.is_empty() {
+                if self.upsert_values.is_empty() {
                     return Err(QueryBuildError::new(BuildErrorType::MissingValues, "please provide values for insert operation".to_string()));
                 }
 
-                let columns: Vec<&str> = self.insert_values.keys().map(|s| s.as_str()).collect();
-                let values: Vec<String> = self.insert_values.values().map(|v| v.to_string()).collect();
+                let columns: Vec<&str> = vec![];//self.upsert_values.keys().map(|s| s.as_str()).collect();
+                let values: Vec<String> = vec![];//self.upsert_values.values().map(|v| v.to_string()).collect();
 
                 queryString = format!("insert into {} ({}) values ({})", self.target_table.as_ref().unwrap(), columns.join(", "), values.join(", "));
             },
@@ -370,7 +374,7 @@ impl QueryBuilder {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
                 }
 
-                if self.update_values.is_empty() {
+                if self.upsert_values.is_empty() {
                     return Err(QueryBuildError::new(BuildErrorType::MissingValues, "please provide values for update operation".to_string()));
                 }
 
@@ -379,11 +383,14 @@ impl QueryBuilder {
                 }
 
                 let mut set_values: Vec<String> = Vec::new();
-                for (column, value) in &self.update_values {
-                    set_values.push(format!("{} = {}", column, value));
-                }
+                //for (column, value) in &self.update_values {
+                //    set_values.push(format!("{} = {}", column, value));
+                //}
 
-                queryString = format!("update {} set {} where {}", self.target_table.as_ref().unwrap(), set_values.join(", "), self.conditions.join(" AND "));
+                queryString = format!("update {} set {} where {}", self.target_table.as_ref().unwrap(), set_values.join(", "), self.conditions.iter()
+                    .map(|condition| condition.query.clone())
+                    .collect::<Vec<String>>()
+                    .join(" AND "));
             },
             Operation::Insert_Or_Update => {
                 //write code for me
@@ -395,7 +402,10 @@ impl QueryBuilder {
                 if self.conditions.len() <= 0 {
                     return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide filters for  delete operation".to_string()));
                 }
-                queryString = format!("delete from {} where {}", self.target_table.as_ref().unwrap(), self.conditions.join(" AND "));
+                queryString = format!("delete from {} where {}", self.target_table.as_ref().unwrap(), self.conditions.iter()
+                    .map(|condition| condition.query.clone())
+                    .collect::<Vec<String>>()
+                    .join(" AND "));
             },
             _ => {
                 return Err(QueryBuildError::new(BuildErrorType::MissingOperation,"please provide one of these operation Select, Insert, Update, Delete, Insert_Or_Update".to_string()));

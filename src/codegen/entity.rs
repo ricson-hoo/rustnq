@@ -10,7 +10,7 @@ use sqlx::pool::PoolConnection;
 use sqlx::{AnyConnection, AnyPool, Error};
 use sqlx_mysql::MySql;
 use crate::codegen::utils;
-use crate::codegen::utils::TableRow;
+use crate::codegen::utils::{format_name, TableRow};
 use crate::utils::stringUtils;
 use serde::{Serialize, Deserialize};
 use crate::mapping::description::SqlColumnType;
@@ -29,9 +29,11 @@ pub(crate) struct GeneratedStructInfo {
     pub enum_file_names_without_ext: Vec<String>,//camelCase
 }
 
-pub(crate) enum FieldNamingConvention {
+#[derive(Clone, Copy)]
+pub enum FieldNamingConvention {
     CamelCase,
-    SnakeCase
+    SnakeCase,
+    PascalCase
 }
 
 pub struct EntityGenerateConfig{
@@ -42,7 +44,7 @@ pub struct EntityGenerateConfig{
 }
 
 impl EntityGenerateConfig{
-    fn new(output_dir:String, naming_convention: FieldNamingConvention, boolean_columns: HashMap<String, HashSet<String>>, trait_for_enum_types: HashMap<String, String>)->Self{
+    pub fn new(output_dir:String, naming_convention: FieldNamingConvention, boolean_columns: HashMap<String, HashSet<String>>, trait_for_enum_types: HashMap<String, String>)->Self{
         EntityGenerateConfig{
             output_dir,
             naming_convention,
@@ -50,7 +52,7 @@ impl EntityGenerateConfig{
             trait_for_enum_types
         }
     }
-    fn default()->Self{
+    pub fn default()->Self{
         EntityGenerateConfig{
             output_dir : "target/generated/entity".to_string(),
             naming_convention: FieldNamingConvention::SnakeCase,
@@ -59,7 +61,7 @@ impl EntityGenerateConfig{
         }
     }
 
-    fn default_with_naming_convention(naming_convention:FieldNamingConvention)->Self{
+    pub fn default_with_naming_convention(naming_convention:FieldNamingConvention)->Self{
         EntityGenerateConfig{
             output_dir : "target/generated/entity".to_string(),
             naming_convention,
@@ -89,7 +91,7 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     match tables {
         Ok(tables) => {
             for table in tables {
-                let generated_entity_info = generate_entity(conn, table, entity_out_path, &boolean_columns, &trait_for_enum_types).await;
+                let generated_entity_info = generate_entity(conn, table, entity_out_path, &boolean_columns, &trait_for_enum_types, naming_convention).await;
                 generated_entities.push(generated_entity_info);
             }
             println!("entities generated successfully");
@@ -127,8 +129,8 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     writeln!(entity_mod_out_file_buf_writer,"pub mod enums;").expect("Failed to write entity/mod.rs");
 
     for generated_entity_info in generated_entities {
-        writeln!(entity_mod_out_file_buf_writer,"pub mod {};",stringUtils::to_camel_case(&generated_entity_info.file_name_without_ext)).expect("Failed to write entity/mod.rs");
-        writeln!(entity_mod_out_file_buf_writer,"pub use {}::{};",stringUtils::to_camel_case(&generated_entity_info.file_name_without_ext),stringUtils::begin_with_upper_case(&generated_entity_info.struct_name)).expect("Failed to write entity/mod.rs");
+        writeln!(entity_mod_out_file_buf_writer,"pub mod {};",format_name(&generated_entity_info.file_name_without_ext, naming_convention)).expect("Failed to write entity/mod.rs");
+        writeln!(entity_mod_out_file_buf_writer,"pub use {}::{};",format_name(&generated_entity_info.file_name_without_ext, naming_convention),stringUtils::begin_with_upper_case(&generated_entity_info.struct_name)).expect("Failed to write entity/mod.rs");
         if !generated_entity_info.enum_file_names_without_ext.is_empty(){
             for enum_file_name in generated_entity_info.enum_file_names_without_ext{
                 writeln!(entity_enum_mod_out_file_buf_writer,"pub mod {};",enum_file_name).expect("Failed to write entity/enum/mod.rs");
@@ -153,10 +155,10 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 }
 
 async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path,
-                        boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<String, String>) -> GeneratedStructInfo{
-    let struct_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name));
+                        boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<String, String>, naming_convention:FieldNamingConvention) -> GeneratedStructInfo{
+    let struct_name = stringUtils::begin_with_upper_case(&format_name(&table.name, naming_convention));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
-    let out_file = output_path.join(format!("{}.rs", stringUtils::to_camel_case(&table.name)));
+    let out_file = output_path.join(format!("{}.rs", format_name(&table.name, naming_convention)));
 
     utils::prepare_directory(&out_file);
     // Open the file for writing
@@ -211,9 +213,9 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                         struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_date\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_date\")]".to_string()); //note:this is a temp solution
                     }
-                    let mut struct_field_definition = format!("pub {}:{},",stringUtils::to_camel_case(&it.name),field_type_qualified_name);
+                    let mut struct_field_definition = format!("pub {}:{},",format_name(&it.name, naming_convention),field_type_qualified_name);
                     struct_fields.push(struct_field_definition);
-                    struct_fields_init.push(format!("{}:{},",stringUtils::to_camel_case(&it.name),"None"));
+                    struct_fields_init.push(format!("{}:{},",format_name(&it.name, naming_convention),"None"));
                 }
             }
         }
@@ -258,23 +260,6 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
         enum_file_names_without_ext: enum_file_names_without_ext
     }
 }
-#[derive(Debug,Clone)]
-enum RustDataType {
-    String,
-    Enum,
-    Vec,
-    i8,
-    i16,
-    i32,
-    i64,
-    u64,
-    f64,
-    f32,
-    u8,//byte
-    chronoNaiveDate,
-    chronoNaiveTime,
-    chronoNaiveDateTime,
-}
 
 impl RustDataType {
     fn resolve_qualified_type_name(&self, containerType:Option<RustDataType>, enumName:Option<&str>) -> String {
@@ -312,33 +297,6 @@ impl RustDataType {
     }
 }
 
-/*#[derive(Debug)]
-enum MysqlDataType {
-    Char,
-    Varchar,
-    Tinytext,
-    Text,
-    Mediumtext,
-    Longtext,
-    Enum,
-    Set,
-    Tinyint,
-    Smallint,
-    Int,
-    Bigint,
-    BigintUnsigned,
-    Numeric,
-    Float,
-    Double,
-    Decimal,
-    Date,
-    Time,
-    DateTime,
-    Timestamp,
-    Year,
-    Blob,
-    Json
-}*/
 #[derive(Debug,Clone)]
 struct MysqlDataTypeProp {
     rust_type:  RustDataType,
@@ -600,9 +558,9 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     let pattern1 = format!("{}_{}",table_name,column_name);
     let pattern2 = format!("{}*",table_name);
 
-    if trait_for_enum_types.contains_key(&pattern1.as_str()) {
+    if trait_for_enum_types.contains_key(pattern1.as_str()) {
         trait_to_be_implemented = &*trait_for_enum_types[pattern1.as_str()];
-    } else if trait_for_enum_types.contains_key(&pattern2.as_str()){
+    } else if trait_for_enum_types.contains_key(pattern2.as_str()){
         trait_to_be_implemented = &*trait_for_enum_types[pattern2.as_str()];
     }
 

@@ -3,11 +3,11 @@ use crate::mapping::types::Table;
 use crate::query::builder::QueryBuilder;
 
 pub fn select(fields: Vec<& impl Column>) -> QueryBuilder{
-    QueryBuilder::select_fields(fields)
+    QueryBuilder::init_with_select_fields(fields)
 }
 
 pub fn insert_or_update<A>(table: &A) -> QueryBuilder where A : Table{
-    QueryBuilder::insert_or_update(table)
+    QueryBuilder::upsert_table_with_value(table)
 }
 
 /*pub fn insert_into<'a,A>(table:&'a A) -> QueryBuilder<'a> where A : Table{

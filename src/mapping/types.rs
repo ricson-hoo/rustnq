@@ -1,12 +1,12 @@
-use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumnType, SqlColumnNameAndValue};
+use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumnType, SqlColumn};
 use crate::query::builder::{Condition, QueryBuilder};
 use chrono::{Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
 
 pub trait Table{
     fn name(&self) -> String;
-    fn columns(&self) -> Vec<SqlColumnNameAndValue>;
-    fn primary_key_as_condition(&self) -> Condition;
+    fn columns(&self) -> Vec<SqlColumn>;
+    fn primary_key(&self) -> Vec<SqlColumn>;
 }
 
 /*impl<'a> Table<'a> {
@@ -65,6 +65,10 @@ impl Varchar {
         Varchar { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
+    pub fn val(&self) -> String {
+        self.value.clone().unwrap()
+    }
+
     pub fn name_value(name: String, value: Option<String>) -> Self {
         Varchar { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
@@ -106,13 +110,10 @@ impl Column for Varchar {
         self.name.clone()
     }
 
-    fn value(&self) -> NullableSqlValue {
-        self.value.clone().unwrap()
-    }
-
+/*
     fn sql_type(&self) -> SqlColumnType {
         SqlColumnType::Varchar
-    }
+    }*/
 }
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
@@ -707,21 +708,21 @@ impl Column for crate::mapping::types::Datetime {
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
 pub struct Timestamp{
-    value: chrono::DateTime<Local>,
+    value: Option<chrono::NaiveDateTime>,
     name: String,
     holding: Holding
 }
 
 impl crate::mapping::types::Timestamp {
     pub fn name(name: String) -> Self {
-        crate::mapping::types::Timestamp { name:name, value: Local::now() ,holding: Holding::Name }
+        crate::mapping::types::Timestamp { name:name, value: None ,holding: Holding::Name }
     }
 
-    fn value(value: chrono::DateTime<Local>) -> Self {
+    fn value(value: Option<chrono::NaiveDateTime>) -> Self {
         crate::mapping::types::Timestamp { value:value, name:"".to_string() ,holding: Holding::Value }
     }
 
-    pub fn name_value(name: String, value: chrono::DateTime<Local>) -> Self {
+    pub fn name_value(name: String, value: Option<chrono::NaiveDateTime>) -> Self {
         crate::mapping::types::Timestamp { name:name, value:value, holding: Holding::Value }
     }
 }
