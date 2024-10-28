@@ -1,9 +1,9 @@
-use crate::mapping::description::{Column};
+use crate::mapping::description::{Table,Column};
 use std::{fmt, fmt::write, format, result};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
-use crate::mapping::types::{Table, Varchar};
+use crate::mapping::types::{Varchar};
 use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;

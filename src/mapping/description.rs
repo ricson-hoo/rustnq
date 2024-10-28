@@ -7,6 +7,14 @@ use crate::utils::stringUtils;
 use serde::{Serialize,Deserialize};
 use sqlx::encode::IsNull;
 
+pub trait Table{
+    fn name(&self) -> String;
+    fn columns(&self) -> Vec<SqlColumn>;
+    fn primary_key(&self) -> Vec<SqlColumn>;
+}
+
+pub trait EntityEnum {}
+
 #[derive(Serialize,Deserialize,Clone,Copy,Debug)]
 pub enum Holding{
     Name,Value,NameValue,SubQuery
@@ -14,30 +22,30 @@ pub enum Holding{
 
 #[derive(Clone,Debug)]
 pub enum SqlColumn<T = ()> {
-    Char(Char),
-    Varchar(Varchar),
-    Tinytext(Tinytext),
-    Text(Text),
-    Mediumtext(Mediumtext),
-    Longtext(Longtext),
-    Enum(Enum<T>),
-    Set(Set<T>),
-    Tinyint(Tinyint),
-    Smallint(Smallint),
-    Int(Int),
-    Bigint(Bigint),
-    BigintUnsigned(BigintUnsigned),
-    Numeric(Numeric),
-    Float(Float),
-    Double(Double),
-    Decimal(Decimal),
-    Date(Date),
-    Time(Time),
-    Datetime(Datetime),
-    Timestamp(Timestamp),
-    Year(Year),
-    Blob(Blob),
-    Json(Json),
+    Char(Option<Char>),
+    Varchar(Option<Varchar>),
+    Tinytext(Option<Tinytext>),
+    Text(Option<Text>),
+    Mediumtext(Option<Mediumtext>),
+    Longtext(Option<Longtext>),
+    Enum(Option<Enum<T>>),
+    Set(Option<Set<T>>),
+    Tinyint(Option<Tinyint>),
+    Smallint(Option<Smallint>),
+    Int(Option<Int>),
+    Bigint(Option<Bigint>),
+    BigintUnsigned(Option<BigintUnsigned>),
+    Numeric(Option<Numeric>),
+    Float(Option<Float>),
+    Double(Option<Double>),
+    Decimal(Option<Decimal>),
+    Date(Option<Date>),
+    Time(Option<Time>),
+    Datetime(Option<Datetime>),
+    Timestamp(Option<Timestamp>),
+    Year(Option<Year>),
+    Blob(Option<Blob>),
+    Json(Option<Json>),
 }
 
 //#[derive(Clone,Debug)]
@@ -69,7 +77,7 @@ pub enum SqlColumn<T = ()> {
 }*/
 
 #[derive(Debug,Clone)]
-enum RustDataType {
+pub enum RustDataType {
     String,
     Enum,
     Vec,
@@ -95,35 +103,35 @@ pub trait MappedEnum {
     fn name(&self) -> &str;
 }
 
-impl FromStr for SqlColumnType {
+impl FromStr for SqlColumn {
     type Err = anyhow::Error;
     fn from_str(mysql_col_type: &str) -> Result<Self, anyhow::Error> {
         let typeName = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&mysql_col_type.replace(" ", "_")));
         match typeName.as_str() {
-            "Char" => Ok(SqlColumnType::Char),
-            "Varchar" => Ok(SqlColumnType::Varchar),
-            "Tinytext" => Ok(SqlColumnType::Tinytext),
-            "Text" => Ok(SqlColumnType::Text),
-            "Mediumtext" => Ok(SqlColumnType::Mediumtext),
-            "Longtext" => Ok(SqlColumnType::Longtext),
-            "Enum" => Ok(SqlColumnType::Enum),
-            "Set" => Ok(SqlColumnType::Set),
-            "Tinyint" => Ok(SqlColumnType::Tinyint),
-            "Smallint" => Ok(SqlColumnType::Smallint),
-            "Int" => Ok(SqlColumnType::Int),
-            "Bigint" => Ok(SqlColumnType::Bigint),
-            "BigintUnsigned" => Ok(SqlColumnType::BigintUnsigned),
-            "Numeric" => Ok(SqlColumnType::Numeric),
-            "Float" => Ok(SqlColumnType::Float),
-            "Double" => Ok(SqlColumnType::Double),
-            "Decimal" => Ok(SqlColumnType::Decimal),
-            "Date" => Ok(SqlColumnType::Date),
-            "Time" => Ok(SqlColumnType::Time),
-            "Datetime" => Ok(SqlColumnType::Datetime),
-            "Timestamp" => Ok(SqlColumnType::Timestamp),
-            "Year" => Ok(SqlColumnType::Year),
-            "Blob" => Ok(SqlColumnType::Blob),
-            "Json" => Ok(SqlColumnType::Json),
+            "Char" => Ok(SqlColumn::Char(None)),
+            "Varchar" => Ok(SqlColumn::Varchar(None)),
+            "Tinytext" => Ok(SqlColumn::Tinytext(None)),
+            "Text" => Ok(SqlColumn::Text(None)),
+            "Mediumtext" => Ok(SqlColumn::Mediumtext(None)),
+            "Longtext" => Ok(SqlColumn::Longtext(None)),
+            "Enum" => Ok(SqlColumn::Enum(None)),
+            "Set" => Ok(SqlColumn::Set(None)),
+            "Tinyint" => Ok(SqlColumn::Tinyint(None)),
+            "Smallint" => Ok(SqlColumn::Smallint(None)),
+            "Int" => Ok(SqlColumn::Int(None)),
+            "Bigint" => Ok(SqlColumn::Bigint(None)),
+            "BigintUnsigned" => Ok(SqlColumn::BigintUnsigned(None)),
+            "Numeric" => Ok(SqlColumn::Numeric(None)),
+            "Float" => Ok(SqlColumn::Float(None)),
+            "Double" => Ok(SqlColumn::Double(None)),
+            "Decimal" => Ok(SqlColumn::Decimal(None)),
+            "Date" => Ok(SqlColumn::Date(None)),
+            "Time" => Ok(SqlColumn::Time(None)),
+            "Datetime" => Ok(SqlColumn::Datetime(None)),
+            "Timestamp" => Ok(SqlColumn::Timestamp(None)),
+            "Year" => Ok(SqlColumn::Year(None)),
+            "Blob" => Ok(SqlColumn::Blob(None)),
+            "Json" => Ok(SqlColumn::Json(None)),
             _ => bail!("Unknown MysqlDataType"),
         }
     }
@@ -144,4 +152,5 @@ pub struct TableFieldConstructInfo {
     pub initial_assignment_with_name_and_value:String,
     pub import_statements:Vec<String>,
     pub sql_raw_type:String, //如Char,Varchar,Tinytext,Datetime,Timestamp...
+    pub sql_raw_type_converted:bool
 }

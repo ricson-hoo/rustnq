@@ -1,22 +1,10 @@
-use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumnType, SqlColumn};
+use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
 use crate::query::builder::{Condition, QueryBuilder};
 use chrono::{Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
 
-pub trait Table{
-    fn name(&self) -> String;
-    fn columns(&self) -> Vec<SqlColumn>;
-    fn primary_key(&self) -> Vec<SqlColumn>;
-}
-
-/*impl<'a> Table<'a> {
-    fn new(name: &'a str, comment: &'a str) -> Table<'a> {
-        Table { name, comment }
-    }
-}*/
-
 #[derive(Serialize,Deserialize,Clone,Debug)]
-pub struct Enum<T/*:MappedEnum*/> {
+pub struct Enum<T> {
     value: Option<T>,
     name: String,
     holding: Holding
@@ -33,18 +21,6 @@ impl<T/*:MappedEnum*/> Enum<T> {
 
     pub fn name_value(name: String, value: Option<T>) -> Self {
         Enum { name:name, value:value, holding: Holding::Value }
-    }
-}
-
-pub struct Varchar2<'a> {
-    name: &'a str,
-    //value: Option<String>,
-    //holding: Holding,
-}
-
-impl <'a> Varchar2<'a> {
-    pub fn name(name: &'a str) -> Varchar2<'a> {
-        Varchar2 { name:name, /*value: None*/ /*,holding: Holding::Name*/ }
     }
 }
 
@@ -102,7 +78,30 @@ impl From<&str> for Varchar {
     }
 }
 
+impl<T> From<Enum<T>> for Varchar where std::string::String: From<T> {
+    fn from(a_enum: Enum<T>) -> Varchar {
+        if let Some(enum_value) = a_enum.value {
+            let str_value:String = String::from(enum_value);
+            Varchar::value(Some(str_value))
+        }else {
+            Varchar::value(None)
+        }
+    }
+}
 
+impl<T> From<Set<T>> for Varchar where  std::string::String: From<T> {
+    fn from(set: Set<T>) -> Varchar {
+        let mut str_set:Vec<String> = vec![];
+        let set_value = set.value;
+        if let Some(set_value) = set_value {
+            for a_enum in set_value{
+                str_set.push(String::from(a_enum))
+            }
+        }
+        let string_value: String = str_set.join(",");
+        Varchar::value(Some(string_value))
+    }
+}
 
 impl Column for Varchar {
     fn name(&self) -> String {

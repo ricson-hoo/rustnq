@@ -1,5 +1,5 @@
 use crate::mapping::description::Column;
-use crate::mapping::types::Table;
+use crate::mapping::description::Table;
 use crate::query::builder::QueryBuilder;
 
 pub fn select(fields: Vec<& impl Column>) -> QueryBuilder{

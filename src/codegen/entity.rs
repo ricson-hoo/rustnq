@@ -13,7 +13,7 @@ use crate::codegen::utils;
 use crate::codegen::utils::{format_name, TableRow};
 use crate::utils::stringUtils;
 use serde::{Serialize, Deserialize};
-use crate::mapping::description::SqlColumnType;
+use crate::mapping::description::{RustDataType, SqlColumn};
 use crate::query::builder::Condition;
 
 struct StructFieldType {
@@ -76,7 +76,8 @@ impl EntityGenerateConfig{
 pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, config:EntityGenerateConfig){/*entity_out_dir:&str, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>*/
     let entity_out_dir = config.output_dir.clone();
     let boolean_columns = config.boolean_columns.clone();
-    let trait_for_enum_types = config.trait_for_enum_types.clone();
+    let mut trait_for_enum_types = config.trait_for_enum_types.clone();
+    //trait_for_enum_types.insert("*".to_string(), "EntityEnum".to_string());
     let naming_convention = config.naming_convention;
 
     let entity_out_path = std::path::Path::new(&entity_out_dir);
@@ -305,148 +306,148 @@ struct MysqlDataTypeProp {
     import: Option<String>
 }
 
-impl SqlColumnType {
+impl SqlColumn {
     fn properties(&self) -> MysqlDataTypeProp {
         match self {
-            SqlColumnType::Char => MysqlDataTypeProp {
+            SqlColumn::Char(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Varchar => MysqlDataTypeProp {
+            SqlColumn::Varchar(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Tinytext => MysqlDataTypeProp {
+            SqlColumn::Tinytext(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Text => MysqlDataTypeProp {
+            SqlColumn::Text(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Mediumtext => MysqlDataTypeProp {
+            SqlColumn::Mediumtext(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Longtext => MysqlDataTypeProp {
+            SqlColumn::Longtext(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Enum => MysqlDataTypeProp {
+            SqlColumn::Enum(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::Enum,
                 is_conditional_type: true,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Set => MysqlDataTypeProp {
+            SqlColumn::Set(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::Vec,
                 is_conditional_type: true,
                 container_type: Some(RustDataType::Vec),
                 import:None
             },
-            SqlColumnType::Tinyint => MysqlDataTypeProp {
+            SqlColumn::Tinyint(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i8,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Smallint => MysqlDataTypeProp {
+            SqlColumn::Smallint(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i16,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Int => MysqlDataTypeProp {
+            SqlColumn::Int(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i32,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Bigint => MysqlDataTypeProp {
+            SqlColumn::Bigint(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::BigintUnsigned => MysqlDataTypeProp {
+            SqlColumn::BigintUnsigned(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::u64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Numeric => MysqlDataTypeProp {
+            SqlColumn::Numeric(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Float => MysqlDataTypeProp {
+            SqlColumn::Float(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::f32,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Double => MysqlDataTypeProp {
+            SqlColumn::Double(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Decimal => MysqlDataTypeProp {
+            SqlColumn::Decimal(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Date => MysqlDataTypeProp {
+            SqlColumn::Date(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveDate,
                 is_conditional_type: false,
                 container_type: None,
                 import:Some("chrono".to_string())
             },
-            SqlColumnType::Time => MysqlDataTypeProp {
+            SqlColumn::Time(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveTime,
                 is_conditional_type: false,
                 container_type: None,
                 import:Some("chrono".to_string())
             },
-            SqlColumnType::Datetime => MysqlDataTypeProp {
+            SqlColumn::Datetime(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveDateTime,
                 is_conditional_type: false,
                 container_type: None,
                 import:Some("chrono".to_string())
             },
-            SqlColumnType::Timestamp => MysqlDataTypeProp {
+            SqlColumn::Timestamp(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveDateTime,
                 is_conditional_type: false,
                 container_type: None,
                 import:Some("chrono".to_string())
             },
-            SqlColumnType::Year => MysqlDataTypeProp {
+            SqlColumn::Year(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i32,
                 is_conditional_type: false,
                 container_type: None,
                 import:None
             },
-            SqlColumnType::Blob => MysqlDataTypeProp {
+            SqlColumn::Blob(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::u8,
                 is_conditional_type: false,
                 container_type: Some(RustDataType::Vec),
                 import:None
             },
-            SqlColumnType::Json => MysqlDataTypeProp {
+            SqlColumn::Json(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
@@ -465,7 +466,7 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
     //let mut container_struct = "";
     let mut is_primitive_type: bool;
 
-    match data_type.parse::<SqlColumnType>() {
+    match data_type.parse::<SqlColumn>() {
         Ok(mysql_data_type) => {
             let mut mysql_data_type_prop = mysql_data_type.properties();
             //container_struct = mysql_data_type_prop.container_type;
@@ -477,14 +478,14 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
 
             if mysql_data_type_prop.is_conditional_type {
                 match mysql_data_type {
-                    SqlColumnType::Tinyint => {
+                    SqlColumn::Tinyint(_) => {
                         field_type_qualified_name = if boolean_columns.contains_key(table_name){
                             "bool".to_string()
                         }else{
                             mysql_data_type_prop.rust_type.resolve_qualified_type_name(None, None)
                         };
                     }
-                    SqlColumnType::Enum | SqlColumnType::Set => {
+                    SqlColumn::Enum(_) | SqlColumn::Set(_) => {
                         is_primitive_type = false;
                         let (enum_name, enum_file_name_no_ext) = &generate_and_get_enum_name(&table_name, &column_name, &column_definition, trait_for_enum_types, generated_code_dir);
                         mysql_data_type_prop.import = Some(format!("crate::entity::enums::{}",enum_name));
@@ -554,25 +555,33 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     .open(&file_path)
     .expect("Failed to open file for writing");
 
-    let mut trait_to_be_implemented = "";
+    let mut traits_to_be_implemented = HashMap::new();
+    //traits_to_be_implemented.insert("EntityEnum", "use rustnq::mapping::types::EntityEnum;".to_string());
     let pattern1 = format!("{}_{}",table_name,column_name);
     let pattern2 = format!("{}*",table_name);
+    //let pattern3 = "*".to_string();
 
     if trait_for_enum_types.contains_key(pattern1.as_str()) {
-        trait_to_be_implemented = &*trait_for_enum_types[pattern1.as_str()];
-    } else if trait_for_enum_types.contains_key(pattern2.as_str()){
-        trait_to_be_implemented = &*trait_for_enum_types[pattern2.as_str()];
+        traits_to_be_implemented.insert(&*trait_for_enum_types[pattern1.as_str()],format!("use crate::entity::enums::{};", trait_for_enum_types[pattern1.as_str()]));
     }
+    if trait_for_enum_types.contains_key(pattern2.as_str()){
+        traits_to_be_implemented.insert(&*trait_for_enum_types[pattern2.as_str()],format!("use crate::entity::enums::{};", trait_for_enum_types[pattern2.as_str()]));
+    }
+    /*if trait_for_enum_types.contains_key(pattern3.as_str()){
+        traits_to_be_implemented.push(&*trait_for_enum_types[pattern3.as_str()]);
+    }*/
 
     let mut buf_writer = BufWriter::new(file);
 
-    let mut enum_code_lines: Vec<String> = Vec::new();
+    let mut enum_code_lines: Vec<String> = vec![];
     let mut enum_to_string_code_lines: Vec<String> = Vec::new();
     let mut enum_from_string_code_lines: Vec<String> = Vec::new();
     let mut enum_display_code_lines: Vec<String> = Vec::new();
 
-    if !trait_to_be_implemented.is_empty() {
-        enum_code_lines.push(format!("use crate::entity::enums::{};",trait_to_be_implemented));
+    if !traits_to_be_implemented.is_empty() {
+        for (trt,import_str) in traits_to_be_implemented.clone(){
+            enum_code_lines.push(import_str);
+        }
     }
     enum_code_lines.push("use serde::{{Serialize, Deserialize}};\n".to_string());
     enum_code_lines.push("use std::fmt;\n".to_string());
@@ -637,8 +646,11 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
         writeln!(buf_writer,"{}",line).expect("Failed to write enum from String code");
     }
 
-    if !trait_to_be_implemented.is_empty() {
-        writeln!(buf_writer,"impl {} for {} {{}}",trait_to_be_implemented, enum_name).expect("Failed to write trait code");
+
+    if !traits_to_be_implemented.is_empty() {
+        for (trt,import_str) in traits_to_be_implemented {
+            writeln!(buf_writer,"impl {} for {} {{}}",trt, enum_name).expect("Failed to write trait code");
+        }
     }
 
     writeln!(buf_writer,"impl {} {{",enum_name).expect("Failed to write enum::values code");
