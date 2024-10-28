@@ -10,3 +10,5 @@ You can generate the table mapping and entity(struct) from your main.rs(or build
 
     rustnq::codegen::entity::generate_entities(&pool, "db_name_here", entityGenConfig).await;
     rustnq::codegen::mapping::generate_mappings(&pool, "db_name_here", mappingGenConfig).await;
+
+refs to examples/generated for generated code.
