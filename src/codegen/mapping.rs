@@ -18,13 +18,13 @@ use crate::query::builder::{Condition, QueryBuilder};
 pub struct MappingGenerateConfig{
     pub output_dir:String,
     pub crate_and_root_path_of_entity: String, //including 'entity' folder
-    pub boolean_columns: HashMap<String, HashSet<String>>,
+    pub boolean_columns: HashMap<String, Vec<String>>,
     pub entity_field_naming_convention: FieldNamingConvention,
     //pub trait_for_enum_types: HashMap<String, String>
 }
 
 impl MappingGenerateConfig{
-    pub fn new(output_dir:String, crate_and_root_path_of_entity:String, boolean_columns:HashMap<String, HashSet<String>>, entity_field_naming_convention:FieldNamingConvention /*,trait_for_enum_types:HashMap<String, String>*/)->Self{
+    pub fn new(output_dir:String, crate_and_root_path_of_entity:String, boolean_columns:HashMap<String, Vec<String>>, entity_field_naming_convention:FieldNamingConvention /*,trait_for_enum_types:HashMap<String, String>*/)->Self{
         MappingGenerateConfig{
             output_dir,
             crate_and_root_path_of_entity,
@@ -67,7 +67,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     prepare_directory(mappings_out_path);
 
     let tables = utils::get_tables(conn).await;
-    println!("{:#?}",tables);
+    //println!("{:#?}",tables);
 
     //collect what has been generated
     let mut generated_entities:Vec<GeneratedStructInfo> = Vec::new();
@@ -109,7 +109,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 }
 
 async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path, crate_and_root_path_of_entity: String,
-                          boolean_columns: &HashMap<String, HashSet<String>>, entity_field_naming_convention: FieldNamingConvention/*, trait_for_enum_types: &HashMap<String, String>*/) -> GeneratedStructInfo{
+                          boolean_columns: &HashMap<String, Vec<String>>, entity_field_naming_convention: FieldNamingConvention/*, trait_for_enum_types: &HashMap<String, String>*/) -> GeneratedStructInfo{
     let struct_name = format!("{}Table",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name)));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
     let out_file_name_without_ext = format!("{}Table",stringUtils::to_camel_case(&table.name));

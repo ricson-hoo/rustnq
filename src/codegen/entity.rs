@@ -39,12 +39,12 @@ pub enum FieldNamingConvention {
 pub struct EntityGenerateConfig{
     pub output_dir:String,
     pub naming_convention: FieldNamingConvention,
-    pub boolean_columns: HashMap<String, HashSet<String>>,
+    pub boolean_columns: HashMap<String, Vec<String>>,
     pub trait_for_enum_types: HashMap<String, String>
 }
 
 impl EntityGenerateConfig{
-    pub fn new(output_dir:String, naming_convention: FieldNamingConvention, boolean_columns: HashMap<String, HashSet<String>>, trait_for_enum_types: HashMap<String, String>)->Self{
+    pub fn new(output_dir:String, naming_convention: FieldNamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>)->Self{
         EntityGenerateConfig{
             output_dir,
             naming_convention,
@@ -156,7 +156,7 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 }
 
 async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path,
-                        boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<String, String>, naming_convention:FieldNamingConvention) -> GeneratedStructInfo{
+                        boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, naming_convention:FieldNamingConvention) -> GeneratedStructInfo{
     let struct_name = stringUtils::begin_with_upper_case(&format_name(&table.name, naming_convention));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
     let out_file = output_path.join(format!("{}.rs", format_name(&table.name, naming_convention)));
@@ -359,7 +359,7 @@ impl SqlColumn {
             },
             SqlColumn::Tinyint(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i8,
-                is_conditional_type: false,
+                is_conditional_type: true,
                 container_type: None,
                 import:None
             },
@@ -459,7 +459,7 @@ impl SqlColumn {
 
 
 //convert mysql data field type to rust type
-fn resolve_type_from_column_definition(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<String, String>, generated_code_dir: &Path) -> StructFieldType {
+fn resolve_type_from_column_definition(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, generated_code_dir: &Path) -> StructFieldType {
     let definition_array: Vec<&str> = column_definition.split('(').collect();
     let data_type = definition_array[0];//.replace(" ", "_");
     let mut field_type_qualified_name = "".to_string();
@@ -479,8 +479,8 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
             if mysql_data_type_prop.is_conditional_type {
                 match mysql_data_type {
                     SqlColumn::Tinyint(_) => {
-                        field_type_qualified_name = if boolean_columns.contains_key(table_name){
-                            "bool".to_string()
+                        field_type_qualified_name = if boolean_columns.contains_key(table_name) && boolean_columns[table_name].contains(&column_name.to_string()) {
+                            "Option<bool>".to_string()
                         }else{
                             mysql_data_type_prop.rust_type.resolve_qualified_type_name(None, None)
                         };
