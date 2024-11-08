@@ -78,7 +78,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
                 let generated_entity_info = generate_mapping(conn, table, mappings_out_path, crate_and_root_path_of_entity.clone(), &boolean_columns, entity_field_naming_convention/*, &trait_for_enum_types*/).await;
                 generated_entities.push(generated_entity_info);
             }
-            println!("entities generated successfully");
+            println!("mappings generated successfully");
         }
         Err(error) => {
             println!("unable to generate entities, error: {:#?}",error);
