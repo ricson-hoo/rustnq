@@ -2,7 +2,8 @@ use crate::mapping::description::Column;
 use crate::mapping::description::Table;
 use crate::query::builder::QueryBuilder;
 
-pub fn select(fields: Vec<& impl Column>) -> QueryBuilder{
+
+pub fn select(fields: Vec<String>) -> QueryBuilder{
     QueryBuilder::init_with_select_fields(fields)
 }
 

@@ -3,6 +3,19 @@ use crate::query::builder::{Condition, QueryBuilder};
 use chrono::{Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
 
+pub trait And {
+    fn and(&self, other:& (impl Column + Clone+ 'static)) -> Vec<String>;
+}
+
+impl And for Vec<String> {
+    fn and(&self, other:& (impl Column + Clone+ 'static)) -> Vec<String> {
+        let mut new_vec = self.clone();
+        new_vec.push(other.name());
+        new_vec
+    }
+}
+
+
 #[derive(Serialize,Deserialize,Clone,Debug)]
 pub struct Enum<T> {
     value: Option<T>,
@@ -10,7 +23,7 @@ pub struct Enum<T> {
     holding: Holding
 }
 
-impl<T/*:MappedEnum*/> Enum<T> {
+impl<T> Enum<T> {
     pub fn name(name: String) -> Self {
         Enum { name:name, value: None ,holding: Holding::Name }
     }
@@ -21,6 +34,13 @@ impl<T/*:MappedEnum*/> Enum<T> {
 
     pub fn name_value(name: String, value: Option<T>) -> Self {
         Enum { name:name, value:value, holding: Holding::Value }
+    }
+
+}
+
+impl <T:Clone + 'static> Column for Enum<T> { //impl <T:MappedEnum> Column for Enum<T>
+    fn name(&self) -> String {
+        self.name.clone()
     }
 }
 
@@ -33,6 +53,11 @@ pub struct Varchar {
 }
 
 impl Varchar {
+
+    pub fn and(&self, other:& (impl Column + Clone+ 'static)) -> Vec<String> {
+        vec![self.name.clone(), other.name()]
+    }
+
     pub fn name(name: String) -> Self {
         Varchar { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
@@ -72,6 +97,7 @@ impl Varchar {
     }
 }
 
+
 impl From<&str> for Varchar {
     fn from(s: &str) -> Self {
         Varchar::value(Some(s.to_string()))
@@ -108,11 +134,6 @@ impl Column for Varchar {
         //let type_self: Varchar = self as Varchar;
         self.name.clone()
     }
-
-/*
-    fn sql_type(&self) -> SqlColumnType {
-        SqlColumnType::Varchar
-    }*/
 }
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
@@ -399,16 +420,9 @@ impl<T> Set<T> {
     }
 }
 
-impl <T> Column for Set<T> {
+impl <T:Clone> Column for Set<T> {
     fn name(&self) -> String {
         //let type_self: Set<T> = self as Set<T>;
-        self.name.clone()
-    }
-}
-
-impl <T:MappedEnum> Column for Enum<T> {
-    fn name(&self) -> String {
-        //let type_self: &Set = self as &Set;
         self.name.clone()
     }
 }

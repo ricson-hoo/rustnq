@@ -126,9 +126,9 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 
     let mut buf_writer = BufWriter::new(file);
 
-    let mut items_to_be_imported : Vec<String> = vec!["rustnq::mapping::description::SqlColumn".to_string(), "rustnq::query::builder::Condition".to_string()/*,"serde::Deserialize".to_string(), "serde::Serialize".to_string()*/];
-    items_to_be_imported.push("rustnq::mapping::description::Table".to_string());
+    let mut items_to_be_imported : Vec<String> = vec!["rustnq::mapping::description::{Table, Column, SqlColumn}".to_string(), "rustnq::query::builder::Condition".to_string()/*,"serde::Deserialize".to_string(), "serde::Serialize".to_string()*/];
     let mut struct_fields = vec![];
+    let mut struct_field_names = vec![];
     let mut instance_fields = vec![];
     let mut instance_with_value_fields = vec![];
     let mut columns_statements = vec![];
@@ -156,7 +156,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
                        }
                     }
                 }
-
+                struct_field_names.push(column_name.clone());
                 struct_fields.push(format!("pub {}:{},",&column_name,columnConstructInfo.field_type));
                 instance_fields.push(format!("{}:{},",&column_name,columnConstructInfo.initial_assignment_with_name));
                 instance_with_value_fields.push(format!("{}:{},",&column_name,columnConstructInfo.initial_assignment_with_name_and_value));
@@ -190,11 +190,21 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 
     writeln!(buf_writer,"    pub fn new() ->Self {{").expect("Failed to table mapping code");
     writeln!(buf_writer,"        {} {{",struct_name).expect("Failed to table mapping code");
-    for field in instance_fields{
+    for field in instance_fields {
         writeln!(buf_writer,"            {}",field).expect("Failed to table mapping code");
     }
     writeln!(buf_writer,"        }}").expect("Failed to table mapping code");
     writeln!(buf_writer,"    }}").expect("Failed to table mapping code");
+
+
+    writeln!(buf_writer,"    pub fn all(&self) -> Vec<String> {{").expect("Failed to table mapping code");
+    write!(buf_writer,"        vec![").expect("Failed to table mapping code");
+    for field_name in struct_field_names {
+        write!(buf_writer,"&self.{}.name(), ",field_name).expect("Failed to table mapping code");
+    }
+    write!(buf_writer,"]\n").expect("Failed to table mapping code");
+    writeln!(buf_writer,"    }}").expect("Failed to table mapping code");
+
 
     writeln!(buf_writer,"    pub fn new_with_value(entity:{}) ->Self {{", format_name(&table.name,FieldNamingConvention::PascalCase)).expect("Failed to table mapping code");
     writeln!(buf_writer,"        {} {{",struct_name).expect("Failed to table mapping code");

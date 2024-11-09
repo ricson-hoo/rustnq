@@ -103,7 +103,7 @@ impl <'a> QueryBuilder2 {
 #[derive(Debug,Clone)]
 pub struct QueryBuilder {
     operation:Operation,
-    //from: Option<&'a dyn Table>,
+    is_select_all:Option<bool>,
     target_table: Option<String>,//Option<&'a dyn Table>,
     fields: Vec<String>,
     upsert_values: Vec<String>,//insert values or update values
@@ -113,40 +113,50 @@ pub struct QueryBuilder {
 
 impl QueryBuilder {
 
-    pub fn init_with_select_fields(fields: Vec<&impl Column>) -> QueryBuilder {
-        let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, target_table:None, fields:fields_strs, conditions: vec![], upsert_values: vec![], limit: None }
+    pub fn select_all() -> QueryBuilder {
+        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), target_table:None, fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+    }
+
+    pub fn init_with_select_fields(fields: Vec<String>) -> QueryBuilder {
+        //let fields_strs = fields.iter().map(|field| field.name()).collect();
+        QueryBuilder { operation:Operation::Select, is_select_all:None, target_table:None, fields:fields, conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert,target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update,target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Update,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.upsert_query_builder()
-        QueryBuilder { operation:Operation::Insert_Or_Update,target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: Some(1) }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: Some(1) }
     }
 
     pub fn delete_rows_with_conditions<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,target_table:Some(table.name()), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: None }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
         self.target_table = Some(table.name());
+        /*if let Some(is_select_all) = self.is_select_all {
+            if is_select_all {
+                let fields_strs = table.columns().iter().map(|field| field.name()).collect();
+                self.fields = fields_strs;
+            }
+        }*/
         self
     }
 
@@ -242,7 +252,7 @@ impl QueryBuilder {
         }
     }
 
-    pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&mut self) -> Result<T,Error> {
+    pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&mut self) -> Result<Option<T>,Error> {
 
         self.limit = Some(1);
 
@@ -251,21 +261,34 @@ impl QueryBuilder {
         if let Ok(query_string) = build_result {
             println!("query string {}", query_string);
 
-            let json = sqlx::query(&query_string)
+            let json_result = sqlx::query(&query_string)
                 .try_map(|row:MySqlRow| {
                     self.convert_to_json_value(row)
                 })
                 .fetch_one(pool)
-                .await.unwrap();
+                .await;
 
-            println!("json of product {:#?}", json);
-
-            Ok(serde_json::from_value(json).expect("Failed to deserialize row"))
-
+            match json_result {
+                Ok(json)=>{
+                    println!("json of product {:#?}", json);
+                    let json_parse_result = serde_json::from_value(json);
+                    match json_parse_result {
+                        Ok(json)=>{
+                            Ok(Some(json))
+                        },
+                        Err(e) =>{
+                            Err(Error::Decode(e.to_string().into()))
+                        }
+                    }
+                },
+                Err(e) => {
+                    Err(e)
+                }
+            }
         }else if let Err(e) = build_result {
-            Err(Error::Configuration(e.message.into()))
+            Err(Error::Encode(e.message.into()))
         }else {
-            Err(Error::Configuration("未知错误".into()))
+            Err(Error::Encode("未知错误".into()))
         }
     }
 
@@ -284,6 +307,7 @@ impl QueryBuilder {
                 "VARCHAR" => {
                     let value_result: Result<String, _> = row.try_get(i);
                     if let Ok(value) = value_result {
+                        json_obj[column_name] = serde_json::Value::String(value.clone());
                         json_obj[camel_case_column_name] = serde_json::Value::String(value);
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -292,6 +316,7 @@ impl QueryBuilder {
                 "INT" => {
                     let value_result: Result<i32, _> = row.try_get(i);
                     if let Ok(value) = value_result {
+                        json_obj[column_name] = value.clone().into();
                         json_obj[camel_case_column_name] = value.into();
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -300,6 +325,7 @@ impl QueryBuilder {
                 "ENUM" => {
                     let value_result: Result<String, _> = row.try_get(i);
                     if let Ok(value) = value_result {
+                        json_obj[column_name] = serde_json::Value::String(value.clone());
                         json_obj[camel_case_column_name] = serde_json::Value::String(value);
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -309,6 +335,7 @@ impl QueryBuilder {
                     // Handle DATETIME type
                     let value_result: Result<chrono::NaiveDateTime, _> = row.try_get(i);
                     if let Ok(value) = value_result {
+                        json_obj[column_name] = serde_json::Value::String(value.clone().to_string());
                         json_obj[camel_case_column_name] = serde_json::Value::String(value.to_string());
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -318,6 +345,7 @@ impl QueryBuilder {
                     // Handle CHAR type
                     let value_result: Result<String, _> = row.try_get(i);
                     if let Ok(value) = value_result {
+                        json_obj[column_name] = serde_json::Value::String(value.clone());
                         json_obj[camel_case_column_name] = serde_json::Value::String(value);
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -335,7 +363,7 @@ impl QueryBuilder {
         let mut queryString = "".to_string();
         match self.operation {
             Operation::Select => {
-                if(self.fields.is_empty()){
+                if(!self.fields.is_empty()){
                     queryString = format!("select {}",self.fields.join(", "));
                 }else {
                     return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
