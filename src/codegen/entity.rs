@@ -19,7 +19,7 @@ use crate::query::builder::Condition;
 struct StructFieldType {
     qualified_name: String,
     is_primitive_type: bool,
-    import:Option<String>,
+    import:Vec<String>,
     enum_file_name_without_ext: String
 }
 
@@ -30,7 +30,7 @@ pub(crate) struct GeneratedStructInfo {
 }
 
 #[derive(Clone, Copy)]
-pub enum FieldNamingConvention {
+pub enum NamingConvention {
     CamelCase,
     SnakeCase,
     PascalCase
@@ -38,16 +38,16 @@ pub enum FieldNamingConvention {
 
 pub struct EntityGenerateConfig{
     pub output_dir:String,
-    pub naming_convention: FieldNamingConvention,
+    pub naming_convention: NamingConvention,
     pub boolean_columns: HashMap<String, Vec<String>>,
     pub trait_for_enum_types: HashMap<String, String>
 }
 
 impl EntityGenerateConfig{
-    pub fn new(output_dir:String, naming_convention: FieldNamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>)->Self{
+    pub fn new(output_dir:String, field_naming_convention: NamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>) ->Self{
         EntityGenerateConfig{
             output_dir,
-            naming_convention,
+            naming_convention: field_naming_convention,
             boolean_columns,
             trait_for_enum_types
         }
@@ -55,13 +55,13 @@ impl EntityGenerateConfig{
     pub fn default()->Self{
         EntityGenerateConfig{
             output_dir : "target/generated/entity".to_string(),
-            naming_convention: FieldNamingConvention::SnakeCase,
+            naming_convention: NamingConvention::SnakeCase,
             boolean_columns:HashMap::new(),
             trait_for_enum_types:HashMap::new()
         }
     }
 
-    pub fn default_with_naming_convention(naming_convention:FieldNamingConvention)->Self{
+    pub fn default_with_naming_convention(naming_convention: NamingConvention) ->Self{
         EntityGenerateConfig{
             output_dir : "target/generated/entity".to_string(),
             naming_convention,
@@ -130,8 +130,8 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     writeln!(entity_mod_out_file_buf_writer,"pub mod enums;").expect("Failed to write entity/mod.rs");
 
     for generated_entity_info in generated_entities {
-        writeln!(entity_mod_out_file_buf_writer,"pub mod {};",format_name(&generated_entity_info.file_name_without_ext, naming_convention)).expect("Failed to write entity/mod.rs");
-        writeln!(entity_mod_out_file_buf_writer,"pub use {}::{};",format_name(&generated_entity_info.file_name_without_ext, naming_convention),stringUtils::begin_with_upper_case(&generated_entity_info.struct_name)).expect("Failed to write entity/mod.rs");
+        writeln!(entity_mod_out_file_buf_writer,"pub mod {};",&generated_entity_info.file_name_without_ext).expect("Failed to write entity/mod.rs");
+        writeln!(entity_mod_out_file_buf_writer,"pub use {}::{};",&generated_entity_info.file_name_without_ext,stringUtils::begin_with_upper_case(&generated_entity_info.struct_name)).expect("Failed to write entity/mod.rs");
         if !generated_entity_info.enum_file_names_without_ext.is_empty(){
             for enum_file_name in generated_entity_info.enum_file_names_without_ext{
                 writeln!(entity_enum_mod_out_file_buf_writer,"pub mod {};",enum_file_name).expect("Failed to write entity/enum/mod.rs");
@@ -156,10 +156,11 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 }
 
 async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path,
-                        boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, naming_convention:FieldNamingConvention) -> GeneratedStructInfo{
-    let struct_name = stringUtils::begin_with_upper_case(&format_name(&table.name, naming_convention));
+                         boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, field_naming_convention: NamingConvention) -> GeneratedStructInfo{
+    let struct_name = stringUtils::begin_with_upper_case(&format_name(&table.name, NamingConvention::CamelCase));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
-    let out_file = output_path.join(format!("{}.rs", format_name(&table.name, naming_convention)));
+    let file_name_without_ext = format_name(&table.name, NamingConvention::CamelCase);
+    let out_file = output_path.join(format!("{}.rs", &file_name_without_ext));
 
     utils::prepare_directory(&out_file);
     // Open the file for writing
@@ -194,9 +195,11 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                 }
                 let field_type_qualified_name = field_type.qualified_name;
 
-                if let Some(import) = field_type.import {
-                    if !import.is_empty() && !items_to_be_imported.contains(&import) {
-                        items_to_be_imported.push(import);
+                if !field_type.import.is_empty() {
+                    for import in field_type.import {
+                        if !import.is_empty() && !items_to_be_imported.contains(&import) {
+                            items_to_be_imported.push(import);
+                        }
                     }
                 }
 
@@ -206,17 +209,20 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                     struct_fields.push(struct_field_definition);
                     struct_fields_init.push(format!("{}_:{},",&it.name, if field_type_qualified_name.starts_with("Vec") {"vec![]"} else {"None"}));
                 }else {
-                    //todo: snake_case or camelCase configurable
-                    if field_type_qualified_name.clone().contains("NaiveDateTime"){
+
+                    if field_type_qualified_name.clone().contains("DateTime<Local>"){
+                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_datetime_local\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime_local\")]".to_string()); //note:this is a temp solution
+                    }else if field_type_qualified_name.clone().contains("NaiveDateTime"){
                         struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_datetime\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime\")]".to_string()); //note:this is a temp solution
                     }else if field_type_qualified_name.clone().contains("NaiveDate"){
                         struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_date\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_date\")]".to_string()); //note:this is a temp solution
                     }
-                    let mut struct_field_definition = format!("pub {}:{},",format_name(&it.name, naming_convention),field_type_qualified_name);
+                    let mut struct_field_definition = format!("pub {}:{},", format_name(&it.name, field_naming_convention), field_type_qualified_name);
                     struct_fields.push(struct_field_definition);
-                    struct_fields_init.push(format!("{}:{},",format_name(&it.name, naming_convention),"None"));
+                    struct_fields_init.push(format!("{}:{},", format_name(&it.name, field_naming_convention), "None"));
                 }
             }
         }
@@ -256,7 +262,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
     drop(buf_writer);
 
     GeneratedStructInfo{
-        file_name_without_ext : table.name,
+        file_name_without_ext,
         struct_name: struct_name,
         enum_file_names_without_ext: enum_file_names_without_ext
     }
@@ -288,7 +294,7 @@ impl RustDataType {
             }
             RustDataType::chronoNaiveDate => "Option<chrono::NaiveDate>",
             RustDataType::chronoNaiveTime => "Option<chrono::NaiveTime>",
-            RustDataType::chronoNaiveDateTime => "Option<chrono::NaiveDateTime>",
+            RustDataType::chronoDateTimeLocal => "Option<chrono::DateTime<Local>>",
         };
         /*match containerType {
             Some(RustDataType::Vec)  => format!("Vec<{}>",type_str),
@@ -303,7 +309,7 @@ struct MysqlDataTypeProp {
     rust_type:  RustDataType,
     is_conditional_type: bool,
     container_type: Option<RustDataType>,
-    import: Option<String>
+    import: Vec<String>
 }
 
 impl SqlColumn {
@@ -313,145 +319,145 @@ impl SqlColumn {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Varchar(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Tinytext(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Text(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Mediumtext(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Longtext(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Enum(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::Enum,
                 is_conditional_type: true,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Set(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::Vec,
                 is_conditional_type: true,
                 container_type: Some(RustDataType::Vec),
-                import:None
+                import:vec![]
             },
             SqlColumn::Tinyint(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i8,
                 is_conditional_type: true,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Smallint(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i16,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Int(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i32,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Bigint(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i64,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::BigintUnsigned(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::u64,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Numeric(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Float(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::f32,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Double(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Decimal(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::f64,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Date(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveDate,
                 is_conditional_type: false,
                 container_type: None,
-                import:Some("chrono".to_string())
+                import:vec!["chrono".to_string()]
             },
             SqlColumn::Time(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveTime,
                 is_conditional_type: false,
                 container_type: None,
-                import:Some("chrono".to_string())
+                import:vec!["chrono".to_string()]
             },
             SqlColumn::Datetime(_) => MysqlDataTypeProp {
-                rust_type: RustDataType::chronoNaiveDateTime,
+                rust_type: RustDataType::chronoDateTimeLocal,
                 is_conditional_type: false,
                 container_type: None,
-                import:Some("chrono".to_string())
+                import:vec!["chrono".to_string(),"chrono::Local".to_string()]
             },
             SqlColumn::Timestamp(_) => MysqlDataTypeProp {
-                rust_type: RustDataType::chronoNaiveDateTime,
+                rust_type: RustDataType::chronoDateTimeLocal,
                 is_conditional_type: false,
                 container_type: None,
-                import:Some("chrono".to_string())
+                import:vec!["chrono".to_string(),"chrono::Local".to_string()]
             },
             SqlColumn::Year(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i32,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             },
             SqlColumn::Blob(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::u8,
                 is_conditional_type: false,
                 container_type: Some(RustDataType::Vec),
-                import:None
+                import:vec![]
             },
             SqlColumn::Json(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::String,
                 is_conditional_type: false,
                 container_type: None,
-                import:None
+                import:vec![]
             }
         }
     }
@@ -470,10 +476,7 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
         Ok(mysql_data_type) => {
             let mut mysql_data_type_prop = mysql_data_type.properties();
             //container_struct = mysql_data_type_prop.container_type;
-            is_primitive_type = match mysql_data_type_prop.import {
-                None => false,
-                Some(_) => true
-            };
+            is_primitive_type = mysql_data_type_prop.import.is_empty();
             let mut enum_file_name_without_ext: String = "".to_string();
 
             if mysql_data_type_prop.is_conditional_type {
@@ -488,7 +491,7 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
                     SqlColumn::Enum(_) | SqlColumn::Set(_) => {
                         is_primitive_type = false;
                         let (enum_name, enum_file_name_no_ext) = &generate_and_get_enum_name(&table_name, &column_name, &column_definition, trait_for_enum_types, generated_code_dir);
-                        mysql_data_type_prop.import = Some(format!("crate::entity::enums::{}",enum_name));
+                        mysql_data_type_prop.import = vec![format!("crate::entity::enums::{}",enum_name)];
                         enum_file_name_without_ext = enum_file_name_no_ext.to_string();
                         let prop = mysql_data_type_prop.clone();
                         field_type_qualified_name = mysql_data_type_prop.rust_type.resolve_qualified_type_name(mysql_data_type_prop.container_type, Some(enum_name));

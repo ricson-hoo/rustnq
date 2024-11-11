@@ -1,6 +1,6 @@
 use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
 use crate::query::builder::{Condition, QueryBuilder};
-use chrono::{Local, NaiveDate, NaiveTime};
+use chrono::{Local, NaiveTime};
 use serde::{Serialize,Deserialize};
 
 pub trait And {
@@ -16,24 +16,25 @@ impl And for Vec<String> {
 }
 
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Enum<T> {
     value: Option<T>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl<T> Enum<T> {
     pub fn name(name: String) -> Self {
-        Enum { name:name, value: None ,holding: Holding::Name }
+        Enum { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
     fn value(value: Option<T>) -> Self {
-        Enum { value:value, name:"".to_string() ,holding: Holding::Value }
+        Enum { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
     pub fn name_value(name: String, value: Option<T>) -> Self {
-        Enum { name:name, value:value, holding: Holding::Value }
+        Enum { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
 }
@@ -136,33 +137,45 @@ impl Column for Varchar {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Char{
     name: String,
-    value: String,
+    value: Option<String>,
+    sub_query: Option<QueryBuilder>,
     holding: Holding,
+}
+
+fn build_equal_condition_for_string_type(self_name:String,input_holding:Holding,input_name:String,input_value:Option<String>) -> Condition {
+    let output = match input_holding {
+        Holding::Name => format!(" = {}",input_name),
+        Holding::Value => match input_value {
+            Some(value) => format!(" = '{}'",value),
+            None => "is null".to_string()
+        },
+        _ => "build_equal_condition_for_string_type to do ".to_string() //subquery
+    };
+    Condition::new(format!("{} {}", self_name, output))
 }
 
 impl Char {
     pub fn new(name: String) -> Self {
-        Char { name:name, value: "".to_string() ,holding: Holding::Name }
+        Char { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: String) -> Self {
-        Char { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<String>) -> Self {
+        Char { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<String>) -> Self {
+        Char { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
     where
         T: Into<Char>,
     {
-        let varchar = input.into();
-        let output = match varchar.holding {
-            Holding::Name => varchar.name,
-            Holding::Value => format!("'{}'",varchar.value),
-            _ => "".to_string()
-        };
-        Condition::new(format!("{} = {}", self.name, output))
+        let input = input.into();
+        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -178,33 +191,33 @@ impl Column for Char {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Tinytext{
     name: String,
-    value: String,
+    value: Option<String>,
+    sub_query: Option<QueryBuilder>,
     holding: Holding,
 }
 
 impl crate::mapping::types::Tinytext {
     fn new(name: String) -> Self {
-        crate::mapping::types::Tinytext { name:name, value: "".to_string() ,holding: Holding::Name }
+        crate::mapping::types::Tinytext { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: String) -> Self {
-        crate::mapping::types::Tinytext { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value:Option<String>) -> Self {
+        crate::mapping::types::Tinytext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<String>) -> Self {
+        Tinytext { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
     where
         T: Into<crate::mapping::types::Tinytext>,
     {
-        let varchar = input.into();
-        let output = match varchar.holding {
-            Holding::Name => varchar.name,
-            Holding::Value => format!("'{}'",varchar.value),
-            _ => "".to_string()
-        };
-        Condition::new(format!("{} = {}", self.name, output))
+        let input = input.into();
+        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -220,33 +233,33 @@ impl Column for Tinytext {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Text{
     name: String,
-    value: String,
+    value: Option<String>,
+    sub_query: Option<QueryBuilder>,
     holding: Holding,
 }
 
 impl crate::mapping::types::Text {
-    pub fn new(name: String) -> Self {
-        crate::mapping::types::Text { name:name, value: "".to_string() ,holding: Holding::Name }
+    pub fn name(name: String) -> Self {
+        crate::mapping::types::Text { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: String) -> Self {
-        crate::mapping::types::Text { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<String>) -> Self {
+        crate::mapping::types::Text { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<String>) -> Self {
+        Text { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
     where
         T: Into<crate::mapping::types::Text>,
     {
-        let varchar = input.into();
-        let output = match varchar.holding {
-            Holding::Name => varchar.name,
-            Holding::Value => format!("'{}'",varchar.value),
-            _ => "".to_string()
-        };
-        Condition::new(format!("{} = {}", self.name, output))
+        let input = input.into();
+        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -262,33 +275,33 @@ impl Column for crate::mapping::types::Text {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Mediumtext{
     name: String,
-    value: String,
+    value: Option<String>,
+    sub_query: Option<QueryBuilder>,
     holding: Holding,
 }
 
 impl crate::mapping::types::Mediumtext {
     fn new(name: String) -> Self {
-        crate::mapping::types::Mediumtext { name:name, value: "".to_string() ,holding: Holding::Name }
+        crate::mapping::types::Mediumtext { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: String) -> Self {
-        crate::mapping::types::Mediumtext { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<String>) -> Self {
+        crate::mapping::types::Mediumtext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<String>) -> Self {
+        Mediumtext { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
     where
         T: Into<crate::mapping::types::Mediumtext>,
     {
-        let varchar = input.into();
-        let output = match varchar.holding {
-            Holding::Name => varchar.name,
-            Holding::Value => format!("'{}'",varchar.value),
-            _ => "".to_string()
-        };
-        Condition::new(format!("{} = {}", self.name, output))
+        let input = input.into();
+        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -304,33 +317,33 @@ impl Column for crate::mapping::types::Mediumtext {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Longtext{
     name: String,
-    value: String,
+    value: Option<String>,
+    sub_query: Option<QueryBuilder>,
     holding: Holding,
 }
 
 impl crate::mapping::types::Longtext {
     pub fn new(name: String) -> Self {
-        crate::mapping::types::Longtext { name:name, value: "".to_string() ,holding: Holding::Name }
+        crate::mapping::types::Longtext { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: String) -> Self {
-        crate::mapping::types::Longtext { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<String>) -> Self {
+        crate::mapping::types::Longtext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<String>) -> Self {
+        Longtext { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
     where
         T: Into<crate::mapping::types::Longtext>,
     {
-        let varchar = input.into();
-        let output = match varchar.holding {
-            Holding::Name => varchar.name,
-            Holding::Value => format!("'{}'",varchar.value),
-            _ => "".to_string()
-        };
-        Condition::new(format!("{} = {}", self.name, output))
+        let input = input.into();
+        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -347,24 +360,25 @@ impl Column for crate::mapping::types::Longtext {
 
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Int{
     value: Option<i32>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl Int {
     pub fn name(name: String) -> Self {
-        Int { name:name, value: None ,holding: Holding::Name }
+        Int { name:name, value: None ,holding: Holding::Name, sub_query:None}
     }
 
     pub fn value(value: Option<i32>) -> Self {
-        Int { value:value, name:"".to_string() ,holding: Holding::Value }
+        Int { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
     pub fn name_value(name: String, value: Option<i32>) -> Self {
-        Int { name:name, value:value, holding: Holding::Value }
+        Int { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -375,20 +389,25 @@ impl Column for Int {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Year{
-    value: i32,
+    value: Option<i32>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Year {
-    fn new(name: String) -> Self {
-        crate::mapping::types::Year { name:name, value: 0 ,holding: Holding::Name }
+    pub fn name(name: String) -> Self {
+        crate::mapping::types::Year { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: i32) -> Self {
-        crate::mapping::types::Year { value:value, name:"".to_string() ,holding: Holding::Value }
+    pub fn value(value: Option<i32>) -> Self {
+        crate::mapping::types::Year { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<i32>) -> Self {
+        Year { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -399,24 +418,25 @@ impl Column for crate::mapping::types::Year {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Set<T>{
     value: Option<Vec<T>>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl<T> Set<T> {
     pub fn name(name: String) -> Self {
-        Set { name:name, value:None ,holding: Holding::Name }
+        Set { name:name, value:None ,holding: Holding::Name, sub_query:None }
     }
 
     pub fn value(value: Option<Vec<T>>) -> Self {
-        Set { value:value, name:"".to_string() ,holding: Holding::Value }
+        Set { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
     pub fn name_value(name: String, value: Option<Vec<T>>) -> Self {
-        Set { name:name, value:value, holding: Holding::Value }
+        Set { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -427,20 +447,25 @@ impl <T:Clone> Column for Set<T> {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Tinyint{
-    value: i8,
+    value: Option<i8>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl Tinyint {
     pub fn new(name: String) -> Self {
-        Tinyint { name:name, value: 0 ,holding: Holding::Name }
+        Tinyint { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: i8) -> Self {
-        Tinyint { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<i8>) -> Self {
+        Tinyint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<i8>) -> Self {
+        Tinyint { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -451,20 +476,25 @@ impl Column for Tinyint {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Smallint{
-    value: i16,
+    value: Option<i16>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Smallint {
     fn new(name: String) -> Self {
-        crate::mapping::types::Smallint { name:name, value: 0 ,holding: Holding::Name }
+        crate::mapping::types::Smallint { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: i16) -> Self {
-        crate::mapping::types::Smallint { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<i16>) -> Self {
+        crate::mapping::types::Smallint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<i16>) -> Self {
+        Smallint { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -475,20 +505,25 @@ impl Column for crate::mapping::types::Smallint {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Bigint{
-    value: i64,
+    value: Option<i64>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl Bigint {
     pub fn new(name: String) -> Self {
-        crate::mapping::types::Bigint { name:name, value: 0 ,holding: Holding::Name }
+        crate::mapping::types::Bigint { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: i64) -> Self {
-        crate::mapping::types::Bigint { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<i64>) -> Self {
+        crate::mapping::types::Bigint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<i64>) -> Self {
+        Bigint { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -499,20 +534,25 @@ impl Column for Bigint {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct BigintUnsigned{
-    value: u64,
+    value: Option<u64>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::BigintUnsigned {
     fn new(name: String) -> Self {
-        crate::mapping::types::BigintUnsigned { name:name, value: 0 ,holding: Holding::Name }
+        crate::mapping::types::BigintUnsigned { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: u64) -> Self {
-        crate::mapping::types::BigintUnsigned { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<u64>) -> Self {
+        crate::mapping::types::BigintUnsigned { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<u64>) -> Self {
+        BigintUnsigned { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -523,20 +563,25 @@ impl Column for crate::mapping::types::BigintUnsigned {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Numeric{
-    value: f64,
+    value: Option<f64>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Numeric {
     fn new(name: String) -> Self {
-        crate::mapping::types::Numeric { name:name, value: 0.0 ,holding: Holding::Name }
+        crate::mapping::types::Numeric { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: f64) -> Self {
-        crate::mapping::types::Numeric { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<f64>) -> Self {
+        crate::mapping::types::Numeric { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<f64>) -> Self {
+        Numeric { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -547,20 +592,25 @@ impl Column for crate::mapping::types::Numeric {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Float{
-    value: f32,
+    value: Option<f32>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Float {
     pub fn new(name: String) -> Self {
-        crate::mapping::types::Float { name:name, value: 0.0 ,holding: Holding::Name }
+        crate::mapping::types::Float { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: f32) -> Self {
-        crate::mapping::types::Float { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<f32>) -> Self {
+        crate::mapping::types::Float { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<f32>) -> Self {
+        Float { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -571,20 +621,25 @@ impl Column for crate::mapping::types::Float {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Double{
-    value: f64,
+    value: Option<f64>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Double {
     pub fn new(name: String) -> Self {
-        crate::mapping::types::Double { name:name, value: 0.0 ,holding: Holding::Name }
+        crate::mapping::types::Double { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: f64) -> Self {
-        crate::mapping::types::Double { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<f64>) -> Self {
+        crate::mapping::types::Double { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<f64>) -> Self {
+        Double { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -595,20 +650,25 @@ impl Column for crate::mapping::types::Double {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Decimal{
-    value: f64,
+    value: Option<f64>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Decimal {
     fn new(name: String) -> Self {
-        crate::mapping::types::Decimal { name:name, value: 0.0 ,holding: Holding::Name }
+        crate::mapping::types::Decimal { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: f64) -> Self {
-        crate::mapping::types::Decimal { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<f64>) -> Self {
+        crate::mapping::types::Decimal { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<f64>) -> Self {
+        Decimal { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -619,20 +679,25 @@ impl Column for crate::mapping::types::Decimal {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Date{
-    value: chrono::NaiveDate,
+    value: Option<chrono::NaiveDate>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Date {
-    pub fn new(name: String) -> Self {
-        crate::mapping::types::Date { name:name, value: NaiveDate::default() ,holding: Holding::Name }
+    pub fn name(name: String) -> Self {
+        crate::mapping::types::Date { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    pub fn value(value: chrono::NaiveDate) -> Self {
-        crate::mapping::types::Date { value:value, name:"".to_string() ,holding: Holding::Value }
+    pub fn value(value: Option<chrono::NaiveDate>) -> Self {
+        crate::mapping::types::Date { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<chrono::NaiveDate>) -> Self {
+        Date { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -643,20 +708,27 @@ impl Column for crate::mapping::types::Date {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Time{
-    value: chrono::NaiveTime,
+    value: Option<chrono::NaiveTime>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Time {
+    pub fn name(name: String) -> Self {
+        crate::mapping::types::Time { name:name, value: None ,holding: Holding::Name, sub_query:None }
+    }
     pub fn new(name: String) -> Self {
-        crate::mapping::types::Time { name:name, value: NaiveTime::default() ,holding: Holding::Name }
+        crate::mapping::types::Time { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
     fn value(value: chrono::NaiveTime) -> Self {
-        crate::mapping::types::Time { value:value, name:"".to_string() ,holding: Holding::Value }
+        crate::mapping::types::Time { value:Some(value), name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+    pub fn name_value(name: String, value: Option<chrono::NaiveTime>) -> Self {
+        crate::mapping::types::Time { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -667,48 +739,25 @@ impl Column for crate::mapping::types::Time {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
-pub struct DateTime{
-    value: chrono::DateTime<Local>,
-    name: String,
-    holding: Holding
-}
-
-impl DateTime {
-    fn new(name: String) -> Self {
-        DateTime { name:name, value: Local::now() ,holding: Holding::Name }
-    }
-
-    fn value(value: chrono::DateTime<Local>) -> Self {
-        DateTime { value:value, name:"".to_string() ,holding: Holding::Value }
-    }
-}
-
-impl Column for DateTime {
-    fn name(&self) -> String {
-        //let type_self: &DateTime = self as &DateTime;
-        self.name.clone()
-    }
-}
-
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Datetime{
-    pub value: Option<chrono::NaiveDateTime>,
+    pub value: Option<chrono::DateTime<Local>>,
     pub name: String,
+    sub_query: Option<QueryBuilder>,
     pub holding: Holding
 }
 
 impl crate::mapping::types::Datetime {
     pub fn name(name: String) -> Self {
-        crate::mapping::types::Datetime { name:name, value: None ,holding: Holding::Name }
+        crate::mapping::types::Datetime { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<chrono::NaiveDateTime>) -> Self {
-        crate::mapping::types::Datetime { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<chrono::DateTime<Local>>) -> Self {
+        crate::mapping::types::Datetime { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<chrono::NaiveDateTime>) -> Self {
-        crate::mapping::types::Datetime { name:name, value:value, holding: Holding::Value }
+    pub fn name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
+        crate::mapping::types::Datetime { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -719,24 +768,25 @@ impl Column for crate::mapping::types::Datetime {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Timestamp{
-    value: Option<chrono::NaiveDateTime>,
+    value: Option<chrono::DateTime<Local>>,
     name: String,
+    sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
 impl crate::mapping::types::Timestamp {
     pub fn name(name: String) -> Self {
-        crate::mapping::types::Timestamp { name:name, value: None ,holding: Holding::Name }
+        crate::mapping::types::Timestamp { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<chrono::NaiveDateTime>) -> Self {
-        crate::mapping::types::Timestamp { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<chrono::DateTime<Local>>) -> Self {
+        crate::mapping::types::Timestamp { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<chrono::NaiveDateTime>) -> Self {
-        crate::mapping::types::Timestamp { name:name, value:value, holding: Holding::Value }
+    pub fn name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
+        crate::mapping::types::Timestamp { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 
@@ -747,33 +797,33 @@ impl Column for crate::mapping::types::Timestamp {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Json{
     name: String,
-    value: String,
+    value: Option<String>,
+    sub_query: Option<QueryBuilder>,
     holding: Holding,
 }
 
 impl crate::mapping::types::Json {
     pub fn new(name: String) -> Self {
-        crate::mapping::types::Json { name:name, value: "".to_string() ,holding: Holding::Name }
+        crate::mapping::types::Json { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: String) -> Self {
-        crate::mapping::types::Json { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<String>) -> Self {
+        crate::mapping::types::Json { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<String>) -> Self {
+        crate::mapping::types::Json { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
     where
         T: Into<crate::mapping::types::Json>,
     {
-        let varchar = input.into();
-        let output = match varchar.holding {
-            Holding::Name => varchar.name,
-            Holding::Value => format!("'{}'",varchar.value),
-            _ => "".to_string()
-        };
-        Condition::new(format!("{} = {}", self.name, output))
+        let input = input.into();
+        build_equal_condition_for_string_type(self.name.clone(),input.holding,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -789,20 +839,25 @@ impl Column for crate::mapping::types::Json {
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug)]
+#[derive(Clone,Debug)]
 pub struct Blob{
     name: String,
-    value: Vec<u8>,
+    value: Option<Vec<u8>>,
+    sub_query: Option<QueryBuilder>,
     holding: Holding,
 }
 
 impl crate::mapping::types::Blob {
     fn new(name: String) -> Self {
-        crate::mapping::types::Blob { name:name, value: vec![] ,holding: Holding::Name }
+        crate::mapping::types::Blob { name:name, value: None ,holding: Holding::Name, sub_query:None}
     }
 
-    fn value(value: Vec<u8>) -> Self {
-        crate::mapping::types::Blob { value:value, name:"".to_string() ,holding: Holding::Value }
+    fn value(value: Option<Vec<u8>>) -> Self {
+        crate::mapping::types::Blob { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<Vec<u8>>) -> Self {
+        crate::mapping::types::Blob { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 }
 

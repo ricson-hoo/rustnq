@@ -3,7 +3,7 @@ use std::fs;
 use sqlx::{AnyConnection, AnyPool, Column, Row};
 use sqlx::any::AnyRow;
 use sqlx_mysql::MySqlRow;
-use crate::codegen::entity::FieldNamingConvention;
+use crate::codegen::entity::NamingConvention;
 use crate::utils::stringUtils;
 
 #[derive(Debug)]
@@ -130,12 +130,12 @@ pub fn prepare_directory(path:& std::path::Path){
     }
 }
 
-pub fn format_name(name:&str, convention:FieldNamingConvention) -> String{
+pub fn format_name(name:&str, convention: NamingConvention) -> String{
     match convention {
-       FieldNamingConvention::CamelCase => {
+       NamingConvention::CamelCase => {
            stringUtils::to_camel_case(name)
        }
-       FieldNamingConvention::SnakeCase => {
+       NamingConvention::SnakeCase => {
             let mut result = String::new();
             let mut first = true;
             for c in name.chars() {
@@ -147,7 +147,7 @@ pub fn format_name(name:&str, convention:FieldNamingConvention) -> String{
             }
             result
         }
-        FieldNamingConvention::PascalCase => {
+        NamingConvention::PascalCase => {
             let mut result = String::new();
             let mut capitalize_next = true;
             for c in name.chars() {

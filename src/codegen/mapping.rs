@@ -5,7 +5,7 @@ use std::println;
 use std::path::{Path};
 use sqlx::{AnyConnection, AnyPool, Pool};
 use sqlx_mysql::MySql;
-use crate::codegen::entity::{FieldNamingConvention, GeneratedStructInfo};
+use crate::codegen::entity::{NamingConvention, GeneratedStructInfo};
 use crate::codegen::utils;
 use crate::codegen::utils::{format_name, prepare_directory, TableRow};
 use crate::mapping::description::{Column, TableFieldConstructInfo, MysqlColumnDefinition, SqlColumn};
@@ -19,12 +19,12 @@ pub struct MappingGenerateConfig{
     pub output_dir:String,
     pub crate_and_root_path_of_entity: String, //including 'entity' folder
     pub boolean_columns: HashMap<String, Vec<String>>,
-    pub entity_field_naming_convention: FieldNamingConvention,
+    pub entity_field_naming_convention: NamingConvention,
     //pub trait_for_enum_types: HashMap<String, String>
 }
 
 impl MappingGenerateConfig{
-    pub fn new(output_dir:String, crate_and_root_path_of_entity:String, boolean_columns:HashMap<String, Vec<String>>, entity_field_naming_convention:FieldNamingConvention /*,trait_for_enum_types:HashMap<String, String>*/)->Self{
+    pub fn new(output_dir:String, crate_and_root_path_of_entity:String, boolean_columns:HashMap<String, Vec<String>>, entity_field_naming_convention: NamingConvention /*,trait_for_enum_types:HashMap<String, String>*/) ->Self{
         MappingGenerateConfig{
             output_dir,
             crate_and_root_path_of_entity,
@@ -39,12 +39,12 @@ impl MappingGenerateConfig{
             output_dir:"target/generated/mapping".to_string(),
             crate_and_root_path_of_entity : "shared".to_string(),
             boolean_columns:HashMap::new(),
-            entity_field_naming_convention: FieldNamingConvention::SnakeCase
+            entity_field_naming_convention: NamingConvention::SnakeCase
             //trait_for_enum_types:HashMap::new()
         }
     }
 
-    pub fn default_with(crate_and_root_path_of_entity:String, entity_field_naming_convention:FieldNamingConvention)->Self{
+    pub fn default_with(crate_and_root_path_of_entity:String, entity_field_naming_convention: NamingConvention) ->Self{
         MappingGenerateConfig{
             output_dir:"target/generated/mapping".to_string(),
             crate_and_root_path_of_entity : crate_and_root_path_of_entity,
@@ -109,7 +109,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 }
 
 async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path, crate_and_root_path_of_entity: String,
-                          boolean_columns: &HashMap<String, Vec<String>>, entity_field_naming_convention: FieldNamingConvention/*, trait_for_enum_types: &HashMap<String, String>*/) -> GeneratedStructInfo{
+                          boolean_columns: &HashMap<String, Vec<String>>, entity_field_naming_convention: NamingConvention/*, trait_for_enum_types: &HashMap<String, String>*/) -> GeneratedStructInfo{
     let struct_name = format!("{}Table",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name)));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
     let out_file_name_without_ext = format!("{}Table",stringUtils::to_camel_case(&table.name));
@@ -206,7 +206,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     writeln!(buf_writer,"    }}").expect("Failed to table mapping code");
 
 
-    writeln!(buf_writer,"    pub fn new_with_value(entity:{}) ->Self {{", format_name(&table.name,FieldNamingConvention::PascalCase)).expect("Failed to table mapping code");
+    writeln!(buf_writer,"    pub fn new_with_value(entity:{}) ->Self {{", format_name(&table.name, NamingConvention::PascalCase)).expect("Failed to table mapping code");
     writeln!(buf_writer,"        {} {{",struct_name).expect("Failed to table mapping code");
     for field in instance_with_value_fields{
         writeln!(buf_writer,"            {}",field).expect("Failed to table mapping code");
@@ -254,7 +254,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 }
 
 
-pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_definition:MysqlColumnDefinition, crate_and_root_path_of_entity: String, entity_field_naming_convention: FieldNamingConvention) -> Result<TableFieldConstructInfo,Box<dyn Error>>{
+pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_definition:MysqlColumnDefinition, crate_and_root_path_of_entity: String, entity_field_naming_convention: NamingConvention) -> Result<TableFieldConstructInfo,Box<dyn Error>>{
 
     let col_definition = mysql_col_definition.column_definition;
     let mut column_type_name = "".to_string();
@@ -274,7 +274,7 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
     let mut name_and_value_from_entity_default_value = "".to_string();
     let mut entity_field_name = format_name(&mysql_col_definition.name_unmodified,entity_field_naming_convention);
     entity_field_name = if utils::reserved_field_names().contains(&mysql_col_definition.name_unmodified) { format!("{}_", &entity_field_name) } else { entity_field_name };
-    let entity_struct_name = format_name(table_name,FieldNamingConvention::PascalCase);
+    let entity_struct_name = format_name(table_name, NamingConvention::PascalCase);
     let mut import_statements : Vec<String> = vec![format!("{}::{}",&crate_and_root_path_of_entity, entity_struct_name)];
 
     match column_type_parse_result{
