@@ -104,7 +104,7 @@ impl <'a> QueryBuilder2 {
 pub struct QueryBuilder {
     operation:Operation,
     is_select_all:Option<bool>,
-    target_table: Option<String>,//Option<&'a dyn Table>,
+    target_table: Option<String>,//Option<String>,
     fields: Vec<String>,
     upsert_values: Vec<String>,//insert values or update values
     conditions: Vec<Condition>,
@@ -204,14 +204,27 @@ impl QueryBuilder {
     }*/
 
     ///execute insert/update/delete and return the affected rows number
-    pub async fn execute(&self) -> Result<u64,Error> {
+    pub async fn execute(&self) -> Result<MySqlQueryResult,Error> {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
         if let Ok(query_string) = build_result {
             println!("query string {}", query_string);
-
             let result = sqlx::query(&query_string).execute(pool).await? as MySqlQueryResult; // Pass the reference to sqlx::query()
-            Ok(result.rows_affected())
+            Ok(result)
+        }else if let Err(e) = build_result {
+            Err(Error::Configuration(e.message.into()))
+        }else {
+            Err(Error::Configuration("未知错误".into()))
+        }
+    }
+
+    pub async fn execute_return(&self) -> Result<T,Error> {
+        let pool = POOL.get().unwrap();
+        let build_result = self.build();
+        if let Ok(query_string) = build_result {
+            println!("query string {}", query_string);
+            let result = sqlx::query(&query_string).execute(pool).await? as MySqlQueryResult; // Pass the reference to sqlx::query()
+            Ok(result)
         }else if let Err(e) = build_result {
             Err(Error::Configuration(e.message.into()))
         }else {
