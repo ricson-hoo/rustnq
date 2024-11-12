@@ -30,6 +30,7 @@ pub enum SqlColumn<T = ()> {
     Longtext(Option<Longtext>),
     Enum(Option<Enum<T>>),
     Set(Option<Set<T>>),
+    Boolean(Option<Boolean>),
     Tinyint(Option<Tinyint>),
     Smallint(Option<Smallint>),
     Int(Option<Int>),
@@ -48,39 +49,12 @@ pub enum SqlColumn<T = ()> {
     Json(Option<Json>),
 }
 
-//#[derive(Clone,Debug)]
-/*pub enum SqlColumnType {
-    Char,
-    Varchar,
-    Tinytext,
-    Text,
-    Mediumtext,
-    Longtext,
-    Enum,
-    Set,
-    Tinyint,
-    Smallint,
-    Int,
-    Bigint,
-    BigintUnsigned,
-    Numeric,
-    Float,
-    Double,
-    Decimal,
-    Date,
-    Time,
-    Datetime,
-    Timestamp,
-    Year,
-    Blob,
-    Json
-}*/
-
 #[derive(Debug,Clone)]
 pub enum RustDataType {
     String,
     Enum,
     Vec,
+    bool,
     i8,
     i16,
     i32,
@@ -137,6 +111,39 @@ impl FromStr for SqlColumn {
     }
 }
 
+impl ToString for SqlColumn {
+    fn to_string(&self) -> String {
+        match self {
+            SqlColumn::Char(_) => "SqlColumn::Char".to_string(),
+            SqlColumn::Varchar(_) => "SqlColumn::Varchar".to_string(),
+            SqlColumn::Tinytext(_) => "SqlColumn::Tinytext".to_string(),
+            SqlColumn::Text(_) => "SqlColumn::Text".to_string(),
+            SqlColumn::Mediumtext(_) => "SqlColumn::Mediumtext".to_string(),
+            SqlColumn::Longtext(_) => "SqlColumn::Longtext".to_string(),
+            SqlColumn::Enum(_) => "SqlColumn::Enum".to_string(),
+            SqlColumn::Set(_) => "SqlColumn::Set".to_string(),
+            SqlColumn::Boolean(_) => "SqlColumn::Boolean".to_string(),
+            SqlColumn::Tinyint(_) => "SqlColumn::Tinyint".to_string(),
+            SqlColumn::Smallint(_) => "SqlColumn::Smallint".to_string(),
+            SqlColumn::Int(_) => "SqlColumn::Int".to_string(),
+            SqlColumn::Bigint(_) => "SqlColumn::Bigint".to_string(),
+            SqlColumn::BigintUnsigned(_) => "SqlColumn::BigintUnsigned".to_string(),
+            SqlColumn::Numeric(_) => "SqlColumn::Numeric".to_string(),
+            SqlColumn::Float(_) => "SqlColumn::Float".to_string(),
+            SqlColumn::Double(_) => "SqlColumn::Double".to_string(),
+            SqlColumn::Decimal(_) => "SqlColumn::Decimal".to_string(),
+            SqlColumn::Date(_) => "SqlColumn::Date".to_string(),
+            SqlColumn::Time(_) => "SqlColumn::Time".to_string(),
+            SqlColumn::Datetime(_) => "SqlColumn::Datetime".to_string(),
+            SqlColumn::Timestamp(_) => "SqlColumn::Timestamp".to_string(),
+            SqlColumn::Year(_) => "SqlColumn::Year".to_string(),
+            SqlColumn::Blob(_) => "SqlColumn::Blob".to_string(),
+            SqlColumn::Json(_) => "SqlColumn::Json".to_string(),
+        }
+    }
+}
+
+
 pub struct MysqlColumnDefinition{
     pub name: String,
     pub name_unmodified: String,
@@ -151,6 +158,6 @@ pub struct TableFieldConstructInfo {
     pub initial_assignment_with_name:String,
     pub initial_assignment_with_name_and_value:String,
     pub import_statements:Vec<String>,
-    pub sql_raw_type:String, //如Char,Varchar,Tinytext,Datetime,Timestamp...
-    pub sql_raw_type_converted:bool
+    pub sql_column_type:Option<SqlColumn>,
+    pub sql_column_type_modified:bool
 }

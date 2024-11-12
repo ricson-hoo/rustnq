@@ -147,7 +147,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
                     default_value:"".to_string(), //all empty for now
                     is_primary_key: field.is_primary_key
                 };
-                let columnConstructInfo:TableFieldConstructInfo = get_construct_info_from_column_definition(&table.name,mysql_cloumn_definition, crate_and_root_path_of_entity.clone(),entity_field_naming_convention).expect(&format!("Failed to get construct info from table {}",table.name));
+                let columnConstructInfo:TableFieldConstructInfo = get_construct_info_from_column_definition(&table.name,mysql_cloumn_definition, crate_and_root_path_of_entity.clone(),entity_field_naming_convention,boolean_columns).expect(&format!("Failed to get construct info from table {}",table.name));
 
                 if !columnConstructInfo.import_statements.is_empty() {
                     for import_statement in &columnConstructInfo.import_statements {
@@ -161,10 +161,10 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
                 instance_fields.push(format!("{}:{},",&column_name,columnConstructInfo.initial_assignment_with_name));
                 instance_with_value_fields.push(format!("{}:{},",&column_name,columnConstructInfo.initial_assignment_with_name_and_value));
 
-                columns_statements.push(format!("SqlColumn::{}(Some(self.{}.clone(){}))",&columnConstructInfo.sql_raw_type,&column_name, if columnConstructInfo.sql_raw_type_converted {".into()"} else {""}));
+                columns_statements.push(format!("{}(Some(self.{}.clone(){}))",&columnConstructInfo.sql_column_type.clone().unwrap().to_string(),&column_name, if columnConstructInfo.sql_column_type_modified {".into()"} else {""}));
 
                 if field.is_primary_key{
-                    primary_keys_statements.push(format!("SqlColumn::{}(Some(self.{}.clone()))",&columnConstructInfo.sql_raw_type, &column_name));
+                    primary_keys_statements.push(format!("{}(Some(self.{}.clone()))",&columnConstructInfo.sql_column_type.unwrap().to_string(), &column_name));
                 }
             }
         }
@@ -254,7 +254,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 }
 
 
-pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_definition:MysqlColumnDefinition, crate_and_root_path_of_entity: String, entity_field_naming_convention: NamingConvention) -> Result<TableFieldConstructInfo,Box<dyn Error>>{
+pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_definition:MysqlColumnDefinition, crate_and_root_path_of_entity: String, entity_field_naming_convention: NamingConvention,boolean_columns: &HashMap<String, Vec<String>>) -> Result<TableFieldConstructInfo,Box<dyn Error>>{
 
     let col_definition = mysql_col_definition.column_definition;
     let mut column_type_name = "".to_string();
@@ -267,8 +267,8 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
     let column_type_parse_result = column_type_name.parse::<SqlColumn>();
     let column_name = mysql_col_definition.name;
     let mut field_type = "".to_string();
-    let mut sql_raw_type = "".to_string();
-    let mut sql_raw_type_converted = false;
+    let mut sql_column_type:Option<SqlColumn> = None;
+    let mut sql_column_type_modified = false;
     let mut import_type = "".to_string();
     let mut name_only_default_value = "".to_string();
     let mut name_and_value_from_entity_default_value = "".to_string();
@@ -279,52 +279,45 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
 
     match column_type_parse_result{
         Ok(column_type) => {
+            sql_column_type = Some(column_type.clone());
             match column_type {
                 SqlColumn::Varchar(_) => {
                     field_type = "Varchar".to_string();
-                    sql_raw_type = "Varchar".to_string();
                     name_only_default_value = format!("Varchar::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Varchar::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Char(_) => {
                     field_type = "Char".to_string();
-                    sql_raw_type = "Char".to_string();
                     name_only_default_value = format!("Char::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Char::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Tinytext(_) => {
                     field_type = "Tinytext".to_string();
-                    sql_raw_type = "Tinytext".to_string();
                     name_only_default_value = format!("Tinytext::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Tinytext::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Text(_) => {
                     field_type = "Text".to_string();
-                    sql_raw_type = "Text".to_string();
                     name_only_default_value = format!("Text::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Text::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Mediumtext(_) => {
                     field_type = "Mediumtext".to_string();
-                    sql_raw_type = "Mediumtext".to_string();
                     name_only_default_value = format!("Mediumtext::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Mediumtext::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Longtext(_) => {
                     field_type = "Longtext".to_string();
-                    sql_raw_type = "Longtext".to_string();
                     name_only_default_value = format!("Longtext::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Longtext::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Int(_) => {
                     field_type = "Int".to_string();
-                    sql_raw_type = "Int".to_string();
                     name_only_default_value = format!("Int::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Int::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Year(_) => {
                     field_type = "Year".to_string();
-                    sql_raw_type = "Year".to_string();
                     name_only_default_value = format!("Year::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Year::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
@@ -335,8 +328,8 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                         enumType = format!("{}::enums::{}",crate_and_root_path_of_entity, enumType);
                     }
                     field_type = format!("Enum<{}>", short_enum_name);
-                    sql_raw_type = "Varchar".to_string();
-                    sql_raw_type_converted = true;
+                    sql_column_type = Some(SqlColumn::Varchar(None));
+                    sql_column_type_modified = true;
                     import_type = "Enum".to_string();
                     name_only_default_value = format!("Enum::<{}>::name(\"{}\".to_string())", short_enum_name, mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Enum::<{}>::name_value(\"{}\".to_string(), entity.{})", short_enum_name, mysql_col_definition.name_unmodified, &entity_field_name);
@@ -350,8 +343,8 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                         enumType = format!("{}::enums::{}",crate_and_root_path_of_entity, enumType);
                     }
                     field_type = format!("Set<{}>", short_enum_name);
-                    sql_raw_type = "Varchar".to_string();
-                    sql_raw_type_converted = true;
+                    sql_column_type = Some(SqlColumn::Varchar(None));
+                    sql_column_type_modified = true;
                     import_type = "Set".to_string();
                     name_only_default_value = format!("Set::<{}>::name(\"{}\".to_string())", short_enum_name, mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Set::<{}>::name_value(\"{}\".to_string(), entity.{})", short_enum_name, mysql_col_definition.name_unmodified, &entity_field_name);
@@ -360,85 +353,85 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                 },
                 SqlColumn::Datetime(_) => {
                     field_type = "Datetime".to_string();
-                    sql_raw_type = "Datetime".to_string();
                     name_only_default_value = format!("Datetime::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Datetime::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Timestamp(_) => {
                     field_type = "Timestamp".to_string();
-                    sql_raw_type = "Timestamp".to_string();
                     name_only_default_value = format!("Timestamp::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Timestamp::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Tinyint(_) => {
-                    field_type = "Tinyint".to_string();
-                    sql_raw_type = "Tinyint".to_string();
-                    name_only_default_value = format!("Tinyint::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Tinyint::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    if boolean_columns.contains_key(table_name) && boolean_columns[table_name].contains(&column_name.to_string()) {
+                        sql_column_type = Some(SqlColumn::Boolean(None));
+                        field_type = "Boolean".to_string();
+                        name_only_default_value = format!("Boolean::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
+                        name_and_value_from_entity_default_value = format!("Boolean::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                        sql_column_type_modified = true;
+                    }else{
+                        field_type = "Tinyint".to_string();
+                        name_only_default_value = format!("Tinyint::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
+                        name_and_value_from_entity_default_value = format!("Tinyint::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    }
+                },
+                SqlColumn::Boolean(_) => {
+                    field_type = "Boolean".to_string();
+                    name_only_default_value = format!("Boolean::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
+                    name_and_value_from_entity_default_value = format!("Boolean::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    sql_column_type_modified = true;
                 },
                 SqlColumn::Smallint(_) => {
                     field_type = "Smallint".to_string();
-                    sql_raw_type = "Smallint".to_string();
                     name_only_default_value = format!("Smallint::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Smallint::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Bigint(_) => {
                     field_type = "Bigint".to_string();
-                    sql_raw_type = "Bigint".to_string();
                     name_only_default_value = format!("Bigint::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Bigint::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::BigintUnsigned(_) => {
                     field_type = "BigintUnsigned".to_string();
-                    sql_raw_type = "BigintUnsigned".to_string();
                     name_only_default_value = format!("BigintUnsigned::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("BigintUnsigned::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Numeric(_) => {
                     field_type = "Numeric".to_string();
-                    sql_raw_type = "Numeric".to_string();
                     name_only_default_value = format!("Numeric::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Numeric::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Float(_) => {
                     field_type = "Float".to_string();
-                    sql_raw_type = "Float".to_string();
                     name_only_default_value = format!("Float::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Float::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Double(_) => {
                     field_type = "Double".to_string();
-                    sql_raw_type = "Double".to_string();
                     name_only_default_value = format!("Double::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Double::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Decimal(_) => {
                     field_type = "Varchar".to_string();
-                    sql_raw_type = "Varchar".to_string();
                     name_only_default_value = format!("Varchar::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Varchar::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Date(_) => {
                     field_type = "Date".to_string();
-                    sql_raw_type = "Date".to_string();
                     name_only_default_value = format!("Date::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Date::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Time(_) => {
                     field_type = "Time".to_string();
-                    sql_raw_type = "Time".to_string();
                     name_only_default_value = format!("Time::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Time::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Blob(_) => {
                     field_type = "Blob".to_string();
-                    sql_raw_type = "Blob".to_string();
                     name_only_default_value = format!("Blob::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Blob::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Json(_) => {
                     field_type = "Json".to_string();
-                    sql_raw_type = "Json".to_string();
                     name_only_default_value = format!("Json::name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
                     name_and_value_from_entity_default_value = format!("Json::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
@@ -457,8 +450,8 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
         initial_assignment_with_name: name_only_default_value,
         initial_assignment_with_name_and_value: name_and_value_from_entity_default_value,
         import_statements: import_statements,
-        sql_raw_type:sql_raw_type, //如Char,Varchar,Tinytext,Datetime,Timestamp...
-        sql_raw_type_converted: sql_raw_type_converted
+        sql_column_type:sql_column_type, //如Char,Varchar,Tinytext,Datetime,Timestamp...
+        sql_column_type_modified: sql_column_type_modified
     })
 
 }

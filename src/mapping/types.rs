@@ -448,6 +448,35 @@ impl <T:Clone> Column for Set<T> {
 }
 
 #[derive(Clone,Debug)]
+pub struct Boolean{
+    value: Option<bool>,
+    name: String,
+    sub_query: Option<QueryBuilder>,
+    holding: Holding
+}
+
+impl crate::mapping::types::Boolean {
+    pub fn name(name: String) -> Self {
+        crate::mapping::types::Boolean { name:name, value: None ,holding: Holding::Name, sub_query:None }
+    }
+
+    fn value(value: Option<bool>) -> Self {
+        crate::mapping::types::Boolean { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn name_value(name: String, value: Option<bool>) -> Self {
+        crate::mapping::types::Boolean { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+}
+
+impl Column for crate::mapping::types::Boolean {
+    fn name(&self) -> String {
+        //let type_self: &Tinyint = self;
+        self.name.clone()
+    }
+}
+
+#[derive(Clone,Debug)]
 pub struct Tinyint{
     value: Option<i8>,
     name: String,
@@ -456,7 +485,7 @@ pub struct Tinyint{
 }
 
 impl Tinyint {
-    pub fn new(name: String) -> Self {
+    pub fn name(name: String) -> Self {
         Tinyint { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 

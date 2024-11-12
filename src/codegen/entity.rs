@@ -279,6 +279,7 @@ impl RustDataType {
                 }
             },
             RustDataType::Vec => &format!("Option<Vec<{}>>",enumName.unwrap_or("")),
+            RustDataType::bool => "Option<bool>",
             RustDataType::i8 => "Option<i8>",
             RustDataType::i16 => "Option<i16>",
             RustDataType::i32 => "Option<i32>",
@@ -365,6 +366,12 @@ impl SqlColumn {
             },
             SqlColumn::Tinyint(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i8,
+                is_conditional_type: true,
+                container_type: None,
+                import:vec![]
+            },
+            SqlColumn::Boolean(_) => MysqlDataTypeProp {
+                rust_type: RustDataType::bool,
                 is_conditional_type: true,
                 container_type: None,
                 import:vec![]
