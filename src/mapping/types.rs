@@ -1,6 +1,6 @@
 use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
 use crate::query::builder::{Condition, QueryBuilder};
-use chrono::{Local, NaiveTime};
+use chrono::{DateTime, Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
 
 pub trait And {
@@ -25,15 +25,15 @@ pub struct Enum<T> {
 }
 
 impl<T> Enum<T> {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         Enum { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<T>) -> Self {
+    fn with_value(value: Option<T>) -> Self {
         Enum { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<T>) -> Self {
+    pub fn with_name_value(name: String, value: Option<T>) -> Self {
         Enum { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
@@ -59,23 +59,23 @@ impl Varchar {
         vec![self.name.clone(), other.name()]
     }
 
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         Varchar { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    pub fn value(value: Option<String>) -> Self {
+    pub fn with_value(value: Option<String>) -> Self {
         Varchar { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn val(&self) -> String {
-        self.value.clone().unwrap()
+    pub fn value(&self) -> Option<String> {
+        self.value.clone()
     }
 
-    pub fn name_value(name: String, value: Option<String>) -> Self {
+    pub fn with_name_value(name: String, value: Option<String>) -> Self {
         Varchar { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_query(name: String, sub_query: Option<QueryBuilder>) -> Self {
+    pub fn with_name_query(name: String, sub_query: Option<QueryBuilder>) -> Self {
         Varchar { name:name, value:Some("".to_string()), holding: Holding::SubQuery, sub_query:sub_query }
     }
 
@@ -101,7 +101,7 @@ impl Varchar {
 
 impl From<&str> for Varchar {
     fn from(s: &str) -> Self {
-        Varchar::value(Some(s.to_string()))
+        Varchar::with_value(Some(s.to_string()))
     }
 }
 
@@ -109,14 +109,14 @@ impl<T> From<Enum<T>> for Varchar where std::string::String: From<T> {
     fn from(a_enum: Enum<T>) -> Varchar {
         if let Some(enum_value) = a_enum.value {
             let str_value:String = String::from(enum_value);
-            Varchar::value(Some(str_value))
+            Varchar::with_value(Some(str_value))
         }else {
-            Varchar::value(None)
+            Varchar::with_value(None)
         }
     }
 }
 
-impl<T> From<Set<T>> for Varchar where  std::string::String: From<T> {
+impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
     fn from(set: Set<T>) -> Varchar {
         let mut str_set:Vec<String> = vec![];
         let set_value = set.value;
@@ -126,7 +126,7 @@ impl<T> From<Set<T>> for Varchar where  std::string::String: From<T> {
             }
         }
         let string_value: String = str_set.join(",");
-        Varchar::value(Some(string_value))
+        Varchar::with_value(Some(string_value))
     }
 }
 
@@ -158,16 +158,20 @@ fn build_equal_condition_for_string_type(self_name:String,input_holding:Holding,
 }
 
 impl Char {
-    pub fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         Char { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<String>) -> Self {
+    pub fn with_value(value: Option<String>) -> Self {
         Char { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<String>) -> Self {
+    pub fn with_name_value(name: String, value: Option<String>) -> Self {
         Char { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<String> {
+        self.value.clone()
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -200,16 +204,20 @@ pub struct Tinytext{
 }
 
 impl crate::mapping::types::Tinytext {
-    fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Tinytext { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value:Option<String>) -> Self {
+    pub fn with_value(value:Option<String>) -> Self {
         crate::mapping::types::Tinytext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<String>) -> Self {
+    pub fn with_name_value(name: String, value: Option<String>) -> Self {
         Tinytext { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<String> {
+        self.value.clone()
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -242,16 +250,20 @@ pub struct Text{
 }
 
 impl crate::mapping::types::Text {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Text { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<String>) -> Self {
+    pub fn with_value(value: Option<String>) -> Self {
         crate::mapping::types::Text { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<String>) -> Self {
+    pub fn with_name_value(name: String, value: Option<String>) -> Self {
         Text { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<String> {
+        self.value.clone()
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -284,16 +296,20 @@ pub struct Mediumtext{
 }
 
 impl crate::mapping::types::Mediumtext {
-    fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Mediumtext { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<String>) -> Self {
+    pub fn with_value(value: Option<String>) -> Self {
         crate::mapping::types::Mediumtext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<String>) -> Self {
+    pub fn with_name_value(name: String, value: Option<String>) -> Self {
         Mediumtext { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<String> {
+        self.value.clone()
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -326,16 +342,20 @@ pub struct Longtext{
 }
 
 impl crate::mapping::types::Longtext {
-    pub fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Longtext { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<String>) -> Self {
+    pub fn with_value(value: Option<String>) -> Self {
         crate::mapping::types::Longtext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<String>) -> Self {
+    pub fn with_name_value(name: String, value: Option<String>) -> Self {
         Longtext { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<String> {
+        self.value.clone()
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -354,10 +374,8 @@ impl crate::mapping::types::Longtext {
 
 impl Column for crate::mapping::types::Longtext {
     fn name(&self) -> String {
-        //let type_self: Longtext = self as Longtext;
         self.name.clone()
     }
-
 }
 
 #[derive(Clone,Debug)]
@@ -369,16 +387,20 @@ pub struct Int{
 }
 
 impl Int {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         Int { name:name, value: None ,holding: Holding::Name, sub_query:None}
     }
 
-    pub fn value(value: Option<i32>) -> Self {
+    pub fn with_value(value: Option<i32>) -> Self {
         Int { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<i32>) -> Self {
+    pub fn with_name_value(name: String, value: Option<i32>) -> Self {
         Int { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<i32> {
+        self.value.clone()
     }
 }
 
@@ -398,16 +420,20 @@ pub struct Year{
 }
 
 impl crate::mapping::types::Year {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Year { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    pub fn value(value: Option<i32>) -> Self {
+    pub fn with_value(value: Option<i32>) -> Self {
         crate::mapping::types::Year { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<i32>) -> Self {
+    pub fn with_name_value(name: String, value: Option<i32>) -> Self {
         Year { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<i32> {
+        self.value.clone()
     }
 }
 
@@ -419,24 +445,28 @@ impl Column for crate::mapping::types::Year {
 }
 
 #[derive(Clone,Debug)]
-pub struct Set<T>{
+pub struct Set<T:Clone>{
     value: Option<Vec<T>>,
     name: String,
     sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
-impl<T> Set<T> {
-    pub fn name(name: String) -> Self {
+impl<T:Clone> Set<T> {
+    pub fn with_name(name: String) -> Self {
         Set { name:name, value:None ,holding: Holding::Name, sub_query:None }
     }
 
-    pub fn value(value: Option<Vec<T>>) -> Self {
+    pub fn with_value(value: Option<Vec<T>>) -> Self {
         Set { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<Vec<T>>) -> Self {
+    pub fn with_name_value(name: String, value: Option<Vec<T>>) -> Self {
         Set { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<Vec<T>> {
+        self.value.clone()
     }
 }
 
@@ -456,16 +486,20 @@ pub struct Boolean{
 }
 
 impl crate::mapping::types::Boolean {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Boolean { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<bool>) -> Self {
+    fn with_value(value: Option<bool>) -> Self {
         crate::mapping::types::Boolean { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<bool>) -> Self {
+    pub fn with_name_value(name: String, value: Option<bool>) -> Self {
         crate::mapping::types::Boolean { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<bool> {
+        self.value.clone()
     }
 }
 
@@ -485,16 +519,20 @@ pub struct Tinyint{
 }
 
 impl Tinyint {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         Tinyint { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<i8>) -> Self {
+    fn with_value(value: Option<i8>) -> Self {
         Tinyint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<i8>) -> Self {
+    pub fn with_name_value(name: String, value: Option<i8>) -> Self {
         Tinyint { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<i8> {
+        self.value.clone()
     }
 }
 
@@ -514,16 +552,20 @@ pub struct Smallint{
 }
 
 impl crate::mapping::types::Smallint {
-    fn new(name: String) -> Self {
+    fn with_name(name: String) -> Self {
         crate::mapping::types::Smallint { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<i16>) -> Self {
+    fn with_value(value: Option<i16>) -> Self {
         crate::mapping::types::Smallint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<i16>) -> Self {
+    pub fn with_name_value(name: String, value: Option<i16>) -> Self {
         Smallint { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<i16> {
+        self.value.clone()
     }
 }
 
@@ -543,16 +585,20 @@ pub struct Bigint{
 }
 
 impl Bigint {
-    pub fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Bigint { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<i64>) -> Self {
+    pub fn with_value(value: Option<i64>) -> Self {
         crate::mapping::types::Bigint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<i64>) -> Self {
+    pub fn with_name_value(name: String, value: Option<i64>) -> Self {
         Bigint { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<i64> {
+        self.value.clone()
     }
 }
 
@@ -572,16 +618,20 @@ pub struct BigintUnsigned{
 }
 
 impl crate::mapping::types::BigintUnsigned {
-    fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::BigintUnsigned { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<u64>) -> Self {
+    pub fn with_value(value: Option<u64>) -> Self {
         crate::mapping::types::BigintUnsigned { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<u64>) -> Self {
+    pub fn with_name_value(name: String, value: Option<u64>) -> Self {
         BigintUnsigned { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<u64> {
+        self.value.clone()
     }
 }
 
@@ -601,16 +651,20 @@ pub struct Numeric{
 }
 
 impl crate::mapping::types::Numeric {
-    fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Numeric { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<f64>) -> Self {
+    pub fn with_value(value: Option<f64>) -> Self {
         crate::mapping::types::Numeric { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<f64>) -> Self {
+    pub fn with_name_value(name: String, value: Option<f64>) -> Self {
         Numeric { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<f64> {
+        self.value.clone()
     }
 }
 
@@ -630,16 +684,20 @@ pub struct Float{
 }
 
 impl crate::mapping::types::Float {
-    pub fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Float { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<f32>) -> Self {
+    fn with_value(value: Option<f32>) -> Self {
         crate::mapping::types::Float { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<f32>) -> Self {
+    pub fn with_name_value(name: String, value: Option<f32>) -> Self {
         Float { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<f32> {
+        self.value.clone()
     }
 }
 
@@ -659,16 +717,20 @@ pub struct Double{
 }
 
 impl crate::mapping::types::Double {
-    pub fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Double { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<f64>) -> Self {
+    fn with_value(value: Option<f64>) -> Self {
         crate::mapping::types::Double { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<f64>) -> Self {
+    pub fn with_name_value(name: String, value: Option<f64>) -> Self {
         Double { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<f64> {
+        self.value.clone()
     }
 }
 
@@ -688,16 +750,20 @@ pub struct Decimal{
 }
 
 impl crate::mapping::types::Decimal {
-    fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Decimal { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<f64>) -> Self {
+    pub fn with_value(value: Option<f64>) -> Self {
         crate::mapping::types::Decimal { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<f64>) -> Self {
+    pub fn with_name_value(name: String, value: Option<f64>) -> Self {
         Decimal { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<f64> {
+        self.value.clone()
     }
 }
 
@@ -717,16 +783,20 @@ pub struct Date{
 }
 
 impl crate::mapping::types::Date {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Date { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    pub fn value(value: Option<chrono::NaiveDate>) -> Self {
+    pub fn with_value(value: Option<chrono::NaiveDate>) -> Self {
         crate::mapping::types::Date { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<chrono::NaiveDate>) -> Self {
+    pub fn with_name_value(name: String, value: Option<chrono::NaiveDate>) -> Self {
         Date { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<NaiveDate> {
+        self.value.clone()
     }
 }
 
@@ -746,18 +816,19 @@ pub struct Time{
 }
 
 impl crate::mapping::types::Time {
-    pub fn name(name: String) -> Self {
-        crate::mapping::types::Time { name:name, value: None ,holding: Holding::Name, sub_query:None }
-    }
-    pub fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Time { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: chrono::NaiveTime) -> Self {
+    pub fn with_value(value: chrono::NaiveTime) -> Self {
         crate::mapping::types::Time { value:Some(value), name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
-    pub fn name_value(name: String, value: Option<chrono::NaiveTime>) -> Self {
+    pub fn with_name_value(name: String, value: Option<chrono::NaiveTime>) -> Self {
         crate::mapping::types::Time { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<NaiveTime> {
+        self.value.clone()
     }
 }
 
@@ -777,16 +848,20 @@ pub struct Datetime{
 }
 
 impl crate::mapping::types::Datetime {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Datetime { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<chrono::DateTime<Local>>) -> Self {
+    fn with_value(value: Option<chrono::DateTime<Local>>) -> Self {
         crate::mapping::types::Datetime { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
+    pub fn with_name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
         crate::mapping::types::Datetime { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<DateTime<Local>> {
+        self.value.clone()
     }
 }
 
@@ -806,16 +881,20 @@ pub struct Timestamp{
 }
 
 impl crate::mapping::types::Timestamp {
-    pub fn name(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Timestamp { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<chrono::DateTime<Local>>) -> Self {
+    pub fn with_value(value: Option<chrono::DateTime<Local>>) -> Self {
         crate::mapping::types::Timestamp { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
+    pub fn with_name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
         crate::mapping::types::Timestamp { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<DateTime<Local>> {
+        self.value.clone()
     }
 }
 
@@ -835,16 +914,20 @@ pub struct Json{
 }
 
 impl crate::mapping::types::Json {
-    pub fn new(name: String) -> Self {
+    pub fn with_name(name: String) -> Self {
         crate::mapping::types::Json { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
 
-    fn value(value: Option<String>) -> Self {
+    pub fn with_value(value: Option<String>) -> Self {
         crate::mapping::types::Json { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<String>) -> Self {
+    pub fn with_name_value(name: String, value: Option<String>) -> Self {
         crate::mapping::types::Json { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<String> {
+        self.value.clone()
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -877,16 +960,20 @@ pub struct Blob{
 }
 
 impl crate::mapping::types::Blob {
-    fn new(name: String) -> Self {
+    fn with_name(name: String) -> Self {
         crate::mapping::types::Blob { name:name, value: None ,holding: Holding::Name, sub_query:None}
     }
 
-    fn value(value: Option<Vec<u8>>) -> Self {
+    fn with_value(value: Option<Vec<u8>>) -> Self {
         crate::mapping::types::Blob { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
-    pub fn name_value(name: String, value: Option<Vec<u8>>) -> Self {
+    pub fn with_name_value(name: String, value: Option<Vec<u8>>) -> Self {
         crate::mapping::types::Blob { name:name, value:value, holding: Holding::Value, sub_query:None }
+    }
+
+    pub fn value(&self) -> Option<Vec<u8>> {
+        self.value.clone()
     }
 }
 

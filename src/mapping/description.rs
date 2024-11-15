@@ -21,7 +21,7 @@ pub enum Holding{
 }
 
 #[derive(Clone,Debug)]
-pub enum SqlColumn<T = ()> {
+pub enum SqlColumn<T:Clone = ()> {
     Char(Option<Char>),
     Varchar(Option<Varchar>),
     Tinytext(Option<Tinytext>),
@@ -70,7 +70,6 @@ pub enum RustDataType {
 
 pub trait Column {
     fn name(&self) -> String;
-    //fn value(&self) -> String;//?
 }
 
 pub trait MappedEnum {

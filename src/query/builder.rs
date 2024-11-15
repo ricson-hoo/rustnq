@@ -17,6 +17,7 @@ use sqlx::Database;
 use sqlx::IntoArguments;
 use crate::query::pool::{POOL};
 use crate::utils::stringUtils::to_camel_case;
+use crate::mapping::description::SqlColumn;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum BuildErrorType {
@@ -80,31 +81,28 @@ pub enum Operation{
     Select,Insert,Update,Insert_Or_Update,Delete
 }
 
-/*pub struct QueryBuilder2 {
-    action:QueryAction,
-    //from: Option<&'a dyn Table>,
-    target_table: Option<String>, //Option<& dyn Table>,
-    fields: Vec<String>,
-    conditions: Vec<Condition>
+#[derive(Debug,Clone)]
+pub(crate) struct TargetTable{
+    pub name:String,
+    pub columns:Vec<SqlColumn>,
+    pub primary_key:Vec<SqlColumn>
 }
 
-impl <'a> QueryBuilder2 {
-    pub fn select_fields(fields: Vec<&'a impl Column>) -> Self {
-        //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder2 { action:QueryAction::Select, target_table:None, fields:vec![], conditions: vec![] }
-    }
-
-    pub async fn execute(&self) {
-        let executor = Pool_Provider::get_pool().await;
+impl TargetTable {
+    fn from(table: & dyn Table) -> Self {
+        TargetTable{
+            name: table.name(),
+            columns: table.columns(),
+            primary_key: table.primary_key(),
+        }
     }
 }
-*/
 
 #[derive(Debug,Clone)]
 pub struct QueryBuilder {
     operation:Operation,
     is_select_all:Option<bool>,
-    target_table: Option<String>,//Option<String>,
+    pub target_table: Option<TargetTable>,//Option<String>,
     fields: Vec<String>,
     upsert_values: Vec<String>,//insert values or update values
     conditions: Vec<Condition>,
@@ -124,33 +122,33 @@ impl QueryBuilder {
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert, is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Update,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.upsert_query_builder()
-        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![], upsert_values: vec![], limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![], upsert_values: vec![], limit: Some(1) }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: Some(1) }
     }
 
     pub fn delete_rows_with_conditions<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(table.name()), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: None }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
-        self.target_table = Some(table.name());
+        self.target_table = Some(TargetTable::from(table));
         /*if let Some(is_select_all) = self.is_select_all {
             if is_select_all {
                 let fields_strs = table.columns().iter().map(|field| field.name()).collect();
@@ -186,7 +184,7 @@ impl QueryBuilder {
     }
 
     pub fn asVachar(mut self, name: &str) -> Varchar {
-        Varchar::name_query(name.to_string(),Some(self))
+        Varchar::with_name_query(name.to_string(),Some(self))
     }
 
     /*pub fn fetch_one_into<T: RowMappable>(&self) -> T {
@@ -218,7 +216,7 @@ impl QueryBuilder {
         }
     }
 
-    pub async fn execute_return(&self) -> Result<T,Error> {
+    /*pub async fn execute_return<T>(&self) -> Result<T,Error> {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
         if let Ok(query_string) = build_result {
@@ -230,7 +228,7 @@ impl QueryBuilder {
         }else {
             Err(Error::Configuration("未知错误".into()))
         }
-    }
+    }*/
 
     pub async fn fetch<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<Vec<T>, Error> {
 
@@ -382,7 +380,7 @@ impl QueryBuilder {
                     return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
                 }
                 if self.target_table.is_some() {
-                    queryString = format!("{} from {}",queryString, self.target_table.as_ref().unwrap());
+                    queryString = format!("{} from {}",queryString, self.target_table.clone().unwrap().name);
                 }else {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"please provide table name to select from".to_string()));
                 }
@@ -408,7 +406,7 @@ impl QueryBuilder {
                 let columns: Vec<&str> = vec![];//self.upsert_values.keys().map(|s| s.as_str()).collect();
                 let values: Vec<String> = vec![];//self.upsert_values.values().map(|v| v.to_string()).collect();
 
-                queryString = format!("insert into {} ({}) values ({})", self.target_table.as_ref().unwrap(), columns.join(", "), values.join(", "));
+                queryString = format!("insert into {} ({}) values ({})", self.target_table.clone().unwrap().name, columns.join(", "), values.join(", "));
             },
             Operation::Update => {
                 if self.target_table.is_none() {
@@ -428,7 +426,7 @@ impl QueryBuilder {
                 //    set_values.push(format!("{} = {}", column, value));
                 //}
 
-                queryString = format!("update {} set {} where {}", self.target_table.as_ref().unwrap(), set_values.join(", "), self.conditions.iter()
+                queryString = format!("update {} set {} where {}", self.target_table.clone().unwrap().name, set_values.join(", "), self.conditions.iter()
                     .map(|condition| condition.query.clone())
                     .collect::<Vec<String>>()
                     .join(" AND "));
@@ -443,7 +441,7 @@ impl QueryBuilder {
                 if self.conditions.len() <= 0 {
                     return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide filters for  delete operation".to_string()));
                 }
-                queryString = format!("delete from {} where {}", self.target_table.as_ref().unwrap(), self.conditions.iter()
+                queryString = format!("delete from {} where {}", self.target_table.clone().unwrap().name, self.conditions.iter()
                     .map(|condition| condition.query.clone())
                     .collect::<Vec<String>>()
                     .join(" AND "));
