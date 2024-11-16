@@ -217,8 +217,8 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                         struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_datetime\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime\")]".to_string()); //note:this is a temp solution
                     }else if field_type_qualified_name.clone().contains("NaiveDate"){
-                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_date_local\")]".to_string()); //note:this is a temp solution
-                        struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_date_local\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_date\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_date\")]".to_string()); //note:this is a temp solution
                     }
                     let mut struct_field_definition = format!("pub {}:{},", format_name(&it.name, field_naming_convention), field_type_qualified_name);
                     struct_fields.push(struct_field_definition);
