@@ -19,7 +19,7 @@ pub fn select(fields: Vec<String>) -> QueryBuilder{
     QueryBuilder::init_with_select_fields(fields)
 }
 
-pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>(table_with_value: &A) -> Result<T,Error> where A : Table{
+pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>(table_with_value: &mut A) -> Result<T,Error> where A : Table{
     let target_table:TargetTable = TargetTable::new(table_with_value);
     //let mut multiple_typed_primary_key = MultiTypedPrimaryKey{uuid_key:None,i32_key:None,i64_key:None,u64_key:None};
     let primary_key_vec = table_with_value.primary_key();
