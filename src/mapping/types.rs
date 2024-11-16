@@ -17,14 +17,14 @@ impl And for Vec<String> {
 
 
 #[derive(Clone,Debug)]
-pub struct Enum<T> {
+pub struct Enum<T:Clone+Into<String>> {
     value: Option<T>,
     name: String,
     sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
-impl<T> Enum<T> {
+impl<T:Clone+Into<String>> Enum<T>{
     pub fn with_name(name: String) -> Self {
         Enum { name:name, value: None ,holding: Holding::Name, sub_query:None }
     }
@@ -37,9 +37,20 @@ impl<T> Enum<T> {
         Enum { name:name, value:value, holding: Holding::Value, sub_query:None }
     }
 
+    pub fn value(&self) -> Option<T> {
+        self.value.clone()
+    }
+
+    pub fn value_as_string(&self) -> Option<String> {
+        match &self.value {
+            Some(value) => Some(value.clone().into()),
+            None => None
+        }
+    }
+
 }
 
-impl <T:Clone + 'static> Column for Enum<T> { //impl <T:MappedEnum> Column for Enum<T>
+impl <T:Clone> Column for Enum<T> where String: From<T>{ //impl <T:MappedEnum> Column for Enum<T>
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -105,7 +116,7 @@ impl From<&str> for Varchar {
     }
 }
 
-impl<T> From<Enum<T>> for Varchar where std::string::String: From<T> {
+impl<T:Clone> From<Enum<T>> for Varchar where std::string::String: From<T> {
     fn from(a_enum: Enum<T>) -> Varchar {
         if let Some(enum_value) = a_enum.value {
             let str_value:String = String::from(enum_value);
@@ -445,14 +456,14 @@ impl Column for crate::mapping::types::Year {
 }
 
 #[derive(Clone,Debug)]
-pub struct Set<T:Clone>{
+pub struct Set<T:Clone+Into<String>>{
     value: Option<Vec<T>>,
     name: String,
     sub_query: Option<QueryBuilder>,
     holding: Holding
 }
 
-impl<T:Clone> Set<T> {
+impl<T:Clone+Into<String>> Set<T> {
     pub fn with_name(name: String) -> Self {
         Set { name:name, value:None ,holding: Holding::Name, sub_query:None }
     }
@@ -468,9 +479,16 @@ impl<T:Clone> Set<T> {
     pub fn value(&self) -> Option<Vec<T>> {
         self.value.clone()
     }
+
+    pub fn value_as_string(&self) -> Option<String> {
+        match &self.value {
+            Some(value) => Some(value.iter().map(|val| val.clone().into()).collect::<Vec<String>>().join(",")),
+            None => None
+        }
+    }
 }
 
-impl <T:Clone> Column for Set<T> {
+impl <T:Clone+Into<String>> Column for Set<T> {
     fn name(&self) -> String {
         //let type_self: Set<T> = self as Set<T>;
         self.name.clone()

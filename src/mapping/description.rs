@@ -11,9 +11,17 @@ pub trait Table{
     fn name(&self) -> String;
     fn columns(&self) -> Vec<SqlColumn>;
     fn primary_key(&self) -> Vec<SqlColumn>;
+    fn update_primary_key(&self,primary_key:Vec<SqlColumn>)->();
 }
 
-pub trait EntityEnum {}
+#[derive(Clone,Debug)]
+pub enum EmptyEnum {}
+
+impl From<EmptyEnum> for String{
+    fn from(_:EmptyEnum) -> String {
+        "".to_string()
+    }
+}
 
 #[derive(Serialize,Deserialize,Clone,Copy,Debug)]
 pub enum Holding{
@@ -21,7 +29,7 @@ pub enum Holding{
 }
 
 #[derive(Clone,Debug)]
-pub enum SqlColumn<T:Clone = ()> {
+pub enum SqlColumn<T:Clone+Into<String> = EmptyEnum> {
     Char(Option<Char>),
     Varchar(Option<Varchar>),
     Tinytext(Option<Tinytext>),
@@ -47,6 +55,38 @@ pub enum SqlColumn<T:Clone = ()> {
     Year(Option<Year>),
     Blob(Option<Blob>),
     Json(Option<Json>),
+}
+
+impl<T: Clone> SqlColumn<T> where String: From<T> {
+    pub fn get_col_name(&self) -> String {
+        match self {
+            SqlColumn::Char(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Varchar(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Tinytext(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Text(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Longtext(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Enum(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Set(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Boolean(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Tinyint(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Smallint(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Int(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Bigint(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Numeric(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Float(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Double(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Decimal(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Date(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Time(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Datetime(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Timestamp(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Year(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Blob(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+            SqlColumn::Json(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
+        }
+    }
 }
 
 #[derive(Debug,Clone)]

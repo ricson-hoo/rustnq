@@ -183,6 +183,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     for field in struct_fields{
         writeln!(buf_writer,"    {}",field).expect("Failed to table mapping code");
     }
+    writeln!(buf_writer,"    _primary_key:Vec<SqlColumn>").expect("Failed to table mapping code");
 
     writeln!(buf_writer,"}}").expect("Failed to table mapping code");
 
@@ -193,6 +194,8 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     for field in instance_fields {
         writeln!(buf_writer,"            {}",field).expect("Failed to table mapping code");
     }
+    writeln!(buf_writer,"            _primary_key:vec![],").expect("Failed to table mapping code");
+
     writeln!(buf_writer,"        }}").expect("Failed to table mapping code");
     writeln!(buf_writer,"    }}").expect("Failed to table mapping code");
 
@@ -211,6 +214,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     for field in instance_with_value_fields{
         writeln!(buf_writer,"            {}",field).expect("Failed to table mapping code");
     }
+    writeln!(buf_writer,"            _primary_key:vec![],").expect("Failed to table mapping code");
     writeln!(buf_writer,"        }}").expect("Failed to table mapping code");
     writeln!(buf_writer,"    }}").expect("Failed to table mapping code");
 
@@ -234,13 +238,17 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 
     writeln!(buf_writer,"    fn primary_key(&self) -> Vec<SqlColumn> {{").expect("Failed to table mapping code");
     //need primary_keys_as_condition statement list
-    writeln!(buf_writer,"        vec![").expect("Failed to table mapping code");
+    writeln!(buf_writer,"        if self._primary_key.is_empty() {{ vec![").expect("Failed to table mapping code");
     for statement in primary_keys_statements{
         writeln!(buf_writer,"            {},",statement).expect("Failed to table mapping code");
     }
-    writeln!(buf_writer,"        ]").expect("Failed to table mapping code");
+    writeln!(buf_writer,"        ]}} else {{self._primary_key.clone()}}").expect("Failed to table mapping code");
+
     writeln!(buf_writer,"    }}").expect("Failed to table mapping code");
 
+    writeln!(buf_writer,"    fn update_primary_key(&mut self, primary_key: Vec<SqlColumn>) -> () {{").expect("Failed to table mapping code");
+    writeln!(buf_writer,"            self._primary_key = primary_key;").expect("Failed to table mapping code");
+    writeln!(buf_writer,"    }}").expect("Failed to table mapping code");
 
     writeln!(buf_writer,"}}").expect("Failed to table mapping code");
 
@@ -366,7 +374,7 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                         sql_column_type = Some(SqlColumn::Boolean(None));
                         field_type = "Boolean".to_string();
                         name_only_default_value = format!("Boolean::with_name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
-                        name_and_value_from_entity_default_value = format!("Boolean::name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                        name_and_value_from_entity_default_value = format!("Boolean::with_name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                         sql_column_type_modified = true;
                     }else{
                         field_type = "Tinyint".to_string();

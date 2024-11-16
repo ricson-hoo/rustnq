@@ -3,7 +3,7 @@ use std::{fmt, fmt::write, format, result};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
-use crate::mapping::types::{Varchar};
+use crate::mapping::types::{Char, Tinytext, Varchar};
 use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
@@ -24,6 +24,8 @@ pub enum BuildErrorType {
     MissingOperation,
     MissingCondition,
     MissingTargetTable,
+    MissingPrimaryKey,
+    MissingPrimaryKeyValue,
     MissingFields,
     MissingValues,
     OtherError,
@@ -89,7 +91,7 @@ pub(crate) struct TargetTable{
 }
 
 impl TargetTable {
-    fn from(table: & dyn Table) -> Self {
+    pub fn new(table: & dyn Table) -> Self {
         TargetTable{
             name: table.name(),
             columns: table.columns(),
@@ -103,52 +105,274 @@ pub struct QueryBuilder {
     operation:Operation,
     is_select_all:Option<bool>,
     pub target_table: Option<TargetTable>,//Option<String>,
-    fields: Vec<String>,
-    upsert_values: Vec<String>,//insert values or update values
+    select_fields: Vec<String>,
+    //upsert_values: Vec<String>,//insert values or update values
     conditions: Vec<Condition>,
     limit:Option<i32>,
 }
 
+fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
+    update_fields_values.push(format!("{} = VALUES({})", &name, &name));
+    insert_fields.push(name);
+    if let Some(string_value) = value {
+        insert_values.push(format!("'{}'", string_value));
+    }else{
+        insert_values.push("null".to_string());
+    }
+}
+
+fn add_non_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
+    update_fields_values.push(format!("{} = VALUES({})", &name, &name));
+    insert_fields.push(name);
+    if let Some(string_value) = value {
+        insert_values.push(format!("{}", string_value));
+    }else{
+        insert_values.push("null".to_string());
+    }
+}
+
+fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
+    for column_def in columns {
+        match column_def {
+            SqlColumn::Varchar(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Char(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Tinytext(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Text(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Mediumtext(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Longtext(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Enum(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Set(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Boolean(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { if value {Some("1".to_string())} else {Some("0".to_string())}} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Tinyint(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Smallint(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Int(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Bigint(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::BigintUnsigned(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Numeric(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Float(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Double(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Decimal(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Date(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Time(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Datetime(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Timestamp(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Year(column_def) => {
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Blob(column_def) => {//todo:how?
+                if let Some(col) = column_def {
+                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { if let Ok(string) = String::from_utf8(value.clone()) {Some(string)} else {None} } else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+            SqlColumn::Json(column_def) => {
+                if let Some(col) = column_def {
+                    add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                }
+            }
+        }
+    }
+}
+
+pub fn construct_upsert_primary_key_value(columns:&Vec<SqlColumn>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, primary_key_as_conditions: &mut Vec<String>) {
+    for primary_key_def in columns {
+        match primary_key_def {
+            SqlColumn::Varchar(column_def) => {
+                if let Some(col) = column_def {
+                    if let Some(string_value) = col.value(){
+                        insert_fields.push(col.name());
+                        insert_values.push(format!("'{}'", &string_value));
+                        primary_key_as_conditions.push(format!("{} = '{}'", col.name(), string_value));
+                    }
+                }/*else{
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Primary key's value not found for upsert operation".to_string()));
+                }*/
+            }
+            SqlColumn::Char(column_def) => {
+                if let Some(col) = column_def {
+                    if let Some(string_value) = col.value(){
+                        insert_fields.push(col.name());
+                        insert_values.push(format!("'{}'", &string_value));
+                        primary_key_as_conditions.push(format!("{} = '{}'", col.name(), string_value));
+                    }/*else{
+                        return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Empty primary key value for upsert operation".to_string()));
+                    }*/
+                }/*else{
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Primary key's value not found for upsert operation".to_string()));
+                }*/
+            }
+            SqlColumn::Int(column_def) => {
+                if let Some(col) = column_def {
+                    if let Some(value) = col.value(){
+                        insert_fields.push(col.name());
+                        insert_values.push(value.to_string());
+                        primary_key_as_conditions.push(format!("{} = '{}'", col.name(), &value));
+                    }/*else{
+                        return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Empty primary key value for upsert operation".to_string()));
+                    }*/
+                }/*else{
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Primary key's value not found for upsert operation".to_string()));
+                }*/
+            }
+            SqlColumn::Bigint(column_def) => {
+                if let Some(col) = column_def {
+                    if let Some(value) = col.value(){
+                        insert_fields.push(col.name());
+                        insert_values.push(value.to_string());
+                        primary_key_as_conditions.push(format!("{} = '{}'", col.name(), &value));
+                    }/*else{
+                        return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Empty primary key value for upsert operation".to_string()));
+                    }*/
+                }/*else{
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Primary key's value not found for upsert operation".to_string()));
+                }*/
+            }
+            SqlColumn::BigintUnsigned(column_def) => {
+                if let Some(col) = column_def {
+                    if let Some(value) = col.value(){
+                        insert_fields.push(col.name());
+                        insert_values.push(value.to_string());
+                        primary_key_as_conditions.push(format!("{} = '{}'", col.name(), &value));
+                    }/*else{
+                        return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Empty primary key value for upsert operation".to_string()));
+                    }*/
+                }/*else{
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKeyValue, "Primary key's value not found for upsert operation".to_string()));
+                }*/
+            }
+            _ => {}
+        }
+    }
+}
+
 impl QueryBuilder {
 
-    pub fn select_all() -> QueryBuilder {
-        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), target_table:None, fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+    pub fn select_all_fields() -> QueryBuilder {
+        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), target_table:None, select_fields:vec![], conditions: vec![],/* upsert_values: vec![], */limit: None }
     }
 
     pub fn init_with_select_fields(fields: Vec<String>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, target_table:None, fields:fields, conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, target_table:None, select_fields:fields, conditions: vec![],/* upsert_values: vec![],*/ limit: None }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert, is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Update,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], conditions: vec![],/* upsert_values: vec![], */limit: None }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        //table.upsert_query_builder()
-        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![], upsert_values: vec![], limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(1) }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(1) }
     }
 
     pub fn delete_rows_with_conditions<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::from(table)), fields:vec![], conditions: vec![condition], upsert_values: vec![], limit: None }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
-        self.target_table = Some(TargetTable::from(table));
+        self.target_table = Some(TargetTable::new(table));
         /*if let Some(is_select_all) = self.is_select_all {
             if is_select_all {
                 let fields_strs = table.columns().iter().map(|field| field.name()).collect();
@@ -374,8 +598,8 @@ impl QueryBuilder {
         let mut queryString = "".to_string();
         match self.operation {
             Operation::Select => {
-                if(!self.fields.is_empty()){
-                    queryString = format!("select {}",self.fields.join(", "));
+                if(!self.select_fields.is_empty()){
+                    queryString = format!("select {}",self.select_fields.join(", "));
                 }else {
                     return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
                 }
@@ -398,41 +622,59 @@ impl QueryBuilder {
                 if self.target_table.is_none() {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for insert operation".to_string()));
                 }
+                let target_table = self.target_table.clone().unwrap();
 
-                if self.upsert_values.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingValues, "please provide values for insert operation".to_string()));
+                if target_table.primary_key.is_empty() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
                 }
+                let mut insert_fields: Vec<String> = Vec::new();
+                let mut insert_values: Vec<String> = Vec::new();
+                construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values,&mut vec![]);
+                construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut vec![]);
 
-                let columns: Vec<&str> = vec![];//self.upsert_values.keys().map(|s| s.as_str()).collect();
-                let values: Vec<String> = vec![];//self.upsert_values.values().map(|v| v.to_string()).collect();
-
-                queryString = format!("insert into {} ({}) values ({})", self.target_table.clone().unwrap().name, columns.join(", "), values.join(", "));
+                queryString = format!("INSERT INTO {} ({}) VALUES ({})", &target_table.name, insert_fields.join(", "), insert_values.join(", "));
             },
             Operation::Update => {
                 if self.target_table.is_none() {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
                 }
+                let target_table = self.target_table.clone().unwrap();
 
-                if self.upsert_values.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingValues, "please provide values for update operation".to_string()));
+                if target_table.primary_key.is_empty() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
                 }
 
-                if self.conditions.len() <= 0 {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide filters for Update operation".to_string()));
-                }
+                let mut primary_key_conditions = Vec::<String>::new();
+                let mut update_fields_values: Vec<String> = Vec::new();
+                construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
+                construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values);
 
-                let mut set_values: Vec<String> = Vec::new();
-                //for (column, value) in &self.update_values {
-                //    set_values.push(format!("{} = {}", column, value));
-                //}
+                /*for (key, value) in primary_key_fields.iter().zip(primary_key_values) {
+                    primary_key_conditions.push(format!("{} = {}", key, value));
+                }*/
 
-                queryString = format!("update {} set {} where {}", self.target_table.clone().unwrap().name, set_values.join(", "), self.conditions.iter()
-                    .map(|condition| condition.query.clone())
+                queryString = format!("update {} set {} where {}", self.target_table.clone().unwrap().name, update_fields_values.join(", "), primary_key_conditions.iter()
+                    .map(|condition| condition.clone())
                     .collect::<Vec<String>>()
                     .join(" AND "));
             },
             Operation::Insert_Or_Update => {
-                //write code for me
+                if self.target_table.is_none() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for upsert operation".to_string()));
+                }
+                let target_table = self.target_table.clone().unwrap();
+
+                if target_table.primary_key.is_empty() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
+                }
+                let mut insert_fields: Vec<String> = Vec::new();
+                let mut insert_values: Vec<String> = Vec::new();
+                let mut update_fields_values: Vec<String> = Vec::new();
+
+                construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values, &mut vec![]);
+                construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut update_fields_values);
+
+                queryString = format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", &target_table.name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", "));
             },
             Operation::Delete => {
                 if self.target_table.is_none() {
