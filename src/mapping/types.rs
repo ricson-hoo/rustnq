@@ -118,11 +118,11 @@ impl From<&str> for Varchar {
 
 impl<T:Clone> From<Enum<T>> for Varchar where std::string::String: From<T> {
     fn from(a_enum: Enum<T>) -> Varchar {
-        if let Some(enum_value) = a_enum.value {
+        if let Some(enum_value) = a_enum.value.clone() {
             let str_value:String = String::from(enum_value);
-            Varchar::with_value(Some(str_value))
+            Varchar::with_name_value(a_enum.name(),Some(str_value))
         }else {
-            Varchar::with_value(None)
+            Varchar::with_name(a_enum.name())
         }
     }
 }
@@ -130,14 +130,14 @@ impl<T:Clone> From<Enum<T>> for Varchar where std::string::String: From<T> {
 impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
     fn from(set: Set<T>) -> Varchar {
         let mut str_set:Vec<String> = vec![];
-        let set_value = set.value;
+        let set_value = set.value.clone();
         if let Some(set_value) = set_value {
             for a_enum in set_value{
                 str_set.push(String::from(a_enum))
             }
         }
         let string_value: String = str_set.join(",");
-        Varchar::with_value(Some(string_value))
+        Varchar::with_name_value(set.name(),Some(string_value))
     }
 }
 

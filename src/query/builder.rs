@@ -112,12 +112,14 @@ pub struct QueryBuilder {
 }
 
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
-    update_fields_values.push(format!("{} = VALUES({})", &name, &name));
-    insert_fields.push(name);
-    if let Some(string_value) = value {
-        insert_values.push(format!("'{}'", string_value));
-    }else{
-        insert_values.push("null".to_string());
+    if(!insert_fields.contains(&name)){
+        update_fields_values.push(format!("{} = VALUES({})", &name, &name));
+        insert_fields.push(name);
+        if let Some(string_value) = value {
+            insert_values.push(format!("'{}'", string_value));
+        }else{
+            insert_values.push("null".to_string());
+        }
     }
 }
 
@@ -131,132 +133,182 @@ fn add_non_text_upsert_fields_values(name:String, value:Option<String>, insert_f
     }
 }
 
-fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
+fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>,skip_field_names:Vec<String>){
     for column_def in columns {
         match column_def {
             SqlColumn::Varchar(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Char(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Tinytext(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Text(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Mediumtext(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Longtext(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Enum(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Set(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Boolean(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { if value {Some("1".to_string())} else {Some("0".to_string())}} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { if value {Some("1".to_string())} else {Some("0".to_string())}} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Tinyint(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Smallint(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Int(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Bigint(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::BigintUnsigned(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Numeric(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Float(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Double(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Decimal(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Date(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Time(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Datetime(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Timestamp(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Year(column_def) => {
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Blob(column_def) => {//todo:how?
                 if let Some(col) = column_def {
-                    add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { if let Ok(string) = String::from_utf8(value.clone()) {Some(string)} else {None} } else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { if let Ok(string) = String::from_utf8(value.clone()) {Some(string)} else {None} } else {None},insert_fields,insert_values,update_fields_values);
+                    }
                 }
             }
             SqlColumn::Json(column_def) => {
                 if let Some(col) = column_def {
-                    add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(), if let Some(value) = col.value() { Some(value.to_string()) } else { None }, insert_fields, insert_values, update_fields_values);
+                    }
                 }
             }
         }
@@ -373,6 +425,9 @@ impl QueryBuilder {
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
         self.target_table = Some(TargetTable::new(table));
+        if let Some(select_all) = self.is_select_all {
+            self.select_fields = table.columns().iter().map(|c|c.get_col_name()).collect::<Vec<String>>();
+        }
         /*if let Some(is_select_all) = self.is_select_all {
             if is_select_all {
                 let fields_strs = table.columns().iter().map(|field| field.name()).collect();
@@ -536,57 +591,109 @@ impl QueryBuilder {
         for column in columns {
             let column_name = column.name();
             let camel_case_column_name = to_camel_case(&column_name);
-            let type_name = column.type_info().name();
-            println!("type_name of {} {:#?}",column_name, type_name);
+            let mut type_name = column.type_info().name();
+            let type_detail = format!("{:?}", column.type_info());
+            if type_detail.contains("ColumnFlags(SET)"){
+                type_name = "SET";
+            }
+            println!("type_name of {} {}",column_name, type_detail);
             match type_name {
                 "VARCHAR" => {
-                    let value_result: Result<String, _> = row.try_get(i);
+                    let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
-                        json_obj[column_name] = serde_json::Value::String(value.clone());
-                        json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                        if let Some(value) = value {
+                            json_obj[column_name] = serde_json::Value::String(value.clone());
+                            json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
                 "INT" => {
-                    let value_result: Result<i32, _> = row.try_get(i);
+                    let value_result: Result<Option<i32>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
-                        json_obj[column_name] = value.clone().into();
-                        json_obj[camel_case_column_name] = value.into();
+                        if let Some(value) = value {
+                            json_obj[column_name] = value.clone().into();
+                            json_obj[camel_case_column_name] = value.into();
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
                 "ENUM" => {
-                    let value_result: Result<String, _> = row.try_get(i);
+                    let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
-                        json_obj[column_name] = serde_json::Value::String(value.clone());
-                        json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                        if let Some(value) = value {
+                            json_obj[column_name] = serde_json::Value::String(value.clone());
+                            json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                "SET" => {
+                    let value_result: Result<Option<String>, _> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            let mut values:Vec<serde_json::Value> = vec![];
+                            if !value.is_empty() {
+                                values = value.split(',')
+                                    .map(|s| serde_json::Value::String(s.trim().to_string()))  // Optional: trim whitespace and convert to String
+                                    .collect::<Vec<_>>();
+                            }
+                            json_obj[column_name] = serde_json::Value::Array(values.clone());
+                            json_obj[camel_case_column_name] = serde_json::Value::Array(values);
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
                 "DATETIME" => {
                     // Handle DATETIME type
-                    let value_result: Result<chrono::NaiveDateTime, _> = row.try_get(i);
+                    let value_result: Result<Option<chrono::NaiveDateTime>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
-                        json_obj[column_name] = serde_json::Value::String(value.clone().to_string());
-                        json_obj[camel_case_column_name] = serde_json::Value::String(value.to_string());
+                        if let Some(value) = value {
+                            json_obj[column_name] = serde_json::Value::String(value.clone().to_string());
+                            json_obj[camel_case_column_name] = serde_json::Value::String(value.to_string());
+                        }else{
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
                 "CHAR" => {
                     // Handle CHAR type
-                    let value_result: Result<String, _> = row.try_get(i);
+                    let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
-                        json_obj[column_name] = serde_json::Value::String(value.clone());
-                        json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                        if let Some(value) = value {
+                            json_obj[column_name] = serde_json::Value::String(value.clone());
+                            json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                &_ => {}
+                &_ => {
+                    json_obj[column_name] = serde_json::Value::Null;
+                    json_obj[camel_case_column_name] = serde_json::Value::Null;
+                }
             }
 
             i += 1;
@@ -630,7 +737,7 @@ impl QueryBuilder {
                 let mut insert_fields: Vec<String> = Vec::new();
                 let mut insert_values: Vec<String> = Vec::new();
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values,&mut vec![]);
-                construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut vec![]);
+                construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut vec![], target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
 
                 queryString = format!("INSERT INTO {} ({}) VALUES ({})", &target_table.name, insert_fields.join(", "), insert_values.join(", "));
             },
@@ -647,7 +754,7 @@ impl QueryBuilder {
                 let mut primary_key_conditions = Vec::<String>::new();
                 let mut update_fields_values: Vec<String> = Vec::new();
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
-                construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values);
+                construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
 
                 /*for (key, value) in primary_key_fields.iter().zip(primary_key_values) {
                     primary_key_conditions.push(format!("{} = {}", key, value));
@@ -672,7 +779,7 @@ impl QueryBuilder {
                 let mut update_fields_values: Vec<String> = Vec::new();
 
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values, &mut vec![]);
-                construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut update_fields_values);
+                construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut update_fields_values,target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
 
                 queryString = format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", &target_table.name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", "));
             },

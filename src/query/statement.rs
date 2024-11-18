@@ -33,13 +33,16 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
         match primary_key {
             SqlColumn::Varchar(optional_column_info) => { //uuid
                 if let Some(column_info) = optional_column_info {
+                    text_primary_key_name = Some(column_info.name());
                     let primary_column_value = column_info.value();
                     if let None = primary_column_value {
                         let generated_uuid_key = Some(uuid::Uuid::new_v4().to_string().replace("-", "").to_string());
                         table_with_value.update_primary_key(vec![SqlColumn::Varchar(Some(Varchar::with_name_value(column_info.name(),generated_uuid_key.clone())))]);
                         text_primary_key_value = generated_uuid_key;
-                        text_primary_key_name = Some(column_info.name());
+                    }else {
+                        text_primary_key_value = primary_column_value;
                     }
+
                 }
             }
             _ => {
