@@ -48,6 +48,32 @@ impl<T:Clone+Into<String>> Enum<T>{
         }
     }
 
+    pub fn equal(&self, input: T) -> Condition
+    /*where
+        T: Into<Varchar>,*/
+    {
+        /*let varchar = input.into();
+        let output = match varchar.holding {
+            Holding::Name => varchar.name,
+            Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
+            _ => "".to_string()
+        };*/
+        Condition::new(format!("{} = '{}'", self.name, input.into()))
+    }
+
+    pub fn equals(&self, input: Enum<T>) -> Condition
+    /*where
+        T: Into<Varchar>,*/
+    {
+        /*let varchar = input.into();
+        let output = match varchar.holding {
+            Holding::Name => varchar.name,
+            Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
+            _ => "".to_string()
+        };*/
+        Condition::new(format!("{} = {}", self.name, input.name))
+    }
+
 }
 
 impl <T:Clone> Column for Enum<T> where String: From<T>{ //impl <T:MappedEnum> Column for Enum<T>
@@ -113,6 +139,24 @@ impl Varchar {
 impl From<&str> for Varchar {
     fn from(s: &str) -> Self {
         Varchar::with_value(Some(s.to_string()))
+    }
+}
+
+impl From<String> for Varchar {
+    fn from(s: String) -> Self {
+        Varchar::with_value(Some(s))
+    }
+}
+
+impl From<Varchar> for String{
+    fn from(value: Varchar) -> String {
+        value.name.clone()
+    }
+}
+
+impl From<&Varchar> for String{
+    fn from(value: &Varchar) -> String {
+        value.name.clone()
     }
 }
 

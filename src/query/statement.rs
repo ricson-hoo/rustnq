@@ -15,7 +15,8 @@ use crate::query::builder::construct_upsert_primary_key_value;
     pub(crate)u64_key:Option<u64>,
 }*/
 
-pub fn select(fields: Vec<String>) -> QueryBuilder{
+pub fn select<T: Into<String>>(fields: Vec<T>) -> QueryBuilder{
+    let fields = fields.into_iter().map(|field| field.into()).collect();
     QueryBuilder::init_with_select_fields(fields)
 }
 
@@ -105,6 +106,14 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
             return Err(error)
         }
     }
+}
+
+pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
+    QueryBuilder::delete_one_from(table)
+}
+
+pub fn delete_one_where<A>(table:& A, condition: Condition) -> QueryBuilder where A : Table{
+    QueryBuilder::delete_one_where(table, condition)
 }
 
 /*pub fn insert_into<'a,A>(table:&'a A) -> QueryBuilder<'a> where A : Table{

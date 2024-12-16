@@ -265,28 +265,28 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
             SqlColumn::Date(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d").to_string())} else {None},insert_fields,insert_values,update_fields_values);
                     }
                 }
             }
             SqlColumn::Time(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values);
                     }
                 }
             }
             SqlColumn::Datetime(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values);
                     }
                 }
             }
             SqlColumn::Timestamp(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values);
                     }
                 }
             }
@@ -419,7 +419,7 @@ impl QueryBuilder {
         QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(1) }
     }
 
-    pub fn delete_rows_with_conditions<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
+    pub fn delete_all_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
         QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None }
     }
 
@@ -518,23 +518,21 @@ impl QueryBuilder {
 
             let jsons = sqlx::query(&query_string)
                 .try_map(|row:MySqlRow| {
-                    let mut json_obj = json!({});
-                    let columns = row.columns();
-                    for column in columns {
-                        let column_name = column.name();
-                        let value_result: Result<JsonValue, _> = row.try_get(&column_name);
-                        if let Ok(value) = value_result {
-                            json_obj[column_name] = value;
-                        }
-                    }
-                    Ok(json_obj)
+                    self.convert_to_json_value(row)
                 })
                 .fetch_all(pool)
                 .await?;
-
-            Ok(jsons.iter()
-                .map(|json| serde_json::from_value::<T>(json.clone()).unwrap())
-                .collect::<Vec<_>>())
+            
+            let mut result = Vec::new();
+            for json in jsons {
+                let item_parsed_result = serde_json::from_value::<T>(json.clone());
+                if let Ok(item_parsed) = item_parsed_result {
+                    result.push(item_parsed);
+                }else {
+                    println!("{:?}", json);
+                }
+            }
+            Ok(result)
         }else if let Err(e) = build_result {
             Err(Error::Configuration(e.message.into()))
         }else {

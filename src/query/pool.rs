@@ -1,12 +1,10 @@
 use std::sync::Mutex;
 use url::Url;
 use lazy_static::lazy::Lazy;
-
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use std::sync::Arc;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::cell::OnceCell;
 
 //pub static POOL: OnceCell<MySqlPool> = OnceCell::new();
 //pub static DATABASE: Lazy<Database> = Lazy::new(Database::init);
