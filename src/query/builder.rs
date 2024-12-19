@@ -18,6 +18,7 @@ use sqlx::IntoArguments;
 use crate::query::pool::{POOL};
 use crate::utils::stringUtils::to_camel_case;
 use crate::mapping::description::SqlColumn;
+use crate::query::builder::JoinType::{INNER, LEFT};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum BuildErrorType {
@@ -101,13 +102,38 @@ impl TargetTable {
 }
 
 #[derive(Debug,Clone)]
+pub enum JoinType {
+    LEFT,INNER
+}
+#[derive(Debug,Clone)]
+pub struct TableJoin{
+    target_table: dyn Table,
+    join_type:JoinType,
+    condition:Option<Condition>,
+}
+
+impl TableJoin{
+    pub fn new<A>(target_table: &A, join_type:JoinType, condition:Option<Condition>) -> Self where A :Table {
+        TableJoin{
+            target_table:target_table.clone(), join_type,
+            condition
+        }
+    }
+
+    pub fn applyCondition(&mut self, condition: Condition) -> TableJoin {
+        self.condition = Some(condition);
+        self.clone()
+    }
+}
+
+#[derive(Debug,Clone)]
 pub struct QueryBuilder {
     operation:Operation,
     is_select_all:Option<bool>,
     pub target_table: Option<TargetTable>,//Option<String>,
     select_fields: Vec<String>,
-    left_join_list: Vec<TargetTable>,
-    left_on_list: Vec<String>,
+    pending_join: Option<TableJoin>,
+    joins: Vec<TableJoin>,
     //upsert_values: Vec<String>,//insert values or update values
     conditions: Vec<Condition>,
     limit:Option<i32>,
@@ -440,12 +466,20 @@ impl QueryBuilder {
     }
 
     pub fn left_join<A>(mut self, table:& A) -> QueryBuilder where A : Table{
-        self.left_join_list.push(TargetTable::new(table));
+        self.pending_join = Some(TableJoin::new(table,LEFT,None));
         self
     }
 
-    pub fn on(mut self, on_str: String) -> QueryBuilder {
-        self.left_on_list.push(on_str);
+    pub fn inner_join<A>(mut self, table:& A) -> QueryBuilder where A : Table{
+        self.pending_join = Some(TableJoin::new(table,INNER,None));
+        self
+    }
+
+    pub fn on(mut self, condition: Condition) -> QueryBuilder {
+        if self.pending_join.is_some() {
+            self.joins.push(self.pending_join.unwrap().applyCondition(condition));
+            self.pending_join = None;
+        }
         self
     }
 
