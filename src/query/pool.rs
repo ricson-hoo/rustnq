@@ -14,7 +14,6 @@ pub async fn init_pool(url: Url) {
     let pool = MySqlPoolOptions::new()
         .acquire_timeout(std::time::Duration::from_secs(20))
         .connect(url.as_str())
-        .await
-        .expect("Failed to connect to database");
+        .await.expect("Failed to connect to database");
     POOL.set(pool).unwrap();
 }

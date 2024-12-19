@@ -419,9 +419,9 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                     name_and_value_from_entity_default_value = format!("Double::with_name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Decimal(_) => {
-                    field_type = "Varchar".to_string();
-                    name_only_default_value = format!("Varchar::with_name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Varchar::with_name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    field_type = "Decimal".to_string();
+                    name_only_default_value = format!("Decimal::with_name(\"{}\".to_string())", mysql_col_definition.name_unmodified);
+                    name_and_value_from_entity_default_value = format!("Decimal::with_name_value(\"{}\".to_string(), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
                 },
                 SqlColumn::Date(_) => {
                     field_type = "Date".to_string();
