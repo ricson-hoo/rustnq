@@ -475,6 +475,11 @@ impl QueryBuilder {
         self
     }
 
+    pub fn add_join(mut self, join:TableJoin) -> QueryBuilder {
+        self.joins.push(join);
+        self
+    }
+
     pub fn on(mut self, condition: Condition) -> QueryBuilder {
         if self.pending_join.is_some() {
             self.joins.push(self.pending_join.unwrap().applyCondition(condition));
