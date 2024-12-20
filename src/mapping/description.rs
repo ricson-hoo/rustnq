@@ -12,6 +12,7 @@ pub trait Table{
     fn columns(&self) -> Vec<SqlColumn>;
     fn primary_key(&self) -> Vec<SqlColumn>;
     fn update_primary_key(&mut self,primary_key:Vec<SqlColumn>)->();
+    //fn as_(&self,alias:&str) -> Table;
 }
 
 #[derive(Clone,Debug)]

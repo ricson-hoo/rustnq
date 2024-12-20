@@ -85,6 +85,7 @@ impl <T:Clone> Column for Enum<T> where String: From<T>{ //impl <T:MappedEnum> C
 #[derive(Clone,Debug)]
 pub struct Varchar {
     name: String,
+    alias:Option<String>,
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
@@ -97,11 +98,11 @@ impl Varchar {
     }
 
     pub fn with_name(name: String) -> Self {
-        Varchar { name:name, value: None ,holding: Holding::Name, sub_query:None }
+        Varchar { name:name, alias:None, value: None ,holding: Holding::Name, sub_query:None }
     }
 
     pub fn with_value(value: Option<String>) -> Self {
-        Varchar { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+        Varchar { value:value, alias:None, name:"".to_string() ,holding: Holding::Value, sub_query:None }
     }
 
     pub fn value(&self) -> Option<String> {
@@ -109,11 +110,16 @@ impl Varchar {
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        Varchar { name:name, value:value, holding: Holding::Value, sub_query:None }
+        Varchar { name:name, alias:None, value:value, holding: Holding::Value, sub_query:None }
     }
 
     pub fn with_name_query(name: String, sub_query: Option<QueryBuilder>) -> Self {
-        Varchar { name:name, value:Some("".to_string()), holding: Holding::SubQuery, sub_query:sub_query }
+        Varchar { name:name, alias:None, value:Some("".to_string()), holding: Holding::SubQuery, sub_query:sub_query }
+    }
+
+    pub fn as_(&mut self, alias:&str) -> Self {
+       self.alias = Some(alias.to_string());
+       self.clone()
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -187,8 +193,7 @@ impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
 
 impl Column for Varchar {
     fn name(&self) -> String {
-        //let type_self: Varchar = self as Varchar;
-        self.name.clone()
+        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
