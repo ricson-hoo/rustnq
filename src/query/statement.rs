@@ -1,7 +1,7 @@
 use uuid::uuid;
 use crate::mapping::description::{Column, SqlColumn};
 use crate::mapping::description::Table;
-use crate::mapping::types::Int;
+use crate::mapping::types::{Bigint, Int};
 use crate::query::builder::{Condition, QueryBuilder, TargetTable};
 use serde::Serialize;
 use sqlx::Error;
@@ -18,6 +18,22 @@ use crate::query::builder::construct_upsert_primary_key_value;
 pub fn select<T: Into<String>>(fields: Vec<T>) -> QueryBuilder{
     let fields = fields.into_iter().map(|field| field.into()).collect();
     QueryBuilder::init_with_select_fields(fields)
+}
+
+pub fn count<T: Into<String>>(field:T) -> Bigint{
+   Bigint::with_name(format!("count {}", field.into()))
+}
+
+pub fn count_all() -> Bigint{
+    Bigint::with_name("count (*)".to_string())
+}
+
+pub fn count_distinct<T: Into<String>>(field:T) -> Bigint{
+    Bigint::with_name(format!("count (distinct {})", field.into()))
+}
+
+pub fn concat<T: Into<String>>(fields: Vec<T>) -> Varchar{
+    Varchar::with_name(format!("concat({})",fields.iter().map(|f|f.into()).collect::<Vec<String>>().join(",")))
 }
 
 pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>(table_with_value: &mut A) -> Result<T,Error> where A : Table{
