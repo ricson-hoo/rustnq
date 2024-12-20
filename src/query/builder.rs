@@ -683,6 +683,20 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
+                "BIGINT" => {
+                    let value_result: Result<Option<i32>, _> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            json_obj[column_name] = value.clone().into();
+                            json_obj[camel_case_column_name] = value.into();
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
                 "BOOLEAN" => {
                     let value_result: Result<Option<i8>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
