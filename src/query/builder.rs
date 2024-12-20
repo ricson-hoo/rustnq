@@ -105,6 +105,14 @@ impl TargetTable {
 pub enum JoinType {
     LEFT,INNER
 }
+impl fmt::Display for JoinType {
+    fn fmt(&self,f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LEFT => write!(f,"LEFT"),
+            INNER => write!(f,"INNER"),
+        }
+    }
+}
 #[derive(Debug,Clone)]
 pub struct TableJoin{
     target_table: TargetTable,
@@ -113,7 +121,7 @@ pub struct TableJoin{
 }
 
 impl TableJoin{
-    pub fn new(target_table: TargetTable, join_type:JoinType, condition:Option<Condition>) -> Self{
+    pub fn new(target_table: TargetTable, join_type:JoinType, condition:Option<Condition>) -> Self {
         TableJoin{
             target_table:target_table.clone(), join_type,
             condition
@@ -778,15 +786,13 @@ impl QueryBuilder {
                 }else {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"please provide table name to select from".to_string()));
                 }
-                /*if !self.left_join_list.is_empty() && !self.left_on_list.is_empty() {
-                    if self.left_join_list.len() != self.left_on_list.len(){
-                        return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"left_join_list 和 on_list 的长度不一致".to_string()));
-                    }else{
-                        for (i, (target_table, on_condition)) in self.left_join_list.iter().zip(self.left_on_list.iter()).enumerate() {
-                            queryString.push_str(&format!(" LEFT JOIN {} ON {}", target_table.name, on_condition));
-                        }
+                if !self.joins.is_empty() {
+                    // Traverse joins and generate JOIN statements for each TableJoin
+                    for (i, join) in self.joins.iter().enumerate() {
+                        // Generate JOIN statements based on joinotype
+                        queryString.push_str(&format!(" {} JOIN {} ON {} ", join.join_type.to_string(), join.target_table.name, join.clone().condition.unwrap().query));
                     }
-                }*/
+                }
                 if self.conditions.len() > 0 {
                     queryString = format!("{} where {}",queryString, self.conditions.iter()
                             .map(|condition| condition.query.clone())
