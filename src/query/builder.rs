@@ -736,8 +736,10 @@ impl QueryBuilder {
                     let value_result: Result<Option<chrono::NaiveDateTime>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = serde_json::Value::String(value.clone().to_string());
-                            json_obj[camel_case_column_name] = serde_json::Value::String(value.to_string());
+                            let timestamp = value.and_utc().timestamp(); 
+                            json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+
                         }else{
                             json_obj[column_name] = serde_json::Value::Null;
                             json_obj[camel_case_column_name] = serde_json::Value::Null;
