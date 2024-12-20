@@ -105,15 +105,23 @@ impl TargetTable {
 pub enum JoinType {
     LEFT,INNER
 }
+impl fmt::Display for JoinType {
+    fn fmt(&self,f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LEFT => write!(f,"LEFT"),
+            INNER => write!(f,"INNER"),
+        }
+    }
+}
 #[derive(Debug,Clone)]
 pub struct TableJoin{
-    target_table: dyn Table,
+    target_table: TargetTable,
     join_type:JoinType,
     condition:Option<Condition>,
 }
 
 impl TableJoin{
-    pub fn new<A>(target_table: &A, join_type:JoinType, condition:Option<Condition>) -> Self where A :Table {
+    pub fn new(target_table: TargetTable, join_type:JoinType, condition:Option<Condition>) -> Self {
         TableJoin{
             target_table:target_table.clone(), join_type,
             condition
@@ -417,38 +425,38 @@ pub fn construct_upsert_primary_key_value(columns:&Vec<SqlColumn>, insert_fields
 impl QueryBuilder {
 
     pub fn select_all_fields() -> QueryBuilder {
-        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), target_table:None, select_fields:vec![], left_join_list: vec![], left_on_list: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None }
+        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None }
     }
 
     pub fn init_with_select_fields(fields: Vec<String>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, target_table:None, select_fields:fields, left_join_list: vec![], left_on_list: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert, is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], left_join_list: vec![], left_on_list: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], left_join_list: vec![], left_on_list: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None }
+        QueryBuilder { operation:Operation::Update,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], left_join_list: vec![], left_on_list: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], left_join_list: vec![], left_on_list: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(1) }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], left_join_list: vec![], left_on_list: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(1) }
     }
 
     pub fn delete_all_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], left_join_list: vec![], left_on_list: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
@@ -466,12 +474,12 @@ impl QueryBuilder {
     }
 
     pub fn left_join<A>(mut self, table:& A) -> QueryBuilder where A : Table{
-        self.pending_join = Some(TableJoin::new(table,LEFT,None));
+        self.pending_join = Some(TableJoin::new(TargetTable::new(table),LEFT,None));
         self
     }
 
     pub fn inner_join<A>(mut self, table:& A) -> QueryBuilder where A : Table{
-        self.pending_join = Some(TableJoin::new(table,INNER,None));
+        self.pending_join = Some(TableJoin::new(TargetTable::new(table),INNER,None));
         self
     }
 
@@ -778,13 +786,11 @@ impl QueryBuilder {
                 }else {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"please provide table name to select from".to_string()));
                 }
-                if !self.left_join_list.is_empty() && !self.left_on_list.is_empty() {
-                    if self.left_join_list.len() != self.left_on_list.len(){
-                        return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"left_join_list 和 on_list 的长度不一致".to_string()));
-                    }else{
-                        for (i, (target_table, on_condition)) in self.left_join_list.iter().zip(self.left_on_list.iter()).enumerate() {
-                            queryString.push_str(&format!(" LEFT JOIN {} ON {}", target_table.name, on_condition));
-                        }
+                if !self.joins.is_empty() {
+                    // Traverse joins and generate JOIN statements for each TableJoin
+                    for (i, join) in self.joins.iter().enumerate() {
+                        // Generate JOIN statements based on joinotype
+                        queryString.push_str(&format!(" {} JOIN {} ON {} ", join.join_type.to_string(), join.target_table.name, join.clone().condition.unwrap().query));
                     }
                 }
                 if self.conditions.len() > 0 {
