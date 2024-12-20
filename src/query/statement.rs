@@ -33,7 +33,8 @@ pub fn count_distinct<T: Into<String>>(field:T) -> Bigint{
 }
 
 pub fn concat<T: Into<String>>(fields: Vec<T>) -> Varchar{
-    Varchar::with_name(format!("concat({})",fields.iter().map(|f|f.into()).collect::<Vec<String>>().join(",")))
+    let fields_str = fields.into_iter().map(|field| field.into()).collect::<Vec<String>>().join(",");
+    Varchar::with_name(format!("concat({})",fields_str))
 }
 
 pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>(table_with_value: &mut A) -> Result<T,Error> where A : Table{

@@ -2,6 +2,7 @@ use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
 use crate::query::builder::{Condition, QueryBuilder};
 use chrono::{DateTime, Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
+use std::str::FromStr;
 
 pub trait And {
     fn and(&self, other:& (impl Column + Clone+ 'static)) -> Vec<String>;
@@ -145,6 +146,22 @@ impl Varchar {
     {
         Condition::new(format!("{} LIKE '{}'", self.name, pattern))
     }
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.name))
+    }
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.name))
+    }
+    pub fn is_not_empty(&self) -> Condition
+    {
+        Condition::new(format!("{} !=''", self.name))
+    }
+    pub fn is_empty(&self) -> Condition
+    {
+        Condition::new(format!("{} =''", self.name))
+    }
 }
 
 
@@ -162,13 +179,13 @@ impl From<String> for Varchar {
 
 impl From<Varchar> for String{
     fn from(value: Varchar) -> String {
-        value.name.clone()
+        value.name().clone()
     }
 }
 
 impl From<&Varchar> for String{
     fn from(value: &Varchar) -> String {
-        value.name.clone()
+        value.name().clone()
     }
 }
 
@@ -194,6 +211,18 @@ impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
         }
         let string_value: String = str_set.join(",");
         Varchar::with_name_value(set.name(),Some(string_value))
+    }
+}
+
+impl From<&Int> for Varchar {
+    fn from(i: &Int) -> Self {
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
+    }
+}
+
+impl From<Int> for Varchar {
+    fn from(i: Int) -> Self {
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
     }
 }
 
@@ -500,11 +529,36 @@ impl Int {
         self.alias = Some(alias.to_string());
         self.clone()
     }
+
+    pub fn equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<Int>,
+    {
+        let int = input.into();
+        let output = match int.holding {
+            Holding::Name => int.name,
+            Holding::Value => format!("'{}'",int.value.unwrap().to_string()),
+            _ => "".to_string()
+        };
+        Condition::new(format!("{} = {}", self.name, output))
+    }
 }
 
 impl Column for Int {
     fn name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+    }
+}
+
+impl From<&Varchar> for Int {
+    fn from(v: &Varchar) -> Self {
+        Int::with_name_value(v.name.clone(),v.value().map(|s| i32::from_str(&s).ok()).flatten())
+    }
+}
+
+impl From<Varchar> for Int {
+    fn from(v: Varchar) -> Self {
+        Int::with_name_value(v.name.clone(),v.value().map(|s| i32::from_str(&s).ok()).flatten())
     }
 }
 
@@ -743,6 +797,36 @@ impl Column for Bigint {
     }
 }
 
+impl From<&str> for Bigint {
+    fn from(s: &str) -> Self {
+        match i64::from_str(s) {
+            Ok(num) => Bigint::with_value(Some(num)), // Convert string to i64
+            Err(_) => Bigint::with_value(None), // Handle conversion error
+        }
+    }
+}
+
+impl From<String> for Bigint {
+    fn from(s: String) -> Self {
+        match i64::from_str(&s) {
+            Ok(num) => Bigint::with_value(Some(num)), // Convert string to i64
+            Err(_) => Bigint::with_value(None), // Handle conversion error
+        }
+    }
+}
+
+impl From<Bigint> for String{
+    fn from(value: Bigint) -> String {
+        value.name().clone()
+    }
+}
+
+impl From<&Bigint> for String{
+    fn from(value: &Bigint) -> String {
+        value.name().clone()
+    }
+}
+
 #[derive(Clone,Debug)]
 pub struct BigintUnsigned{
     value: Option<u64>,
@@ -962,6 +1046,10 @@ impl crate::mapping::types::Date {
     pub fn as_(&mut self, alias:&str) -> Self {
         self.alias = Some(alias.to_string());
         self.clone()
+    }
+
+    pub fn between(&self, date1: chrono::NaiveDate,date2: chrono::NaiveDate) -> Condition {
+        Condition::new(format!("{} BETWEEN '{}' AND '{}'", self.name, date1.format("%Y-%m-%d").to_string(), date2.format("%Y-%m-%d").to_string()))
     }
 }
 
