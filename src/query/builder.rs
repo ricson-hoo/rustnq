@@ -581,7 +581,7 @@ impl QueryBuilder {
                 })
                 .fetch_all(pool)
                 .await?;
-            
+
             let mut result = Vec::new();
             for json in jsons {
                 let item_parsed_result = serde_json::from_value::<T>(json.clone());
@@ -762,7 +762,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "CHAR" => {
+                "CHAR" | "TEXT" => {
                     // Handle CHAR type
                     let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
@@ -775,6 +775,26 @@ impl QueryBuilder {
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                "VARBINARY" => {
+                    let value_result: Result<Option<Vec<u8>>, _>= row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            match String::from_utf8(value) {
+                                Ok(utf8_str) => {
+                                    json_obj[column_name] = serde_json::Value::String(utf8_str.to_string());
+                                    json_obj[camel_case_column_name] = serde_json::Value::String(utf8_str.to_string());
+                                }
+                                Err(_) => {
+                                    json_obj[column_name] = serde_json::Value::Null;
+                                    json_obj[camel_case_column_name] = serde_json::Value::Null
+                                }
+                            }
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null
+                        }
                     }
                 }
                 &_ => {
