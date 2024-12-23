@@ -697,7 +697,7 @@ impl Tinyint {
         Tinyint { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
     }
 
-    fn with_value(value: Option<i8>) -> Self {
+    pub fn with_value(value: Option<i8>) -> Self {
         Tinyint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
     }
 
@@ -712,6 +712,18 @@ impl Tinyint {
     pub fn as_(&mut self, alias:&str) -> Self {
         self.alias = Some(alias.to_string());
         self.clone()
+    }
+    pub fn equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<Tinyint>,
+    {
+        let tinyint = input.into();
+        let output = match tinyint.holding {
+            Holding::Name => {tinyint.name}
+            Holding::Value => {format!("{}", tinyint.value.unwrap_or_default())}
+            _=> "".to_string()
+        };
+        Condition::new(format!("{} = {}", self.name, output))
     }
 }
 
