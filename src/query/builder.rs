@@ -855,7 +855,7 @@ impl QueryBuilder {
                             .join(" AND "));
                 }
                 if self.limit.is_some() {
-                    queryString = format!("{} limit {} {}",queryString,self.clone().limit.unwrap().offset,self.clone().limit.unwrap().row_count);
+                    queryString = format!("{} limit {}, {}",queryString,self.clone().limit.unwrap().offset,self.clone().limit.unwrap().row_count);
                 }
             },
             Operation::Insert => {
