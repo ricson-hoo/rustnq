@@ -135,6 +135,20 @@ impl TableJoin{
 }
 
 #[derive(Debug,Clone)]
+pub struct LimitJoin{
+    offset: i32,
+    row_count: i32,
+}
+impl LimitJoin{
+    pub fn new(offset: i32, row_count: i32) -> Self {
+        LimitJoin{
+            offset,
+            row_count,
+        }
+    }
+}
+
+#[derive(Debug,Clone)]
 pub struct QueryBuilder {
     operation:Operation,
     is_select_all:Option<bool>,
@@ -144,7 +158,7 @@ pub struct QueryBuilder {
     joins: Vec<TableJoin>,
     //upsert_values: Vec<String>,//insert values or update values
     conditions: Vec<Condition>,
-    limit:Option<i32>,
+    limit:Option<LimitJoin>,
 }
 
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
@@ -448,11 +462,11 @@ impl QueryBuilder {
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)) }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(1) }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)) }
     }
 
     pub fn delete_all_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
@@ -516,8 +530,13 @@ impl QueryBuilder {
         self
     }
 
-    pub fn limit(mut self, limit:i32) -> QueryBuilder {
-        self.limit = Some(limit);
+    pub fn limit(mut self, limit: i32) -> QueryBuilder {
+        self.limit = Some(LimitJoin::new(0, limit));
+        self
+    }
+
+    pub fn limit_offset(mut self, limit: i32, offset: i32) -> QueryBuilder {
+        self.limit = Some(LimitJoin::new(offset, limit));
         self
     }
 
@@ -601,7 +620,7 @@ impl QueryBuilder {
 
     pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&mut self) -> Result<Option<T>,Error> {
 
-        self.limit = Some(1);
+        self.limit = Some(LimitJoin::new(0, 1));
 
         let pool = POOL.get().unwrap();
         let build_result = self.build();
@@ -836,7 +855,7 @@ impl QueryBuilder {
                             .join(" AND "));
                 }
                 if self.limit.is_some() {
-                    queryString = format!("{} limit {}",queryString,self.limit.unwrap());
+                    queryString = format!("{} limit {} {}",queryString,self.clone().limit.unwrap().offset,self.clone().limit.unwrap().row_count);
                 }
             },
             Operation::Insert => {

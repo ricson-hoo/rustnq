@@ -544,6 +544,13 @@ impl Int {
     }
 }
 
+// 为 Int 实现 From<i32>
+impl From<i32> for Int {
+    fn from(v: i32) -> Self {
+        Int::with_value(Some(v))
+    }
+}
+
 impl Column for Int {
     fn name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
@@ -1053,6 +1060,12 @@ impl crate::mapping::types::Date {
     }
 }
 
+impl From<Date> for Varchar {
+    fn from(i: Date) -> Self {
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
+    }
+}
+
 impl Column for crate::mapping::types::Date {
     fn name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
@@ -1163,6 +1176,12 @@ impl crate::mapping::types::Timestamp {
     pub fn as_(&mut self, alias:&str) -> Self {
         self.alias = Some(alias.to_string());
         self.clone()
+    }
+}
+
+impl From<Timestamp> for Varchar {
+    fn from(i: Timestamp) -> Self {
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
     }
 }
 
