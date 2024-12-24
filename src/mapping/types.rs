@@ -129,6 +129,13 @@ impl Varchar {
        self.clone()
     }
 
+    pub fn optional_as(self, alias:Option<String>) -> Self {
+        if(alias.is_some()){
+            self.alias = alias;
+        }
+        self.clone()
+    }
+
     pub fn equal<T>(&self, input: T) -> Condition
     where
         T: Into<Varchar>,
@@ -541,6 +548,12 @@ impl Int {
             _ => "".to_string()
         };
         Condition::new(format!("{} = {}", self.name, output))
+    }
+}
+
+impl From<Int> for Varchar {
+    fn from(i: Int) -> Self {
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias)
     }
 }
 
@@ -1074,7 +1087,7 @@ impl crate::mapping::types::Date {
 
 impl From<Date> for Varchar {
     fn from(i: Date) -> Self {
-        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias)
     }
 }
 
