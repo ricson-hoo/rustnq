@@ -81,6 +81,14 @@ impl<T:Clone+Into<String>> Enum<T>{
         Condition::new(format!("{} = {}", self.name, input.name))
     }
 
+    pub fn in_(&self, input_list: Vec<T>) -> Condition
+    {
+        Condition::new(format!("{} in ({})", self.name, input_list.into_iter()
+            .map(|input| format!("'{}'", input.into().to_string()))
+            .collect::<Vec<String>>()
+            .join(" , ")))
+    }
+
 }
 
 impl <T:Clone> Column for Enum<T> where String: From<T>{ //impl <T:MappedEnum> Column for Enum<T>
@@ -161,6 +169,18 @@ impl Varchar {
     pub fn is_empty(&self) -> Condition
     {
         Condition::new(format!("{} =''", self.name))
+    }
+    pub fn ne<T>(&self, input: T) -> Condition
+    where
+        T: Into<Varchar>,
+    {
+        let varchar = input.into();
+        let output = match varchar.holding {
+            Holding::Name => varchar.name,
+            Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
+            _ => "".to_string()
+        };
+        Condition::new(format!("{} != {}", self.name, output))
     }
 }
 
@@ -541,6 +561,22 @@ impl Int {
             _ => "".to_string()
         };
         Condition::new(format!("{} = {}", self.name, output))
+    }
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.name))
+    }
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.name))
+    }
+    pub fn is_not_empty(&self) -> Condition
+    {
+        Condition::new(format!("{} !=''", self.name))
+    }
+    pub fn is_empty(&self) -> Condition
+    {
+        Condition::new(format!("{} =''", self.name))
     }
 }
 
