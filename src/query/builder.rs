@@ -1,4 +1,4 @@
-use crate::mapping::description::{Table,Column};
+use crate::mapping::description::{Table, Column};
 use std::{fmt, fmt::write, format, result};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
@@ -9,9 +9,10 @@ use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
-use serde_json::json;
+use serde_json::{json, Number};
 use serde_json::Value as JsonValue;
 use std::future::Future;
+use rust_decimal::prelude::ToPrimitive;
 use sqlx::Executor;
 use sqlx::Database;
 use sqlx::IntoArguments;
@@ -660,7 +661,7 @@ impl QueryBuilder {
 
     ///将mysql数据行转为JsonValue
     fn convert_to_json_value(&self, row:MySqlRow)-> Result<JsonValue, Error>{
-        println!("row of product {:#?}", row);
+        // println!("row of product {:#?}", row);
         let mut json_obj = json!({});
         let columns = row.columns();
         let mut i=0;
@@ -672,7 +673,7 @@ impl QueryBuilder {
             if type_detail.contains("ColumnFlags(SET)"){
                 type_name = "SET";
             }
-            println!("type_name of {} {} {}",column_name, type_name, type_detail);
+            // println!("type_name of {} {} {}",column_name, type_name, type_detail);
             match type_name {
                 "VARCHAR" => {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
@@ -688,7 +689,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "INT" => {
+                "INT" | "BIGINT" => {
                     let value_result: Result<Option<i32>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -702,12 +703,18 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "BIGINT" => {
-                    let value_result: Result<Option<i32>, _> = row.try_get(i);
+                "DECIMAL" => {
+                    let value_result: Result<Option<rust_decimal::Decimal>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = value.clone().into();
-                            json_obj[camel_case_column_name] = value.into();
+                            // 将 Decimal 转换为 f64
+                            if let Some(float_value) = value.to_f64() {
+                                json_obj[column_name] = float_value.clone().into();
+                                json_obj[camel_case_column_name] = float_value.into();
+                            } else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }else {
                             json_obj[column_name] = serde_json::Value::Null;
                             json_obj[camel_case_column_name] = serde_json::Value::Null;
@@ -932,7 +939,7 @@ impl QueryBuilder {
                 return Err(QueryBuildError::new(BuildErrorType::MissingOperation,"please provide one of these operation Select, Insert, Update, Delete, Insert_Or_Update".to_string()));
             }
         }
-        println!("buider: {:#?}",self);
+        // println!("buider: {:#?}",self);
         println!("queryString: {:#?}",queryString);
         Ok(queryString.to_string())
     }

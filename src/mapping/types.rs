@@ -1257,7 +1257,7 @@ impl crate::mapping::types::Timestamp {
 
 impl From<Timestamp> for Varchar {
     fn from(i: Timestamp) -> Self {
-        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
     }
 }
 
