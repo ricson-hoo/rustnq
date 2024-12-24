@@ -137,7 +137,7 @@ impl Varchar {
        self.clone()
     }
 
-    pub fn optional_as(self, alias:Option<String>) -> Self {
+    pub fn optional_as(mut self, alias:Option<String>) -> Self {
         if(alias.is_some()){
             self.alias = alias;
         }
@@ -243,19 +243,34 @@ impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
 
 impl From<&Int> for Varchar {
     fn from(i: &Int) -> Self {
-        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
     }
 }
 
 impl From<Int> for Varchar {
     fn from(i: Int) -> Self {
-        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
     }
 }
 
 impl Column for Varchar {
     fn name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        match self.holding {
+            Holding::SubQuery=> {
+                if self.sub_query.is_some() {
+                    if let Ok(query) = self.sub_query.clone().unwrap().build() {
+                        format!("({}) as {}",query, self.name.clone())
+                    }else {
+                        format!("'' as {}",self.name.clone())
+                    }
+                } else {
+                    format!("'' as {}",self.name.clone())
+                }
+            },
+            _ => {
+                if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap())} else {self.name.clone()}
+            }
+        }
     }
 }
 
@@ -584,12 +599,6 @@ impl Int {
     pub fn is_empty(&self) -> Condition
     {
         Condition::new(format!("{} =''", self.name))
-    }
-}
-
-impl From<Int> for Varchar {
-    fn from(i: Int) -> Self {
-        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias)
     }
 }
 
@@ -1121,9 +1130,15 @@ impl crate::mapping::types::Date {
     }
 }
 
+impl From<&Date> for Varchar {
+    fn from(i: &Date) -> Self {
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
+    }
+}
+
 impl From<Date> for Varchar {
     fn from(i: Date) -> Self {
-        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias)
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
     }
 }
 
