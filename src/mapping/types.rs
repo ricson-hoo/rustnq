@@ -191,6 +191,11 @@ impl Varchar {
     }
 }
 
+impl From<i32> for Varchar {
+    fn from(s: i32) -> Self {
+        Varchar::with_value(Some(s.to_string()))
+    }
+}
 
 impl From<&str> for Varchar {
     fn from(s: &str) -> Self {

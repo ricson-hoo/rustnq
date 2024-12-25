@@ -608,7 +608,8 @@ impl QueryBuilder {
                 if let Ok(item_parsed) = item_parsed_result {
                     result.push(item_parsed);
                 }else {
-                    println!("{:?}", json);
+                    // println!("entity={:?}", json);
+                    println!("注意类型不匹配");
                 }
             }
             Ok(result)
