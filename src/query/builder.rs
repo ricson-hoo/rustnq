@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use serde_json::{json, Number};
 use serde_json::Value as JsonValue;
 use std::future::Future;
+use chrono::{DateTime, NaiveTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use sqlx::Executor;
 use sqlx::Database;
@@ -638,7 +639,7 @@ impl QueryBuilder {
 
             match json_result {
                 Ok(json)=>{
-                    println!("json of product {:#?}", json);
+                    // println!("json of product {:#?}", json);
                     let json_parse_result = serde_json::from_value(json);
                     match json_parse_result {
                         Ok(json)=>{
@@ -789,6 +790,37 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
+                "TIMESTAMP" => {
+                    let value_result: Result<Option<DateTime<Utc>>, _> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            let cur_value = value.timestamp_millis();
+                            json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                            json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                        }else{
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                "DATE" => {
+                    let value_result: Result<Option<chrono::NaiveDate>, _> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            let timestamp = value.and_time(NaiveTime::default()).and_utc().timestamp_millis();
+                            json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+
+                        }else{
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
                 "CHAR" | "TEXT" => {
                     // Handle CHAR type
                     let value_result: Result<Option<String>, _> = row.try_get(i);
@@ -825,6 +857,7 @@ impl QueryBuilder {
                     }
                 }
                 &_ => {
+                    println!("type_name of {} {} {}",column_name, type_name, type_detail);
                     json_obj[column_name] = serde_json::Value::Null;
                     json_obj[camel_case_column_name] = serde_json::Value::Null;
                 }
