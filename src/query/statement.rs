@@ -17,7 +17,7 @@ pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
 }
 
 pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
-   Bigint::with_name(format!("count {}", field.into().to_string()))
+   Bigint::with_name(format!("count ({})", field.into().to_string()))
 }
 
 pub fn count_all() -> Bigint{
