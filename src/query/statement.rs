@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use uuid::uuid;
 use crate::mapping::description::{Column, SqlColumn};
 use crate::mapping::description::Table;
-use crate::mapping::types::{Bigint, Int};
+use crate::mapping::column_types::{Bigint, Int};
 use crate::query::builder::{Condition, QueryBuilder, SelectField, TargetTable};
 use serde::Serialize;
 use sqlx::Error;
 use tokio::sync::RwLock;
 use crate::configuration::{get_processors, PROCESSORS};
-use crate::mapping::types::Varchar;
+use crate::mapping::column_types::Varchar;
 use crate::query::builder::construct_upsert_primary_key_value;
 
 pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{

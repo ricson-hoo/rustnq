@@ -1,10 +1,10 @@
-use crate::mapping::description::{Table, Column};
+use crate::mapping::description::{Table, Column, Holding};
 use std::{fmt, fmt::write, format, result};
 use std::collections::HashMap;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
-use crate::mapping::types::{Boolean, Bigint, Char, Tinytext, Varchar};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date};
 use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
@@ -22,6 +22,7 @@ use crate::query::pool::{POOL};
 use crate::utils::stringUtils::to_camel_case;
 use crate::mapping::description::SqlColumn;
 use crate::query::builder::JoinType::{INNER, LEFT};
+use crate::query::select;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum BuildErrorType {
@@ -244,13 +245,55 @@ impl From<SqlColumn> for SelectField {
 }
 
 impl From<&Varchar> for SelectField{
-    fn from(value: &Varchar) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    fn from(varchar: &Varchar) -> SelectField {
+        match varchar.holding() {
+            Holding::Name=> {
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(),varchar.alias(),varchar.is_encrypted()))
+            },
+            Holding::Value => {
+                if varchar.alias().is_some() {
+                    SelectField::Untyped(format!("'{}' as {}",&varchar.value().unwrap_or_default(), varchar.alias().unwrap()))
+                }else {
+                    SelectField::Untyped(format!("'{}'",&varchar.value().unwrap_or_default()))
+                }
+            },
+            Holding::NameValue=> {
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(),varchar.alias(),varchar.is_encrypted()))
+            },
+            Holding::SubQuery=> {
+                if let Some(sub_query) = varchar.sub_query(){
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(varchar.name())})
+                }else{
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("'?'".to_string())]), as_:Some(varchar.name())})
+                }
+            }
+        }
     }
 }
 impl From<Varchar> for SelectField{
-    fn from(value: Varchar) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    fn from(varchar: Varchar) -> SelectField {
+        match varchar.holding() {
+            Holding::Name=> {
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(),varchar.alias(),varchar.is_encrypted()))
+            },
+            Holding::Value => {
+                if varchar.alias().is_some() {
+                    SelectField::Untyped(format!("{} as {}",&varchar.value().unwrap_or_default(), varchar.alias().unwrap()))
+                }else {
+                    SelectField::Untyped(format!("{}",&varchar.value().unwrap_or_default()))
+                }
+            },
+            Holding::NameValue=> {
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(),varchar.alias(),varchar.is_encrypted()))
+            },
+            Holding::SubQuery=> {
+                if let Some(sub_query) = varchar.sub_query(){
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(varchar.name())})
+                }else{
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(varchar.name())})
+                }
+            }
+        }
     }
 }
 
@@ -262,6 +305,18 @@ impl From<Bigint> for SelectField{
 
 impl From<&Bigint> for SelectField{
     fn from(value: &Bigint) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<Date> for SelectField{
+    fn from(value: Date) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<&Date> for SelectField{
+    fn from(value: &Date) -> SelectField {
         SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
     }
 }
@@ -713,6 +768,12 @@ impl QueryBuilder {
     }
 
     pub fn asVachar(mut self, name: &str) -> Varchar {
+        Varchar::with_name_query(name.to_string(),Some(self))
+    }
+
+    pub fn as_(mut self, name: &str) -> Varchar {
+        //Varchar::with_name_query(name.to_string(),Some(self))
+        //SelectField::Subquery(SubqueryField{query_builder:self,as_:Some(name.to_string())})
         Varchar::with_name_query(name.to_string(),Some(self))
     }
 
