@@ -229,6 +229,11 @@ impl Varchar {
     }
 }
 
+impl From<i32> for Varchar {
+    fn from(s: i32) -> Self {
+        Varchar::with_value(Some(s.to_string()))
+    }
+}
 
 impl From<&str> for Varchar {
     fn from(s: &str) -> Self {
@@ -1926,7 +1931,7 @@ impl crate::mapping::types::Timestamp {
 
 impl From<Timestamp> for Varchar {
     fn from(i: Timestamp) -> Self {
-        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string()))
+        Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::mapping::description::{Table,Column};
+use crate::mapping::description::{Table, Column};
 use std::{fmt, fmt::write, format, result};
 use std::collections::HashMap;
 use std::io::Write;
@@ -10,9 +10,11 @@ use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
-use serde_json::json;
+use serde_json::{json, Number};
 use serde_json::Value as JsonValue;
 use std::future::Future;
+use chrono::{DateTime, NaiveTime, Utc};
+use rust_decimal::prelude::ToPrimitive;
 use sqlx::Executor;
 use sqlx::Database;
 use crate::configuration::{encryptor, get_encryptor};
@@ -739,7 +741,8 @@ impl QueryBuilder {
                 if let Ok(item_parsed) = item_parsed_result {
                     result.push(item_parsed);
                 }else {
-                    println!("{:?}", json);
+                    // println!("entity={:?}", json);
+                    println!("注意类型不匹配");
                 }
             }
             Ok(result)
@@ -768,7 +771,7 @@ impl QueryBuilder {
 
             match json_result {
                 Ok(json)=>{
-                    println!("json of product {:#?}", json);
+                    // println!("json of product {:#?}", json);
                     let json_parse_result = serde_json::from_value(json);
                     match json_parse_result {
                         Ok(json)=>{
@@ -792,7 +795,7 @@ impl QueryBuilder {
 
     ///将mysql数据行转为JsonValue
     fn convert_to_json_value(&self, row:MySqlRow)-> Result<JsonValue, Error>{
-        println!("row of product {:#?}", row);
+        // println!("row of product {:#?}", row);
         let mut json_obj = json!({});
         let columns = row.columns();
         let mut i=0;
@@ -804,7 +807,7 @@ impl QueryBuilder {
             if type_detail.contains("ColumnFlags(SET)"){
                 type_name = "SET";
             }
-            println!("type_name of {} {} {}",column_name, type_name, type_detail);
+            // println!("type_name of {} {} {}",column_name, type_name, type_detail);
             match type_name {
                 "VARCHAR" => {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
@@ -820,7 +823,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "INT" => {
+                "INT" | "BIGINT" => {
                     let value_result: Result<Option<i32>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -834,12 +837,18 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "BIGINT" => {
-                    let value_result: Result<Option<i32>, _> = row.try_get(i);
+                "DECIMAL" => {
+                    let value_result: Result<Option<rust_decimal::Decimal>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = value.clone().into();
-                            json_obj[camel_case_column_name] = value.into();
+                            // 将 Decimal 转换为 f64
+                            if let Some(float_value) = value.to_f64() {
+                                json_obj[column_name] = float_value.clone().into();
+                                json_obj[camel_case_column_name] = float_value.into();
+                            } else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }else {
                             json_obj[column_name] = serde_json::Value::Null;
                             json_obj[camel_case_column_name] = serde_json::Value::Null;
@@ -913,6 +922,37 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
+                "TIMESTAMP" => {
+                    let value_result: Result<Option<DateTime<Utc>>, _> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            let cur_value = value.timestamp_millis();
+                            json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                            json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                        }else{
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                "DATE" => {
+                    let value_result: Result<Option<chrono::NaiveDate>, _> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            let timestamp = value.and_time(NaiveTime::default()).and_utc().timestamp_millis();
+                            json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+
+                        }else{
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
                 "CHAR" | "TEXT" => {
                     // Handle CHAR type
                     let value_result: Result<Option<String>, _> = row.try_get(i);
@@ -949,6 +989,7 @@ impl QueryBuilder {
                     }
                 }
                 &_ => {
+                    println!("type_name of {} {} {}",column_name, type_name, type_detail);
                     json_obj[column_name] = serde_json::Value::Null;
                     json_obj[camel_case_column_name] = serde_json::Value::Null;
                 }
@@ -1064,7 +1105,7 @@ impl QueryBuilder {
                 return Err(QueryBuildError::new(BuildErrorType::MissingOperation,"please provide one of these operation Select, Insert, Update, Delete, Insert_Or_Update".to_string()));
             }
         }
-        println!("buider: {:#?}",self);
+        // println!("buider: {:#?}",self);
         println!("queryString: {:#?}",queryString);
         Ok(queryString.to_string())
     }
