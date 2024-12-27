@@ -745,6 +745,25 @@ impl crate::mapping::types::Boolean {
         self.alias = Some(alias.to_string());
         self.clone()
     }
+
+    pub fn equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<Boolean>,
+    {
+        let tinyint = input.into();
+        let output = match tinyint.holding {
+            Holding::Name => {tinyint.name}
+            Holding::Value => {format!("{}", if tinyint.value.unwrap_or_default() {"1"} else {"0"})}
+            _=> "".to_string()
+        };
+        Condition::new(format!("{} = {}", self.name, output))
+    }
+}
+
+impl From<bool> for Boolean {
+    fn from(v: bool) -> Self {
+        Boolean::with_value(Some(v))
+    }
 }
 
 impl Column for crate::mapping::types::Boolean {
