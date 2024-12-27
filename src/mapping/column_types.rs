@@ -72,7 +72,7 @@ impl<T:Clone+Into<String>> Enum<T>{
 
     pub fn equal(&self, input: T) -> Condition
     {
-        Condition::new(format!("{} = '{}'", self.name, input.into()))
+        Condition::new(format!("{} = '{}'", self.qualified_name(), input.into()))
     }
 
     pub fn equals(&self, input: Enum<T>) -> Condition
@@ -85,12 +85,12 @@ impl<T:Clone+Into<String>> Enum<T>{
             Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
             _ => "".to_string()
         };*/
-        Condition::new(format!("{} = {}", self.name, input.name))
+        Condition::new(format!("{} = {}", self.qualified_name(), input.qualified_name()))
     }
 
     pub fn in_(&self, input_list: Vec<T>) -> Condition
     {
-        Condition::new(format!("{} in ({})", self.name, input_list.into_iter()
+        Condition::new(format!("{} in ({})", self.qualified_name(), input_list.into_iter()
             .map(|input| format!("'{}'", input.into().to_string()))
             .collect::<Vec<String>>()
             .join(" , ")))
@@ -98,7 +98,7 @@ impl<T:Clone+Into<String>> Enum<T>{
 
 }
 
-impl <T:Clone> Column for Enum<T> where String: From<T>{
+impl <T:Clone+Into<String>> Column for Enum<T>{
     fn table(&self) -> String {
         self.table.clone().unwrap_or_default()
     }
@@ -116,7 +116,7 @@ impl <T:Clone> Column for Enum<T> where String: From<T>{
     }
 
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(),self.alias.clone().unwrap())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -133,9 +133,9 @@ pub struct Varchar {
 
 impl Varchar {
 
-    pub fn and(&self, other:& (impl Column + Clone+ 'static)) -> Vec<String> {
-        vec![self.name.clone(), other.name()]
-    }
+    /*pub fn and(&self, other:& (impl Column + Clone+ 'static)) -> Vec<String> {
+        vec![self.qualified_name().clone(), other.qualified_name()]
+    }*/
 
     pub fn with_name(name: String) -> Self {
         Varchar {table:None, name:name, alias:None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
@@ -210,23 +210,23 @@ impl Varchar {
 
     pub fn like(&self, pattern: &'static str) -> Condition
     {
-        Condition::new(format!("{} LIKE '{}'", self.name, pattern))
+        Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
     pub fn is_null(&self) -> Condition
     {
-        Condition::new(format!("{} IS NULL", self.name))
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
     }
     pub fn is_not_null(&self) -> Condition
     {
-        Condition::new(format!("{} IS NOT NULL", self.name))
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
     }
     pub fn is_not_empty(&self) -> Condition
     {
-        Condition::new(format!("{} !=''", self.name))
+        Condition::new(format!("{} !=''", self.qualified_name()))
     }
     pub fn is_empty(&self) -> Condition
     {
-        Condition::new(format!("{} =''", self.name))
+        Condition::new(format!("{} =''", self.qualified_name()))
     }
     pub fn ne<T>(&self, input: T) -> Condition
     where
@@ -234,11 +234,11 @@ impl Varchar {
     {
         let varchar = input.into();
         let output = match varchar.holding {
-            Holding::Name => varchar.name,
+            Holding::Name => varchar.qualified_name(),
             Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
             _ => "".to_string()
         };
-        Condition::new(format!("{} != {}", self.name, output))
+        Condition::new(format!("{} != {}", self.qualified_name(), output))
     }
 }
 
@@ -361,7 +361,7 @@ impl Column for Varchar {
     fn is_encrypted(&self) -> bool {
         self.is_encrypted
     }
-    fn qualified_name(&self) -> String {
+    /*fn qualified_name(&self) -> String {
         match self.holding {
             Holding::SubQuery=> {
                 if self.sub_query.is_some() {
@@ -378,6 +378,9 @@ impl Column for Varchar {
                 if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap())} else {self.name.clone()}
             }
         }
+    }*/
+    fn qualified_name(&self) -> String {
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -457,7 +460,7 @@ impl Char {
 
     pub fn like(&self, pattern: &'static str) -> Condition
     {
-        Condition::new(format!("{} LIKE '{}'", self.name, pattern))
+        Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
 
@@ -478,7 +481,7 @@ impl Column for Char {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -538,7 +541,7 @@ impl crate::mapping::column_types::Tinytext {
 
     pub fn like(&self, pattern: &'static str) -> Condition
     {
-        Condition::new(format!("{} LIKE '{}'", self.name, pattern))
+        Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
 
@@ -559,7 +562,7 @@ impl Column for Tinytext {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -619,7 +622,7 @@ impl crate::mapping::column_types::Text {
 
     pub fn like(&self, pattern: &'static str) -> Condition
     {
-        Condition::new(format!("{} LIKE '{}'", self.name, pattern))
+        Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
 
@@ -640,7 +643,7 @@ impl Column for crate::mapping::column_types::Text {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -700,7 +703,7 @@ impl crate::mapping::column_types::Mediumtext {
 
     pub fn like(&self, pattern: &'static str) -> Condition
     {
-        Condition::new(format!("{} LIKE '{}'", self.name, pattern))
+        Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
 
@@ -721,7 +724,7 @@ impl Column for crate::mapping::column_types::Mediumtext {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -781,7 +784,7 @@ impl crate::mapping::column_types::Longtext {
 
     pub fn like(&self, pattern: &'static str) -> Condition
     {
-        Condition::new(format!("{} LIKE '{}'", self.name, pattern))
+        Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
 
@@ -802,7 +805,7 @@ impl Column for crate::mapping::column_types::Longtext {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -858,27 +861,27 @@ impl Int {
     {
         let int = input.into();
         let output = match int.holding {
-            Holding::Name => int.name,
+            Holding::Name => int.qualified_name(),
             Holding::Value => format!("'{}'",int.value.unwrap().to_string()),
             _ => "".to_string()
         };
-        Condition::new(format!("{} = {}", self.name, output))
+        Condition::new(format!("{} = {}", self.qualified_name(), output))
     }
     pub fn is_null(&self) -> Condition
     {
-        Condition::new(format!("{} IS NULL", self.name))
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
     }
     pub fn is_not_null(&self) -> Condition
     {
-        Condition::new(format!("{} IS NOT NULL", self.name))
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
     }
     pub fn is_not_empty(&self) -> Condition
     {
-        Condition::new(format!("{} !=''", self.name))
+        Condition::new(format!("{} !=''", self.qualified_name()))
     }
     pub fn is_empty(&self) -> Condition
     {
-        Condition::new(format!("{} =''", self.name))
+        Condition::new(format!("{} =''", self.qualified_name()))
     }
 }
 
@@ -906,7 +909,7 @@ impl Column for Int {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -986,7 +989,7 @@ impl Column for crate::mapping::column_types::Year {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1061,7 +1064,7 @@ impl <T:Clone+Into<String>> Column for Set<T> {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1117,11 +1120,11 @@ impl crate::mapping::column_types::Boolean {
     {
         let tinyint = input.into();
         let output = match tinyint.holding {
-            Holding::Name => {tinyint.name}
+            Holding::Name => {tinyint.qualified_name()}
             Holding::Value => {format!("{}", if tinyint.value.unwrap_or_default() {"1"} else {"0"})}
             _=> "".to_string()
         };
-        Condition::new(format!("{} = {}", self.name, output))
+        Condition::new(format!("{} = {}", self.qualified_name(), output))
     }
 }
 
@@ -1148,7 +1151,7 @@ impl Column for crate::mapping::column_types::Boolean {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1203,11 +1206,11 @@ impl Tinyint {
     {
         let tinyint = input.into();
         let output = match tinyint.holding {
-            Holding::Name => {tinyint.name}
+            Holding::Name => {tinyint.qualified_name()}
             Holding::Value => {format!("{}", tinyint.value.unwrap_or_default())}
             _=> "".to_string()
         };
-        Condition::new(format!("{} = {}", self.name, output))
+        Condition::new(format!("{} = {}", self.qualified_name(), output))
     }
 }
 
@@ -1228,7 +1231,7 @@ impl Column for Tinyint {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1296,7 +1299,7 @@ impl Column for crate::mapping::column_types::Smallint {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1364,7 +1367,7 @@ impl Column for Bigint {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1462,7 +1465,7 @@ impl Column for crate::mapping::column_types::BigintUnsigned {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1530,7 +1533,7 @@ impl Column for crate::mapping::column_types::Numeric {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1598,7 +1601,7 @@ impl Column for crate::mapping::column_types::Float {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1666,7 +1669,7 @@ impl Column for crate::mapping::column_types::Double {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1734,7 +1737,7 @@ impl Column for crate::mapping::column_types::Decimal {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1785,7 +1788,7 @@ impl crate::mapping::column_types::Date {
     }
 
     pub fn between(&self, date1: chrono::NaiveDate,date2: chrono::NaiveDate) -> Condition {
-        Condition::new(format!("{} BETWEEN '{}' AND '{}'", self.name, date1.format("%Y-%m-%d").to_string(), date2.format("%Y-%m-%d").to_string()))
+        Condition::new(format!("{} BETWEEN '{}' AND '{}'", self.qualified_name(), date1.format("%Y-%m-%d").to_string(), date2.format("%Y-%m-%d").to_string()))
     }
 }
 
@@ -1836,7 +1839,7 @@ impl Column for crate::mapping::column_types::Date {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1904,7 +1907,7 @@ impl Column for crate::mapping::column_types::Time {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -1972,7 +1975,7 @@ impl Column for crate::mapping::column_types::Datetime {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -2055,7 +2058,7 @@ impl Column for crate::mapping::column_types::Timestamp {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -2115,7 +2118,7 @@ impl crate::mapping::column_types::Json {
 
     pub fn like(&self, pattern: &'static str) -> Condition
     {
-        Condition::new(format!("{} LIKE '{}'", self.name, pattern))
+        Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
 
@@ -2136,7 +2139,7 @@ impl Column for crate::mapping::column_types::Json {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
 
@@ -2203,6 +2206,6 @@ impl Column for crate::mapping::column_types::Blob {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
+        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
     }
 }
