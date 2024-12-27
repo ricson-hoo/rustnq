@@ -333,10 +333,14 @@ impl ToString for Field {
         }else {
             format!("{}.{}", self.table, self.name)
         };
+        let mut alias = self.as_.clone();
         if self.is_encrypted {
             qualified_field = encrypt_field(qualified_field);
+            if alias.is_none(){
+                alias = Some(self.name.clone())
+            }
         }
-        if self.as_.is_some() {
+        if alias.is_some() {
             qualified_field = format!("{} AS {}", qualified_field, self.as_.clone().unwrap());
         }
         qualified_field
