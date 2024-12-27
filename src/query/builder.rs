@@ -341,7 +341,7 @@ impl ToString for Field {
             }
         }
         if alias.is_some() {
-            qualified_field = format!("{} AS {}", qualified_field, self.as_.clone().unwrap());
+            qualified_field = format!("{} AS {}", qualified_field, alias.unwrap());
         }
         qualified_field
     }
