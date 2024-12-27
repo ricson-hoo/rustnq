@@ -283,6 +283,10 @@ impl ToString for Field {
         }
         if self.as_.is_some() {
             qualified_field = format!("{} AS {}", qualified_field, self.as_.clone().unwrap());
+        }else{
+            if self.is_encrypted {
+                qualified_field = format!("{} AS {}", qualified_field, self.name);
+            }
         }
         qualified_field
     }
