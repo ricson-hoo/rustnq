@@ -19,24 +19,39 @@ impl And for Vec<String> {
 
 #[derive(Clone,Debug)]
 pub struct Enum<T:Clone+Into<String>> {
+    table: Option<String>,
     value: Option<T>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl<T:Clone+Into<String>> Enum<T>{
     pub fn with_name(name: String) -> Self {
-        Enum { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        Enum { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     fn with_value(value: Option<T>) -> Self {
-        Enum { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        Enum { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<T>) -> Self {
-        Enum { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Enum { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Enum {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<T>) -> Self {
+        Enum {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn value(&self) -> Option<T> {
@@ -56,15 +71,7 @@ impl<T:Clone+Into<String>> Enum<T>{
     }
 
     pub fn equal(&self, input: T) -> Condition
-    /*where
-        T: Into<Varchar>,*/
     {
-        /*let varchar = input.into();
-        let output = match varchar.holding {
-            Holding::Name => varchar.name,
-            Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
-            _ => "".to_string()
-        };*/
         Condition::new(format!("{} = '{}'", self.name, input.into()))
     }
 
@@ -91,19 +98,37 @@ impl<T:Clone+Into<String>> Enum<T>{
 
 }
 
-impl <T:Clone> Column for Enum<T> where String: From<T>{ //impl <T:MappedEnum> Column for Enum<T>
+impl <T:Clone> Column for Enum<T> where String: From<T>{
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(),self.alias.clone().unwrap())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Varchar {
+    table: Option<String>,
     name: String,
     alias:Option<String>,
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl Varchar {
@@ -113,11 +138,11 @@ impl Varchar {
     }
 
     pub fn with_name(name: String) -> Self {
-        Varchar { name:name, alias:None, value: None ,holding: Holding::Name, sub_query:None }
+        Varchar {table:None, name:name, alias:None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<String>) -> Self {
-        Varchar { value:value, alias:None, name:"".to_string() ,holding: Holding::Value, sub_query:None }
+        Varchar {table:None, value:value, alias:None, name:"".to_string() ,holding: Holding::Value, sub_query:None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<String> {
@@ -125,11 +150,24 @@ impl Varchar {
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        Varchar { name:name, alias:None, value:value, holding: Holding::Value, sub_query:None }
+        Varchar {table:None, name:name, alias:None, value:value, holding: Holding::Value, sub_query:None,is_encrypted:false }
     }
 
     pub fn with_name_query(name: String, sub_query: Option<QueryBuilder>) -> Self {
-        Varchar { name:name, alias:None, value:Some("".to_string()), holding: Holding::SubQuery, sub_query:sub_query }
+        Varchar {table:None, name:name, alias:None, value:Some("".to_string()), holding: Holding::SubQuery, sub_query:sub_query,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Varchar {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<String>) -> Self {
+        Varchar {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -259,7 +297,22 @@ impl From<Int> for Varchar {
 }
 
 impl Column for Varchar {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         match self.holding {
             Holding::SubQuery=> {
                 if self.sub_query.is_some() {
@@ -281,11 +334,13 @@ impl Column for Varchar {
 
 #[derive(Clone,Debug)]
 pub struct Char{
+    table: Option<String>,
     name: String,
     alias:Option<String>,
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 fn build_equal_condition_for_string_type(self_name:String,input_holding:Holding,input_name:String,input_value:Option<String>) -> Condition {
@@ -302,19 +357,32 @@ fn build_equal_condition_for_string_type(self_name:String,input_holding:Holding,
 
 impl Char {
     pub fn with_name(name: String) -> Self {
-        Char { name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None }
+        Char {table:None,  name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<String>) -> Self {
-        Char { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        Char {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        Char { name:name, alias: None, value:value, holding: Holding::Value, sub_query:None }
+        Char {table:None,  name:name, alias: None, value:value, holding: Holding::Value, sub_query:None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Char {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<String>) -> Self {
+        Char {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<String> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -337,35 +405,65 @@ impl Char {
 }
 
 impl Column for Char {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Tinytext{
+    table: Option<String>,
     name: String,
     alias:Option<String>,
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Tinytext {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Tinytext { name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None }
+        crate::mapping::types::Tinytext {table:None,  name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
     }
 
     pub fn with_value(value:Option<String>) -> Self {
-        crate::mapping::types::Tinytext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Tinytext {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        Tinytext { name:name, alias: None, value:value, holding: Holding::Value, sub_query:None }
+        Tinytext {table:None,  name:name, alias: None, value:value, holding: Holding::Value, sub_query:None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<String> {
         self.value.clone()
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Tinytext {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<String>) -> Self {
+        Tinytext {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -388,35 +486,65 @@ impl crate::mapping::types::Tinytext {
 }
 
 impl Column for Tinytext {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Text{
+    table: Option<String>,
     name: String,
     alias:Option<String>,
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Text {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Text { name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None }
+        crate::mapping::types::Text {table:None,  name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<String>) -> Self {
-        crate::mapping::types::Text { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Text {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        Text { name:name, alias: None, value:value, holding: Holding::Value, sub_query:None }
+        Text {table:None,  name:name, alias: None, value:value, holding: Holding::Value, sub_query:None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Text {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<String>) -> Self {
+        Text {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<String> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -439,35 +567,65 @@ impl crate::mapping::types::Text {
 }
 
 impl Column for crate::mapping::types::Text {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Mediumtext{
+    table: Option<String>,
     name: String,
     alias:Option<String>,
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Mediumtext {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Mediumtext { name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None }
+        crate::mapping::types::Mediumtext {table:None,  name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<String>) -> Self {
-        crate::mapping::types::Mediumtext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Mediumtext {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        Mediumtext { name:name, alias: None, value:value, holding: Holding::Value, sub_query:None }
+        Mediumtext {table:None,  name:name, alias: None, value:value, holding: Holding::Value, sub_query:None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Mediumtext {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<String>) -> Self {
+        Mediumtext {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<String> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -490,35 +648,65 @@ impl crate::mapping::types::Mediumtext {
 }
 
 impl Column for crate::mapping::types::Mediumtext {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Longtext{
+    table: Option<String>,
     name: String,
     alias:Option<String>,
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Longtext {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Longtext { name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None }
+        crate::mapping::types::Longtext {table:None,  name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<String>) -> Self {
-        crate::mapping::types::Longtext { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Longtext {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        Longtext { name:name, alias: None, value:value, holding: Holding::Value, sub_query:None }
+        Longtext {table:None,  name:name, alias: None, value:value, holding: Holding::Value, sub_query:None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Longtext {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<String>) -> Self {
+        Longtext {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<String> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -541,35 +729,65 @@ impl crate::mapping::types::Longtext {
 }
 
 impl Column for crate::mapping::types::Longtext {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Int{
+    table: Option<String>,
     value: Option<i32>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl Int {
     pub fn with_name(name: String) -> Self {
-        Int { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        Int {table:None,  name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<i32>) -> Self {
-        Int { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        Int {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<i32>) -> Self {
-        Int { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Int {table:None,  name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Int {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<i32>) -> Self {
+        Int {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<i32> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -615,7 +833,22 @@ impl From<i32> for Int {
 }
 
 impl Column for Int {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
@@ -634,28 +867,43 @@ impl From<Varchar> for Int {
 
 #[derive(Clone,Debug)]
 pub struct Year{
+    table: Option<String>,
     value: Option<i32>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Year {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Year { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Year {table:None,  name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<i32>) -> Self {
-        crate::mapping::types::Year { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Year {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<i32>) -> Self {
-        Year { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Year {table:None,  name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Year {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<i32>) -> Self {
+        Year {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<i32> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -665,35 +913,65 @@ impl crate::mapping::types::Year {
 }
 
 impl Column for crate::mapping::types::Year {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Set<T:Clone+Into<String>>{
+    table: Option<String>,
     value: Option<Vec<T>>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl<T:Clone+Into<String>> Set<T> {
     pub fn with_name(name: String) -> Self {
-        Set { name:name, value:None ,holding: Holding::Name, sub_query:None, alias: None }
+        Set {table:None,  name:name, value:None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<Vec<T>>) -> Self {
-        Set { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        Set {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<Vec<T>>) -> Self {
-        Set { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Set {table:None,  name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Set {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<Vec<T>>) -> Self {
+        Set {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<Vec<T>> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -710,35 +988,65 @@ impl<T:Clone+Into<String>> Set<T> {
 }
 
 impl <T:Clone+Into<String>> Column for Set<T> {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Boolean{
+    table: Option<String>,
     value: Option<bool>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Boolean {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Boolean { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Boolean {table:None,  name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
     fn with_value(value: Option<bool>) -> Self {
-        crate::mapping::types::Boolean { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Boolean {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<bool>) -> Self {
-        crate::mapping::types::Boolean { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Boolean {table:None,  name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Boolean {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<bool>) -> Self {
+        Boolean {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<bool> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -767,35 +1075,65 @@ impl From<bool> for Boolean {
 }
 
 impl Column for crate::mapping::types::Boolean {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Tinyint{
+    table: Option<String>,
     value: Option<i8>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl Tinyint {
     pub fn with_name(name: String) -> Self {
-        Tinyint { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        Tinyint {table:None,  name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_value(value: Option<i8>) -> Self {
-        Tinyint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        Tinyint {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<i8>) -> Self {
-        Tinyint { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Tinyint {table:None,  name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Tinyint {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<i8>) -> Self {
+        Tinyint {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<i8> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -817,35 +1155,65 @@ impl Tinyint {
 }
 
 impl Column for Tinyint {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Smallint{
+    table: Option<String>,
     value: Option<i16>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Smallint {
     fn with_name(name: String) -> Self {
-        crate::mapping::types::Smallint { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Smallint {table:None,  name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
     fn with_value(value: Option<i16>) -> Self {
-        crate::mapping::types::Smallint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Smallint {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn with_name_value(name: String, value: Option<i16>) -> Self {
-        Smallint { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Smallint {table:None,  name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Smallint {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<i16>) -> Self {
+        Smallint {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<i16> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -855,35 +1223,65 @@ impl crate::mapping::types::Smallint {
 }
 
 impl Column for crate::mapping::types::Smallint {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Bigint{
+    table: Option<String>,
     value: Option<i64>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl Bigint {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Bigint { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Bigint { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_value(value: Option<i64>) -> Self {
-        crate::mapping::types::Bigint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Bigint { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<i64>) -> Self {
-        Bigint { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Bigint { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Bigint {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<i64>) -> Self {
+        Bigint {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<i64> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -893,7 +1291,22 @@ impl Bigint {
 }
 
 impl Column for Bigint {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
@@ -930,28 +1343,43 @@ impl From<&Bigint> for String{
 
 #[derive(Clone,Debug)]
 pub struct BigintUnsigned{
+    table: Option<String>,
     value: Option<u64>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::BigintUnsigned {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::BigintUnsigned { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::BigintUnsigned { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_value(value: Option<u64>) -> Self {
-        crate::mapping::types::BigintUnsigned { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::BigintUnsigned { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<u64>) -> Self {
-        BigintUnsigned { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        BigintUnsigned { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        BigintUnsigned {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<u64>) -> Self {
+        BigintUnsigned {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<u64> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -961,35 +1389,65 @@ impl crate::mapping::types::BigintUnsigned {
 }
 
 impl Column for crate::mapping::types::BigintUnsigned {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Numeric{
+    table: Option<String>,
     value: Option<f64>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Numeric {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Numeric { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Numeric { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_value(value: Option<f64>) -> Self {
-        crate::mapping::types::Numeric { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Numeric { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<f64>) -> Self {
-        Numeric { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Numeric { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Numeric {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<f64>) -> Self {
+        Numeric {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<f64> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -999,35 +1457,65 @@ impl crate::mapping::types::Numeric {
 }
 
 impl Column for crate::mapping::types::Numeric {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Float{
+    table: Option<String>,
     value: Option<f32>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Float {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Float { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Float { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     fn with_value(value: Option<f32>) -> Self {
-        crate::mapping::types::Float { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Float { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<f32>) -> Self {
-        Float { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Float { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Float {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<f32>) -> Self {
+        Float {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<f32> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -1037,35 +1525,65 @@ impl crate::mapping::types::Float {
 }
 
 impl Column for crate::mapping::types::Float {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Double{
+    table: Option<String>,
     value: Option<f64>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Double {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Double { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Double {table:None, name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted: false }
     }
 
     fn with_value(value: Option<f64>) -> Self {
-        crate::mapping::types::Double { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Double {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false}
     }
 
     pub fn with_name_value(name: String, value: Option<f64>) -> Self {
-        Double { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Double {table:None,  name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted: false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Double {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<f64>) -> Self {
+        Double {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<f64> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -1075,35 +1593,65 @@ impl crate::mapping::types::Double {
 }
 
 impl Column for crate::mapping::types::Double {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Decimal{
+    table: Option<String>,
     value: Option<f64>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Decimal {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Decimal { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Decimal { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_value(value: Option<f64>) -> Self {
-        crate::mapping::types::Decimal { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Decimal { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<f64>) -> Self {
-        Decimal { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Decimal { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Decimal {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<f64>) -> Self {
+        Decimal {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<f64> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -1113,35 +1661,65 @@ impl crate::mapping::types::Decimal {
 }
 
 impl Column for crate::mapping::types::Decimal {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Date{
+    table: Option<String>,
     value: Option<chrono::NaiveDate>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Date {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Date { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Date { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_value(value: Option<chrono::NaiveDate>) -> Self {
-        crate::mapping::types::Date { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Date { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<chrono::NaiveDate>) -> Self {
-        Date { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        Date { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Date {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<NaiveDate>) -> Self {
+        Date {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<NaiveDate> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -1167,34 +1745,65 @@ impl From<Date> for Varchar {
 }
 
 impl Column for crate::mapping::types::Date {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Time{
+    table: Option<String>,
     value: Option<chrono::NaiveTime>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Time {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Time { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Time { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_value(value: chrono::NaiveTime) -> Self {
-        crate::mapping::types::Time { value:Some(value), name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Time { value:Some(value), name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
     pub fn with_name_value(name: String, value: Option<chrono::NaiveTime>) -> Self {
-        crate::mapping::types::Time { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Time { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Time {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<NaiveTime>) -> Self {
+        Time {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<NaiveTime> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -1204,35 +1813,65 @@ impl crate::mapping::types::Time {
 }
 
 impl Column for crate::mapping::types::Time {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Datetime{
+    table: Option<String>,
     pub value: Option<chrono::DateTime<Local>>,
     pub name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    pub holding: Holding
+    pub holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Datetime {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Datetime { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Datetime { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     fn with_value(value: Option<chrono::DateTime<Local>>) -> Self {
-        crate::mapping::types::Datetime { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Datetime { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
-        crate::mapping::types::Datetime { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Datetime { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Datetime {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<DateTime<Local>>) -> Self {
+        Datetime {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<DateTime<Local>> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -1242,35 +1881,65 @@ impl crate::mapping::types::Datetime {
 }
 
 impl Column for crate::mapping::types::Datetime {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Timestamp{
+    table: Option<String>,
     value: Option<chrono::DateTime<Local>>,
     name: String,
     alias:Option<String>,
     sub_query: Option<QueryBuilder>,
-    holding: Holding
+    holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Timestamp {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Timestamp { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None }
+        crate::mapping::types::Timestamp { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_value(value: Option<chrono::DateTime<Local>>) -> Self {
-        crate::mapping::types::Timestamp { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Timestamp { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
     pub fn with_name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
-        crate::mapping::types::Timestamp { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Timestamp { name:name, value:value, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Timestamp {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<DateTime<Local>>) -> Self {
+        Timestamp {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<DateTime<Local>> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -1286,35 +1955,65 @@ impl From<Timestamp> for Varchar {
 }
 
 impl Column for crate::mapping::types::Timestamp {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Json{
+    table: Option<String>,
     name: String,
     alias:Option<String>,
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Json {
     pub fn with_name(name: String) -> Self {
-        crate::mapping::types::Json { name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None }
+        crate::mapping::types::Json {table:None,  name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None, is_encrypted:false }
     }
 
     pub fn with_value(value: Option<String>) -> Self {
-        crate::mapping::types::Json { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Json {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false}
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        crate::mapping::types::Json { name:name, alias: None, value:value, holding: Holding::Value, sub_query:None }
+        crate::mapping::types::Json {table:None,  name:name, alias: None, value:value, holding: Holding::Value, sub_query:None, is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Json {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<String>) -> Self {
+        Json {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<String> {
         self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
     }
 
     pub fn as_(&mut self, alias:&str) -> Self {
@@ -1337,37 +2036,66 @@ impl crate::mapping::types::Json {
 }
 
 impl Column for crate::mapping::types::Json {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }
 
 #[derive(Clone,Debug)]
 pub struct Blob{
+    table: Option<String>,
     name: String,
     alias:Option<String>,
     value: Option<Vec<u8>>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
+    is_encrypted:bool
 }
 
 impl crate::mapping::types::Blob {
     fn with_name(name: String) -> Self {
-        crate::mapping::types::Blob { name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None}
+        crate::mapping::types::Blob {table:None,  name:name, alias: None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
     }
 
     fn with_value(value: Option<Vec<u8>>) -> Self {
-        crate::mapping::types::Blob { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None }
+        crate::mapping::types::Blob {table:None,  value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false}
     }
 
     pub fn with_name_value(name: String, value: Option<Vec<u8>>) -> Self {
-        crate::mapping::types::Blob { name:name, alias: None, value:value, holding: Holding::Value, sub_query:None }
+        crate::mapping::types::Blob {table:None,  name:name, alias: None, value:value, holding: Holding::Value, sub_query:None, is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Blob {table:Some(table), name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<Vec<u8>>) -> Self {
+        Blob {table:Some(table), name:name, value:value, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
     pub fn value(&self) -> Option<Vec<u8>> {
         self.value.clone()
     }
 
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
+    }
     pub fn as_(&mut self, alias:&str) -> Self {
         self.alias = Some(alias.to_string());
         self.clone()
@@ -1375,7 +2103,22 @@ impl crate::mapping::types::Blob {
 }
 
 impl Column for crate::mapping::types::Blob {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
     fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
         if self.alias.is_some() {format!("{} as {}",self.name.clone(), self.alias.clone().unwrap().clone())} else {self.name.clone()}
     }
 }

@@ -1,9 +1,10 @@
 use crate::mapping::description::{Table, Column};
 use std::{fmt, fmt::write, format, result};
+use std::collections::HashMap;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
-use crate::mapping::types::{Boolean, Char, Tinytext, Varchar};
+use crate::mapping::types::{Boolean, Bigint, Char, Tinytext, Varchar};
 use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
@@ -16,7 +17,7 @@ use chrono::{DateTime, NaiveTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use sqlx::Executor;
 use sqlx::Database;
-use sqlx::IntoArguments;
+use crate::configuration::{encryptor, get_encryptor};
 use crate::query::pool::{POOL};
 use crate::utils::stringUtils::to_camel_case;
 use crate::mapping::description::SqlColumn;
@@ -97,7 +98,7 @@ impl TargetTable {
     pub fn new(table: & dyn Table) -> TargetTable {
         TargetTable{
             name: table.name(),
-            columns: table.columns(),
+            columns: table.all_columns(),
             primary_key: table.primary_key(),
         }
     }
@@ -149,13 +150,172 @@ impl LimitJoin{
         }
     }
 }
+#[derive(Debug,Clone)]
+pub struct Field {
+    pub table: String,
+    pub name: String,
+    pub as_: Option<String>,
+    pub is_encrypted: bool,
+}
+
+impl Field {
+    pub fn new(table: &str, name: &str, as_: Option<String>, is_encrypted: bool) -> Self {
+        Field{
+            table:table.to_string(),name:name.to_string(), as_, is_encrypted,
+        }
+    }
+}
+
+#[derive(Debug,Clone)]
+pub struct SubqueryField {
+    pub query_builder: QueryBuilder,
+    pub as_: Option<String>,
+}
+
+#[derive(Debug,Clone)]
+pub enum SelectField {
+    Field(Field),
+    Subquery(SubqueryField),
+    Untyped(String),
+}
+
+impl From<&SqlColumn> for SelectField {
+    fn from(value: &SqlColumn) -> SelectField {
+        match value {
+            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), def.alias(),def.is_encrypted()))),
+            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+        }
+    }
+}
+
+impl From<SqlColumn> for SelectField {
+    fn from(value: SqlColumn) -> SelectField {
+        match value {
+            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), def.alias(),def.is_encrypted()))),
+            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+        }
+    }
+}
+
+impl From<&Varchar> for SelectField{
+    fn from(value: &Varchar) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+impl From<Varchar> for SelectField{
+    fn from(value: Varchar) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<Bigint> for SelectField{
+    fn from(value: Bigint) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<&Bigint> for SelectField{
+    fn from(value: &Bigint) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+fn encrypt_field(field:String) -> String {
+    let encryptor = get_encryptor();
+    encryptor.wrap_encrypt(field)
+}
+
+impl ToString for Field {
+    fn to_string(&self) -> String {
+        let mut qualified_field = if self.table.is_empty() {
+            self.name.clone()
+        }else {
+            format!("{}.{}", self.table, self.name)
+        };
+        if self.is_encrypted {
+            qualified_field = encrypt_field(qualified_field);
+        }
+        if self.as_.is_some() {
+            qualified_field = format!("{} AS {}", qualified_field, self.as_.clone().unwrap());
+        }
+        qualified_field
+    }
+}
+
+impl ToString for SubqueryField {
+    fn to_string(&self) -> String {
+        if let Ok(build_result) = self.query_builder.build() {
+            if self.as_.is_some() {format!("({}) AS {}", build_result,self.as_.clone().unwrap_or_default())} else {build_result}
+        }else {
+            "[wrong subquery statement]".to_string()
+        }
+    }
+}
+
+impl ToString for SelectField {
+    fn to_string(&self) -> String {
+        match self {
+            SelectField::Field(field) => field.to_string(),
+            SelectField::Subquery(subquery) => subquery.to_string(),
+            SelectField::Untyped(s) => s.clone(),
+        }
+    }
+}
+
+
 
 #[derive(Debug,Clone)]
 pub struct QueryBuilder {
     operation:Operation,
     is_select_all:Option<bool>,
     pub target_table: Option<TargetTable>,//Option<String>,
-    select_fields: Vec<String>,
+    select_fields: Vec<SelectField>,
     pending_join: Option<TableJoin>,
     joins: Vec<TableJoin>,
     //upsert_values: Vec<String>,//insert values or update values
@@ -445,7 +605,7 @@ impl QueryBuilder {
         QueryBuilder { operation:Operation::Select, is_select_all: Some(true), target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![] }
     }
 
-    pub fn init_with_select_fields(fields: Vec<String>) -> QueryBuilder {
+    pub fn init_with_select_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
         QueryBuilder { operation:Operation::Select, is_select_all:None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![] }
     }
@@ -479,7 +639,7 @@ impl QueryBuilder {
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
         self.target_table = Some(TargetTable::new(table));
         if let Some(select_all) = self.is_select_all {
-            self.select_fields = table.columns().iter().map(|c|c.get_col_name()).collect::<Vec<String>>();
+            self.select_fields = table.all_columns().iter().map(|c|c.into()).collect::<Vec<SelectField>>();
         }
         /*if let Some(is_select_all) = self.is_select_all {
             if is_select_all {
@@ -552,20 +712,6 @@ impl QueryBuilder {
         Varchar::with_name_query(name.to_string(),Some(self))
     }
 
-    /*pub fn fetch_one_into<T: RowMappable>(&self) -> T {
-        // 假设这里是查询并获取到的一行数据row
-        let row: MySqlRow = MySqlRow::fmt();// = get_row_from_query_result();
-
-        T::from_row(&row)
-    }
-
-    pub fn fetch_into<T: RowMappable>(&self) -> Vec<T> {
-        // 假设这里是查询并获取到的一行数据row
-        let row: MySqlRow;// = get_row_from_query_result();
-
-        vec![T::from_row(&row)]
-    }*/
-
     ///execute insert/update/delete and return the affected rows number
     pub async fn execute(&self) -> Result<MySqlQueryResult,Error> {
         let pool = POOL.get().unwrap();
@@ -580,20 +726,6 @@ impl QueryBuilder {
             Err(Error::Configuration("未知错误".into()))
         }
     }
-
-    /*pub async fn execute_return<T>(&self) -> Result<T,Error> {
-        let pool = POOL.get().unwrap();
-        let build_result = self.build();
-        if let Ok(query_string) = build_result {
-            println!("query string {}", query_string);
-            let result = sqlx::query(&query_string).execute(pool).await? as MySqlQueryResult; // Pass the reference to sqlx::query()
-            Ok(result)
-        }else if let Err(e) = build_result {
-            Err(Error::Configuration(e.message.into()))
-        }else {
-            Err(Error::Configuration("未知错误".into()))
-        }
-    }*/
 
     pub async fn fetch<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<Vec<T>, Error> {
 
@@ -874,12 +1006,16 @@ impl QueryBuilder {
         Ok(json_obj)
     }
 
+    fn populate_select_fields_as_string(&self) -> String {
+        self.select_fields.clone().into_iter().map(|field| field.to_string()).collect::<Vec<String>>().join(",")
+    }
+
     pub fn build(&self) -> Result<String,QueryBuildError> {
         let mut queryString = "".to_string();
         match self.operation {
             Operation::Select => {
                 if(!self.select_fields.is_empty()){
-                    queryString = format!("select {}",self.select_fields.join(", "));
+                    queryString = format!("select {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
                 }else {
                     return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
                 }
@@ -924,7 +1060,7 @@ impl QueryBuilder {
                 let mut insert_values: Vec<String> = Vec::new();
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values,&mut vec![]);
                 construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut vec![], target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
-
+                //decrypt?
                 queryString = format!("INSERT INTO {} ({}) VALUES ({})", &target_table.name, insert_fields.join(", "), insert_values.join(", "));
             },
             Operation::Update => {
@@ -941,11 +1077,7 @@ impl QueryBuilder {
                 let mut update_fields_values: Vec<String> = Vec::new();
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
                 construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
-
-                /*for (key, value) in primary_key_fields.iter().zip(primary_key_values) {
-                    primary_key_conditions.push(format!("{} = {}", key, value));
-                }*/
-
+                //decrypt?
                 queryString = format!("update {} set {} where {}", self.target_table.clone().unwrap().name, update_fields_values.join(", "), primary_key_conditions.iter()
                     .map(|condition| condition.clone())
                     .collect::<Vec<String>>()
@@ -966,7 +1098,7 @@ impl QueryBuilder {
 
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values, &mut vec![]);
                 construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut update_fields_values,target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
-
+                //decrypt?
                 queryString = format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", &target_table.name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", "));
             },
             Operation::Delete => {
