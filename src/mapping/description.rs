@@ -6,10 +6,11 @@ use crate::mapping::types::*;
 use crate::utils::stringUtils;
 use serde::{Serialize,Deserialize};
 use sqlx::encode::IsNull;
+use crate::query::builder::{Field, SelectField};
 
 pub trait Table{
     fn name(&self) -> String;
-    fn columns(&self) -> Vec<SqlColumn>;
+    fn all_columns(&self) -> Vec<SqlColumn>;
     fn primary_key(&self) -> Vec<SqlColumn>;
     fn update_primary_key(&mut self,primary_key:Vec<SqlColumn>)->();
     //fn as_(&self,alias:&str) -> Table;
@@ -88,6 +89,7 @@ impl<T: Clone> SqlColumn<T> where String: From<T> {
             SqlColumn::Json(col_def) => col_def.clone().map_or("".to_string(),|def|def.name()),
         }
     }
+
 }
 
 #[derive(Debug,Clone)]
@@ -110,7 +112,11 @@ pub enum RustDataType {
 }
 
 pub trait Column {
+    fn table(&self) -> String;
     fn name(&self) -> String;
+    fn qualified_name(&self) -> String;
+    fn alias(&self) -> Option<String>;
+    fn is_encrypted(&self) -> bool;
 }
 
 pub trait MappedEnum {

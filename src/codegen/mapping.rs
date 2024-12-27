@@ -20,17 +20,19 @@ pub struct MappingGenerateConfig{
     pub crate_and_root_path_of_entity: String, //including 'entity' folder
     pub boolean_columns: HashMap<String, Vec<String>>,
     pub entity_field_naming_convention: NamingConvention,
+    pub encrypted_columns: HashMap<String, Vec<&'static str>>,
     //pub trait_for_enum_types: HashMap<String, String>
 }
 
 impl MappingGenerateConfig{
-    pub fn new(output_dir:String, crate_and_root_path_of_entity:String, boolean_columns:HashMap<String, Vec<String>>, entity_field_naming_convention: NamingConvention /*,trait_for_enum_types:HashMap<String, String>*/) ->Self{
+    pub fn new(output_dir:String, crate_and_root_path_of_entity:String, boolean_columns:HashMap<String, Vec<String>>, entity_field_naming_convention: NamingConvention /*,trait_for_enum_types:HashMap<String, String>*/,encrypted_columns: HashMap<String, Vec<&'static str>>) ->Self{
         MappingGenerateConfig{
             output_dir,
             crate_and_root_path_of_entity,
             boolean_columns,
             entity_field_naming_convention,
             //trait_for_enum_types
+            encrypted_columns
         }
     }
 
@@ -39,18 +41,20 @@ impl MappingGenerateConfig{
             output_dir:"target/generated/mapping".to_string(),
             crate_and_root_path_of_entity : "shared".to_string(),
             boolean_columns:HashMap::new(),
-            entity_field_naming_convention: NamingConvention::SnakeCase
-            //trait_for_enum_types:HashMap::new()
+            entity_field_naming_convention: NamingConvention::SnakeCase,
+            //trait_for_enum_types:HashMap::new(),
+            encrypted_columns:HashMap::new()
         }
     }
 
-    pub fn default_with(crate_and_root_path_of_entity:String, entity_field_naming_convention: NamingConvention) ->Self{
+    pub fn default_with(crate_and_root_path_of_entity:String, entity_field_naming_convention: NamingConvention,encrypted_columns: HashMap<String, Vec<&'static str>>) ->Self{
         MappingGenerateConfig{
             output_dir:"target/generated/mapping".to_string(),
             crate_and_root_path_of_entity : crate_and_root_path_of_entity,
             boolean_columns:HashMap::new(),
-            entity_field_naming_convention: entity_field_naming_convention
+            entity_field_naming_convention: entity_field_naming_convention,
             //trait_for_enum_types:HashMap::new()
+            encrypted_columns
         }
     }
 }
@@ -61,6 +65,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     let crate_and_root_path_of_entity = config.crate_and_root_path_of_entity.clone();
     let boolean_columns = config.boolean_columns.clone();
     let entity_field_naming_convention = config.entity_field_naming_convention.clone();
+    let encrypted_columns = config.encrypted_columns.clone();
 
     //let trait_for_enum_types = config.trait_for_enum_types.clone();
     let mappings_out_path = std::path::Path::new(&mappings_out_dir);
@@ -75,7 +80,8 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     match tables {
         Ok(tables) => {
             for table in tables {
-                let generated_entity_info = generate_mapping(conn, table, mappings_out_path, crate_and_root_path_of_entity.clone(), &boolean_columns, entity_field_naming_convention/*, &trait_for_enum_types*/).await;
+                let encrypted_cols = encrypted_columns.get(&table.name.clone());
+                let generated_entity_info = generate_mapping(conn, table, mappings_out_path, crate_and_root_path_of_entity.clone(), &boolean_columns, entity_field_naming_convention/*, &trait_for_enum_types*/,encrypted_cols.map_or(vec![],|cols|cols.clone())).await;
                 generated_entities.push(generated_entity_info);
             }
             println!("mappings generated successfully");
@@ -109,7 +115,8 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 }
 
 async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path, crate_and_root_path_of_entity: String,
-                          boolean_columns: &HashMap<String, Vec<String>>, entity_field_naming_convention: NamingConvention/*, trait_for_enum_types: &HashMap<String, String>*/) -> GeneratedStructInfo{
+                          boolean_columns: &HashMap<String, Vec<String>>, entity_field_naming_convention: NamingConvention/*, trait_for_enum_types: &HashMap<String, String>*/,
+                          encrypted_columns: Vec<&'static str>) -> GeneratedStructInfo{
     let struct_name = format!("{}Table",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name)));
     let fields_result = utils::get_table_fields(conn, &table.name).await;
     let out_file_name_without_ext = format!("{}Table",stringUtils::to_camel_case(&table.name));
@@ -147,7 +154,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
                     default_value:"".to_string(), //all empty for now
                     is_primary_key: field.is_primary_key
                 };
-                let columnConstructInfo:TableFieldConstructInfo = get_construct_info_from_column_definition(&table.name,mysql_cloumn_definition, crate_and_root_path_of_entity.clone(),entity_field_naming_convention,boolean_columns).expect(&format!("Failed to get construct info from table {}",table.name));
+                let columnConstructInfo:TableFieldConstructInfo = get_construct_info_from_column_definition(&table.name,mysql_cloumn_definition, crate_and_root_path_of_entity.clone(),entity_field_naming_convention,boolean_columns,encrypted_columns.clone()).expect(&format!("Failed to get construct info from table {}",table.name));
 
                 if !columnConstructInfo.import_statements.is_empty() {
                     for import_statement in &columnConstructInfo.import_statements {
@@ -203,13 +210,13 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     writeln!(buf_writer,"        }}").expect("Failed to write table mapping code");
     writeln!(buf_writer,"    }}").expect("Failed to write table mapping code");
 
-    writeln!(buf_writer,"    pub fn all_fields(&self) -> Vec<String> {{").expect("Failed to write table mapping code");
+/*    writeln!(buf_writer,"    pub fn all_fields(&self) -> Vec<String> {{").expect("Failed to write table mapping code");
     write!(buf_writer,"        vec![").expect("Failed to write table mapping code");
     for field_name in struct_field_names {
         write!(buf_writer,"self.{}.name(), ",field_name).expect("Failed to write table mapping code");
     }
     write!(buf_writer,"]\n").expect("Failed to write table mapping code");
-    writeln!(buf_writer,"    }}").expect("Failed to write table mapping code");
+    writeln!(buf_writer,"    }}").expect("Failed to write table mapping code");*/
 
     writeln!(buf_writer,"    pub fn new_with_value(entity:{}, alias:Option<&str>) ->Self {{", format_name(&table.name, NamingConvention::PascalCase)).expect("Failed to write table mapping code");
     //writeln!(buf_writer,"        self._alias = alias;").expect("Failed to write table mapping code");
@@ -230,7 +237,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     writeln!(buf_writer,"        if self._alias.is_some() {{ format!(\"{} as {{}}\",self._alias.clone().unwrap()) }} else {{\"{}\".to_string()}}",&table.name, &table.name).expect("Failed to write table mapping code");
     writeln!(buf_writer,"    }}").expect("Failed to write table mapping code");
 
-    writeln!(buf_writer,"    fn columns(&self) -> Vec<SqlColumn> {{").expect("Failed to write table mapping code");
+    writeln!(buf_writer,"    fn all_columns(&self) -> Vec<SqlColumn> {{").expect("Failed to write table mapping code");
     writeln!(buf_writer,"        vec![").expect("Failed to write table mapping code");
 
     for statement in columns_statements{
@@ -272,7 +279,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 }
 
 
-pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_definition:MysqlColumnDefinition, crate_and_root_path_of_entity: String, entity_field_naming_convention: NamingConvention,boolean_columns: &HashMap<String, Vec<String>>) -> Result<TableFieldConstructInfo,Box<dyn Error>>{
+pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_definition:MysqlColumnDefinition, crate_and_root_path_of_entity: String, entity_field_naming_convention: NamingConvention,boolean_columns: &HashMap<String, Vec<String>>,encrypted_columns: Vec<&'static str>) -> Result<TableFieldConstructInfo,Box<dyn Error>>{
 
     let col_definition = mysql_col_definition.column_definition;
     let mut column_type_name = "".to_string();
@@ -294,6 +301,7 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
     entity_field_name = if utils::reserved_field_names().contains(&mysql_col_definition.name_unmodified) { format!("{}_", &entity_field_name) } else { entity_field_name };
     let entity_struct_name = format_name(table_name, NamingConvention::PascalCase);
     let mut import_statements : Vec<String> = vec![format!("{}::{}",&crate_and_root_path_of_entity, entity_struct_name)];
+    let is_encrypted = encrypted_columns.contains(&&*column_name);
 
     match column_type_parse_result{
         Ok(column_type) => {
@@ -302,45 +310,45 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                 SqlColumn::Varchar(_) => {
                     field_type = "Varchar".to_string();
                     //name_only_default_value = format!("Varchar::with_name(\"{}.{}\".to_string())", table_name, mysql_col_definition.name_unmodified);
-                    name_only_default_value = format!("Varchar::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
+                    name_only_default_value = format!("Varchar::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
                     //name_and_value_from_entity_default_value = format!("Varchar::with_name_value(\"{}.{}\".to_string(), entity.{})", table_name, mysql_col_definition.name_unmodified, &entity_field_name);
-                    name_and_value_from_entity_default_value = format!("Varchar::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_and_value_from_entity_default_value = format!("Varchar::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Char(_) => {
                     field_type = "Char".to_string();
-                    name_only_default_value = format!("Char::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Char::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Char::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Char::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
 
                 },
                 SqlColumn::Tinytext(_) => {
                     field_type = "Tinytext".to_string();
-                    name_only_default_value = format!("Tinytext::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Tinytext::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Tinytext::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Tinytext::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Text(_) => {
                     field_type = "Text".to_string();
-                    name_only_default_value = format!("Text::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Text::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Text::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Text::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Mediumtext(_) => {
                     field_type = "Mediumtext".to_string();
-                    name_only_default_value = format!("Mediumtext::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Mediumtext::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Mediumtext::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Mediumtext::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Longtext(_) => {
                     field_type = "Longtext".to_string();
-                    name_only_default_value = format!("Longtext::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Longtext::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Longtext::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Longtext::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Int(_) => {
                     field_type = "Int".to_string();
-                    name_only_default_value = format!("Int::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Int::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Int::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Int::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Year(_) => {
                     field_type = "Year".to_string();
-                    name_only_default_value = format!("Year::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Year::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Year::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Year::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Enum(_) => {
                     let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
@@ -353,8 +361,8 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                     sql_column_type_modified = true;
                     import_type = "Enum".to_string();
                     //name_only_default_value = format!("Enum::<{}>::with_name(\"{}.{}\".to_string())", short_enum_name, table_name, mysql_col_definition.name_unmodified);
-                    name_only_default_value = format!("Enum::<{}>::with_name(format!(\"{{}}.{}\",table_name))",short_enum_name, mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Enum::<{}>::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", short_enum_name, mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Enum::<{}>::with_name(format!(\"{{}}.{}\",table_name)){}",short_enum_name, mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Enum::<{}>::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", short_enum_name, mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
 
                     //import enum
                     import_statements.push(enumType);
@@ -370,108 +378,95 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                     sql_column_type_modified = true;
                     import_type = "Set".to_string();
                     //name_only_default_value = format!("Set::<{}>::with_name(\"{}.{}\".to_string())", short_enum_name, table_name, mysql_col_definition.name_unmodified);
-                    name_only_default_value = format!("Set::<{}>::with_name(format!(\"{{}}.{}\",&table_name))",short_enum_name, mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Set::<{}>::with_name_value(format!(\"{{}}.{}\",&table_name), entity.{})", short_enum_name, mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Set::<{}>::with_name(format!(\"{{}}.{}\",&table_name)){}",short_enum_name, mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Set::<{}>::with_name_value(format!(\"{{}}.{}\",&table_name), entity.{}){}", short_enum_name, mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                     //import enum
                     import_statements.push(enumType);
                 },
                 SqlColumn::Datetime(_) => {
                     field_type = "Datetime".to_string();
-                    name_only_default_value = format!("Datetime::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Datetime::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Datetime::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Datetime::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Timestamp(_) => {
                     field_type = "Timestamp".to_string();
-                    name_only_default_value = format!("Timestamp::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Timestamp::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Timestamp::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Timestamp::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Tinyint(_) => {
                     if boolean_columns.contains_key(table_name) && boolean_columns[table_name].contains(&column_name.to_string()) {
                         sql_column_type = Some(SqlColumn::Boolean(None));
                         field_type = "Boolean".to_string();
-                        name_only_default_value = format!("Boolean::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                        name_and_value_from_entity_default_value = format!("Boolean::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                        name_only_default_value = format!("Boolean::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                        name_and_value_from_entity_default_value = format!("Boolean::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                         sql_column_type_modified = true;
                     }else{
                         field_type = "Tinyint".to_string();
-                        name_only_default_value = format!("Tinyint::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                        name_and_value_from_entity_default_value = format!("Tinyint::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                        name_only_default_value = format!("Tinyint::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                        name_and_value_from_entity_default_value = format!("Tinyint::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                     }
                 },
                 SqlColumn::Boolean(_) => {
                     field_type = "Boolean".to_string();
-                    name_only_default_value = format!("Boolean::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Boolean::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Boolean::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Boolean::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                     sql_column_type_modified = true;
                 },
                 SqlColumn::Smallint(_) => {
                     field_type = "Smallint".to_string();
-                    name_only_default_value = format!("Smallint::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Smallint::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Smallint::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Smallint::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Bigint(_) => {
                     field_type = "Bigint".to_string();
-                    name_only_default_value = format!("Bigint::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Bigint::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Bigint::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Bigint::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::BigintUnsigned(_) => {
                     field_type = "BigintUnsigned".to_string();
-                    name_only_default_value = format!("BigintUnsigned::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("BigintUnsigned::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("BigintUnsigned::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("BigintUnsigned::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Numeric(_) => {
                     field_type = "Numeric".to_string();
-                    name_only_default_value = format!("Numeric::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Numeric::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
+                    name_only_default_value = format!("Numeric::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Numeric::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
 
                 },
                 SqlColumn::Float(_) => {
                     field_type = "Float".to_string();
-                    name_only_default_value = format!("Float::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Float::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Float::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Float::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Double(_) => {
                     field_type = "Double".to_string();
-                    name_only_default_value = format!("Double::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Double::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Double::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Double::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Decimal(_) => {
                     field_type = "Decimal".to_string();
-                    name_only_default_value = format!("Decimal::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Decimal::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Decimal::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Decimal::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Date(_) => {
                     field_type = "Date".to_string();
-                    name_only_default_value = format!("Date::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Date::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Date::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Date::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Time(_) => {
                     field_type = "Time".to_string();
-                    name_only_default_value = format!("Time::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Time::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Time::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Time::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Blob(_) => {
                     field_type = "Blob".to_string();
-                    name_only_default_value = format!("Blob::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Blob::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Blob::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Blob::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Json(_) => {
                     field_type = "Json".to_string();
-                    name_only_default_value = format!("Json::with_name(format!(\"{{}}.{}\",table_name))", mysql_col_definition.name_unmodified);
-                    name_and_value_from_entity_default_value = format!("Json::with_name_value(format!(\"{{}}.{}\",table_name), entity.{})", mysql_col_definition.name_unmodified, &entity_field_name);
-
+                    name_only_default_value = format!("Json::with_name(format!(\"{{}}.{}\",table_name)){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("Json::with_name_value(format!(\"{{}}.{}\",table_name), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
             }
         },

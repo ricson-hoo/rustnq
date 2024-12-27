@@ -1,39 +1,35 @@
+use std::collections::HashMap;
 use uuid::uuid;
 use crate::mapping::description::{Column, SqlColumn};
 use crate::mapping::description::Table;
 use crate::mapping::types::{Bigint, Int};
-use crate::query::builder::{Condition, QueryBuilder, TargetTable};
+use crate::query::builder::{Condition, QueryBuilder, SelectField, TargetTable};
 use serde::Serialize;
 use sqlx::Error;
+use tokio::sync::RwLock;
+use crate::configuration::{get_processors, PROCESSORS};
 use crate::mapping::types::Varchar;
 use crate::query::builder::construct_upsert_primary_key_value;
 
-/*pub(crate) struct MultiTypedPrimaryKey {
-    pub(crate)uuid_key:Option<String>,
-    pub(crate)i32_key:Option<i32>,
-    pub(crate)i64_key:Option<i64>,
-    pub(crate)u64_key:Option<u64>,
-}*/
-
-pub fn select<T: Into<String>>(fields: Vec<T>) -> QueryBuilder{
+pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
     let fields = fields.into_iter().map(|field| field.into()).collect();
     QueryBuilder::init_with_select_fields(fields)
 }
 
-pub fn count<T: Into<String>>(field:T) -> Bigint{
-   Bigint::with_name(format!("count {}", field.into()))
+pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
+   Bigint::with_name(format!("count {}", field.into().to_string()))
 }
 
 pub fn count_all() -> Bigint{
     Bigint::with_name("count (*)".to_string())
 }
 
-pub fn count_distinct<T: Into<String>>(field:T) -> Bigint{
-    Bigint::with_name(format!("count (distinct {})", field.into()))
+pub fn count_distinct<T: Into<SelectField>>(field:T) -> Bigint{
+    Bigint::with_name(format!("count (distinct {})", field.into().to_string()))
 }
 
-pub fn concat<T: Into<String>>(fields: Vec<T>) -> Varchar{
-    let fields_str = fields.into_iter().map(|field| field.into()).collect::<Vec<String>>().join(",");
+pub fn concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
+    let fields_str = fields.into_iter().map(|field| field.into().to_string()).collect::<Vec<String>>().join(",");
     Varchar::with_name(format!("concat({})",fields_str))
 }
 
