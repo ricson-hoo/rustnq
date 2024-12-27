@@ -12,7 +12,7 @@ use crate::mapping::description::{Column, TableFieldConstructInfo, MysqlColumnDe
 use crate::utils::stringUtils;
 use std::any::Any;
 use std::error::Error;
-use crate::mapping::types::{Datetime, Enum, Int, Set, Varchar};
+use crate::mapping::column_types::{Datetime, Enum, Int, Set, Varchar};
 use crate::query::builder::{Condition, QueryBuilder};
 
 pub struct MappingGenerateConfig{

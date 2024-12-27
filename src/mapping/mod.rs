@@ -1,2 +1,2 @@
 pub mod description;
-pub mod types;
+pub mod column_types;

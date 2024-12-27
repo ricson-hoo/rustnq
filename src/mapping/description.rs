@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::error::Error;
 use anyhow::bail;
 use chrono::Local;
-use crate::mapping::types::*;
+use crate::mapping::column_types::*;
 use crate::utils::stringUtils;
 use serde::{Serialize,Deserialize};
 use sqlx::encode::IsNull;
