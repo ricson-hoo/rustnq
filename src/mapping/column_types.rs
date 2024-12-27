@@ -194,13 +194,18 @@ impl Varchar {
     where
         T: Into<Varchar>,
     {
-        let varchar = input.into();
-        let output = match varchar.holding {
-            Holding::Name => varchar.name,
+        let input = input.into();
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding, input.table,input.name,input.value)
+        /*let output = match varchar.holding {
+            Holding::Name => varchar.name.clone(),
             Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
             _ => "".to_string()
         };
-        Condition::new(format!("{} = {}", self.name, output))
+        let mut name = varchar.name;
+        if self.table.is_some() {
+            name = format!("{}.{}",self.table.unwrap(),self.name)
+        }
+        Condition::new(format!("{} = {}", name, output))*/
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -387,7 +392,15 @@ pub struct Char{
     is_encrypted:bool
 }
 
-fn build_equal_condition_for_string_type(self_name:String,input_holding:Holding,input_name:String,input_value:Option<String>) -> Condition {
+fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>) -> Condition {
+    let mut self_name = self_name.clone();
+    if self_table.is_some() {
+        self_name = format!("{}.{}",self_table.unwrap(),self_name);
+    }
+    let mut input_name = input_name.clone();
+    if input_table.is_some() {
+        input_name = format!("{}.{}",input_table.unwrap(),input_name);
+    }
     let output = match input_holding {
         Holding::Name => format!(" = {}",input_name),
         Holding::Value => match input_value {
@@ -439,7 +452,7 @@ impl Char {
         T: Into<Char>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding, input.table,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -520,7 +533,7 @@ impl crate::mapping::column_types::Tinytext {
         T: Into<crate::mapping::column_types::Tinytext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), input.holding,input.table,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -601,7 +614,7 @@ impl crate::mapping::column_types::Text {
         T: Into<crate::mapping::column_types::Text>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), input.holding,input.table, input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -682,7 +695,7 @@ impl crate::mapping::column_types::Mediumtext {
         T: Into<crate::mapping::column_types::Mediumtext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding,input.table,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -763,7 +776,7 @@ impl crate::mapping::column_types::Longtext {
         T: Into<crate::mapping::column_types::Longtext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.name.clone(), input.holding,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding,input.table,input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
@@ -2097,7 +2110,7 @@ impl crate::mapping::column_types::Json {
         T: Into<crate::mapping::column_types::Json>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.name.clone(),input.holding,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(),input.holding,input.table, input.name,input.value)
     }
 
     pub fn like(&self, pattern: &'static str) -> Condition
