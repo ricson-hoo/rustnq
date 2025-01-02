@@ -647,6 +647,20 @@ impl Column for crate::mapping::column_types::Text {
     }
 }
 
+impl From<Text> for Varchar {
+    fn from(v: Text) -> Self {
+        Varchar{
+            table: v.table,
+            name: v.name,
+            alias: v.alias,
+            value: if let Some(v_value) = v.value.clone() {Some(String::from(v_value))} else {None},
+            sub_query: v.sub_query,
+            holding: v.holding,
+            is_encrypted: v.is_encrypted,
+        }
+    }
+}
+
 #[derive(Clone,Debug)]
 pub struct Mediumtext{
     table: Option<String>,
@@ -1134,6 +1148,20 @@ impl From<bool> for Boolean {
     }
 }
 
+impl From<Boolean> for Varchar {
+    fn from(v: Boolean) -> Self {
+        Varchar{
+            table: v.table,
+            name: v.name,
+            alias: v.alias,
+            value: if let Some(v_value) = v.value.clone() {Some(v_value.to_string())} else {None},
+            sub_query: v.sub_query,
+            holding: v.holding,
+            is_encrypted: v.is_encrypted,
+        }
+    }
+}
+
 impl Column for crate::mapping::column_types::Boolean {
     fn table(&self) -> String {
         self.table.clone().unwrap_or_default()
@@ -1232,6 +1260,20 @@ impl Column for Tinyint {
     }
     fn qualified_name(&self) -> String {
         if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+    }
+}
+
+impl From<Tinyint> for Varchar {
+    fn from(v: Tinyint) -> Self {
+        Varchar{
+            table: v.table,
+            name: v.name,
+            alias: v.alias,
+            value: if let Some(v_value) = v.value.clone() {Some(v_value.to_string())} else {None},
+            sub_query: v.sub_query,
+            holding: v.holding,
+            is_encrypted: v.is_encrypted,
+        }
     }
 }
 
@@ -1738,6 +1780,20 @@ impl Column for crate::mapping::column_types::Decimal {
     }
     fn qualified_name(&self) -> String {
         if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+    }
+}
+
+impl From<Decimal> for Varchar {
+    fn from(v: Decimal) -> Self {
+        Varchar{
+            table: v.table,
+            name: v.name,
+            alias: v.alias,
+            value: if let Some(v_value) = v.value.clone() {Some(v_value.to_string())} else {None},
+            sub_query: v.sub_query,
+            holding: v.holding,
+            is_encrypted: v.is_encrypted,
+        }
     }
 }
 
