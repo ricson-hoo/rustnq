@@ -809,12 +809,18 @@ impl QueryBuilder {
             let mut result = Vec::new();
             for json in jsons {
                 let item_parsed_result = serde_json::from_value::<T>(json.clone());
-                if let Ok(item_parsed) = item_parsed_result {
-                    result.push(item_parsed);
-                }else {
-                    // println!("entity={:?}", json);
-                    println!("注意类型不匹配");
+                match item_parsed_result {
+                    Ok(item_parsed) => {
+                        result.push(item_parsed);
+                    }
+                    Err(err) => {println!("error={:?}", err);}
                 }
+                // if let Ok(item_parsed) = item_parsed_result {
+                //     result.push(item_parsed);
+                // }else {
+                //     println!("entity={:?}", json);
+                //     // println!("注意类型不匹配");
+                // }
             }
             Ok(result)
         }else if let Err(e) = build_result {
@@ -1024,7 +1030,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "CHAR" | "TEXT" => {
+                "CHAR" | "TEXT" | "LONGTEXT" => {
                     // Handle CHAR type
                     let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {

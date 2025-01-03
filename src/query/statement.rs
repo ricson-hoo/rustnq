@@ -20,12 +20,25 @@ pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
    Bigint::with_name(format!("count ({})", field.into().to_string()))
 }
 
+pub fn max<T: Into<SelectField>>(field:T) -> Varchar{
+    Varchar::with_name(format!("max ({})", field.into().to_string()))
+}
+
+pub fn year<T: Into<SelectField>>(field:T) -> Varchar{
+    Varchar::with_name(format!("YEAR ({})", field.into().to_string()))
+}
+
 pub fn count_all() -> Bigint{
     Bigint::with_name("count (*)".to_string())
 }
 
 pub fn count_distinct<T: Into<SelectField>>(field:T) -> Bigint{
     Bigint::with_name(format!("count (distinct {})", field.into().to_string()))
+}
+
+pub fn group_concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
+    let fields_str = fields.into_iter().map(|field| field.into().to_string()).collect::<Vec<String>>().join(",");
+    Varchar::with_name(format!("group_concat({})",fields_str))
 }
 
 pub fn concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
