@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Timestamp};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp};
 use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
@@ -317,6 +317,18 @@ impl From<Date> for SelectField{
 
 impl From<&Date> for SelectField{
     fn from(value: &Date) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<Decimal> for SelectField{
+    fn from(value: Decimal) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<&Decimal> for SelectField{
+    fn from(value: &Decimal) -> SelectField {
         SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
     }
 }
@@ -889,6 +901,25 @@ impl QueryBuilder {
             Err(Error::Encode("未知错误".into()))
         }
     }
+    pub async fn fetch_count(&self) -> Result<i64, Error> {
+        let pool = POOL.get().unwrap();
+        let build_result = self.build();
+        if let Ok(query_string) = build_result {
+            println!("query string {}", query_string);
+
+            let value = sqlx::query(&query_string)
+                .try_map(|row:MySqlRow| {
+                    self.convert_to_number(row)
+                })
+                .fetch_one(pool)
+                .await?;
+            Ok(value)
+        }else if let Err(e) = build_result {
+            Err(Error::Configuration(e.message.into()))
+        }else {
+            Err(Error::Configuration("未知错误".into()))
+        }
+    }
 
     ///将mysql数据行转为JsonValue
     fn convert_to_json_value(&self, row:MySqlRow)-> Result<JsonValue, Error>{
@@ -1095,6 +1126,28 @@ impl QueryBuilder {
             i += 1;
         }
         Ok(json_obj)
+    }
+    fn convert_to_number(&self,row:MySqlRow) -> Result<i64, Error>{
+        let mut count_res :i64 = 0;
+        let colum = row.columns().get(0);
+        if let Some(colum) = colum{
+            let column_name = colum.name();
+            let type_name = colum.type_info().name();
+            match type_name {
+                "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => {
+                    let value_result:Result<Option<i64>, _> = row.try_get(0);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            count_res =value.clone().into();
+                        }
+                    }
+                }
+                &_ => {
+                    println!("type_name of {} {}",column_name, type_name);
+                }
+            }
+        }
+        Ok(count_res)
     }
 
     fn populate_select_fields_as_string(&self) -> String {
