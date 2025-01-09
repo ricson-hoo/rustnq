@@ -769,6 +769,23 @@ impl QueryBuilder {
         self
     }
 
+    pub fn as_table(mut self, table: &str) -> InnerTable {
+        let build_result = self.build();
+        if let Ok(query_string) = build_result {
+            println!("query string {}", query_string);
+            InnerTable {
+                table_name: format!("({}) as {}", query_string, table),
+                map_fields: self.select_fields.iter().map(|field| (field.clone().to_string(), Varchar::with_name(field.clone().to_string()))).collect::<HashMap<String, Varchar>>(),
+            }
+        }else{
+            InnerTable{
+                table_name: "".to_string(),
+                map_fields: Default::default(),
+            }
+            
+        }
+    }
+
     pub fn add_select_fields(){
 
     }
@@ -1270,5 +1287,25 @@ impl QueryBuilder {
         // println!("buider: {:#?}",self);
         println!("queryString: {:#?}",queryString);
         Ok(queryString.to_string())
+    }
+}
+
+pub struct InnerTable {
+    pub table_name: String,
+    pub map_fields: HashMap<String, Varchar>,
+}
+
+impl Table for InnerTable {
+    fn name(&self) -> String {
+        self.table_name.clone()
+    }
+    fn all_columns(&self) -> Vec<SqlColumn> {
+        vec![]
+    }
+    fn primary_key(&self) -> Vec<SqlColumn> {
+        vec![]
+    }
+    fn update_primary_key(&mut self, primary_key: Vec<SqlColumn>) -> () {
+
     }
 }
