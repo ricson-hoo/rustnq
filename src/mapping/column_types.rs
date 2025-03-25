@@ -70,6 +70,11 @@ impl<T:Clone+Into<String>> Enum<T>{
         }
     }
 
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
+    }
+
     pub fn equal(&self, input: T) -> Condition
     {
         Condition::new(format!("{} = '{}'", self.qualified_name(), input.into()))

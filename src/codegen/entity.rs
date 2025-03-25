@@ -271,6 +271,30 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
     }
 }
 
+pub async fn generate_page_list(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table_name: &str, field_naming_convention: NamingConvention) -> Option<HashMap<String, HashMap::<String, String>>> {
+    let fields_result = utils::get_table_full_fields(conn, table_name).await;
+
+    match fields_result {
+        Ok(fields) => {
+            let mut map_fields = HashMap::<String, HashMap::<String, String>>::new();
+            for it in fields {
+                // println!("field_name : {}",format_name(&it.name, field_naming_convention));
+                // println!("field_name : {:?}",it);
+                let mut field = HashMap::<String, String>::new();
+                field.insert("field_name".to_string(), it.comment);
+                field.insert("field_type".to_string(), it.data_type);
+                field.insert("pascal_case".to_string(), format_name(&it.name, NamingConvention::PascalCase).to_string());
+                map_fields.insert(format_name(&it.name, field_naming_convention).to_string(), field);
+            }
+            Some(map_fields)
+        }
+        Err(error) => {
+            println!("unable to get fields of table {}, error: {:#?}", table_name, error);
+            None
+        }
+    }
+}
+
 impl RustDataType {
     fn resolve_qualified_type_name(&self, containerType:Option<RustDataType>, enumName:Option<&str>) -> String {
         let type_str = match self {
