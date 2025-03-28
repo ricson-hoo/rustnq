@@ -1,5 +1,5 @@
 use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
-use crate::query::builder::{Condition, QueryBuilder};
+use crate::query::builder::{Condition, Field, QueryBuilder, SelectField};
 use chrono::{DateTime, Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
 use std::str::FromStr;
@@ -216,6 +216,10 @@ impl Varchar {
     pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
+    }
+    pub fn desc(&self) -> SelectField
+    {
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.alias(), self.is_encrypted()))
     }
     pub fn is_null(&self) -> Condition
     {
@@ -1847,6 +1851,9 @@ impl crate::mapping::column_types::Date {
         self.alias = Some(alias.to_string());
         self.clone()
     }
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.alias(), self.is_encrypted()))
+    }
 
     pub fn between(&self, date1: chrono::NaiveDate,date2: chrono::NaiveDate) -> Condition {
         Condition::new(format!("{} BETWEEN '{}' AND '{}'", self.qualified_name(), date1.format("%Y-%m-%d").to_string(), date2.format("%Y-%m-%d").to_string()))
@@ -2016,6 +2023,10 @@ impl crate::mapping::column_types::Datetime {
     pub fn as_(&mut self, alias:&str) -> Self {
         self.alias = Some(alias.to_string());
         self.clone()
+    }
+
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.alias(), self.is_encrypted()))
     }
 }
 
