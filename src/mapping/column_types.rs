@@ -213,7 +213,7 @@ impl Varchar {
         Condition::new(format!("{} = {}", name, output))*/
     }
 
-    pub fn like(&self, pattern: &'static str) -> Condition
+    pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
@@ -463,7 +463,7 @@ impl Char {
         build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding, input.table,input.name,input.value)
     }
 
-    pub fn like(&self, pattern: &'static str) -> Condition
+    pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
@@ -544,7 +544,7 @@ impl crate::mapping::column_types::Tinytext {
         build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), input.holding,input.table,input.name,input.value)
     }
 
-    pub fn like(&self, pattern: &'static str) -> Condition
+    pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
@@ -625,7 +625,7 @@ impl crate::mapping::column_types::Text {
         build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), input.holding,input.table, input.name,input.value)
     }
 
-    pub fn like(&self, pattern: &'static str) -> Condition
+    pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
@@ -720,7 +720,7 @@ impl crate::mapping::column_types::Mediumtext {
         build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding,input.table,input.name,input.value)
     }
 
-    pub fn like(&self, pattern: &'static str) -> Condition
+    pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
@@ -801,7 +801,7 @@ impl crate::mapping::column_types::Longtext {
         build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding,input.table,input.name,input.value)
     }
 
-    pub fn like(&self, pattern: &'static str) -> Condition
+    pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
@@ -2177,7 +2177,7 @@ impl crate::mapping::column_types::Json {
         build_equal_condition_for_string_type(self.table.clone(), self.name.clone(),input.holding,input.table, input.name,input.value)
     }
 
-    pub fn like(&self, pattern: &'static str) -> Condition
+    pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }

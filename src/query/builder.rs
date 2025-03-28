@@ -408,7 +408,7 @@ pub struct QueryBuilder {
     group_by:Vec<SelectField>,
 }
 
-fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
+fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>){
     if(!insert_fields.contains(&name)){
         update_fields_values.push(format!("{} = VALUES({})", &name, &name));
         insert_fields.push(name);
