@@ -2,6 +2,7 @@ use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
 use crate::query::builder::{Condition, Field, QueryBuilder, SelectField};
 use chrono::{DateTime, Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
+use std::fmt;
 use std::str::FromStr;
 use crate::utils::date_sub_unit::DateSubUnit;
 
@@ -389,6 +390,34 @@ impl From<Int> for Varchar {
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
+        }
+    }
+}
+
+impl From<Longtext> for Varchar  {
+    fn from(value: Longtext) -> Self {
+        Varchar{
+            table: value.table.clone(),
+            name: value.name.clone(),
+            alias: value.alias.clone(), 
+            value: value.value.clone(),
+            sub_query: value.sub_query.clone(),
+            holding: value.holding.clone(),
+            is_encrypted: value.is_encrypted,
+        }
+    }
+}
+
+impl From<&Longtext> for Varchar   {
+    fn from(value: &Longtext) -> Self {
+        Varchar{
+            table: value.table.clone(),
+            name: value.name.clone(),
+            alias: value.alias.clone(),
+            value: value.value.clone(),
+            sub_query: value.sub_query.clone(),
+            holding: value.holding.clone(),
+            is_encrypted: value.is_encrypted, 
         }
     }
 }
@@ -850,6 +879,30 @@ impl crate::mapping::column_types::Longtext {
     }
 }
 
+impl From<Varchar> for crate::mapping::column_types::Longtext {
+    fn from(v: Varchar) -> Self {
+       Longtext::with_name_value(v.name.clone(), v.value.map(|s| s.to_string())) 
+    } 
+}
+
+impl From<&Varchar> for crate::mapping::column_types::Longtext {
+    fn from(value: &Varchar) -> Self {
+        Longtext::with_name_value(value.name.clone(), value.value.as_ref().map(|s| s.to_string()))
+    }
+}
+
+impl From<String> for crate::mapping::column_types::Longtext  {
+    fn from(value: String) -> Self {
+        Longtext::with_value(Some(value))
+    }
+}
+
+impl From<&str> for crate::mapping::column_types::Longtext   {
+    fn from(value: &str) -> Self {
+        Longtext::with_value(Some(value.to_string()))
+    }
+}
+
 impl Column for crate::mapping::column_types::Longtext {
     fn table(&self) -> String {
         self.table.clone().unwrap_or_default()
@@ -972,6 +1025,10 @@ impl Int {
     }
     pub fn sub_query(&self) -> Option<QueryBuilder> {
         self.sub_query.clone()
+    }
+
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.alias(), self.is_encrypted()))
     }
 }
 
@@ -2237,6 +2294,10 @@ impl crate::mapping::column_types::Timestamp {
     pub fn as_(&mut self, alias:&str) -> Self {
         self.alias = Some(alias.to_string());
         self.clone()
+    }
+
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.alias(), self.is_encrypted()))
     }
 }
 
