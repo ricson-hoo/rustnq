@@ -17,16 +17,41 @@ pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
     QueryBuilder::init_with_select_fields(fields)
 }
 
+pub fn select_distinct<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
+    let fields = fields.into_iter().map(|field| field.into()).collect();
+    QueryBuilder::init_with_select_distinct_fields(fields)
+}
+
 pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
    Bigint::with_name(format!("count ({})", field.into().to_string()))
+}
+
+pub fn exists(sql:QueryBuilder) -> Condition{
+    Condition::new(format!("exists ({})", sql.build().unwrap_or_default()))
+}
+
+pub fn not_exists(sql:QueryBuilder) -> Condition{
+    Condition::new(format!("not exists ({})", sql.build().unwrap_or_default()))
 }
 
 pub fn max<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("max ({})", field.into().to_string()))
 }
 
+pub fn timestamp_diff<T: Into<SelectField>>(date: T, unit: DateSubUnit) -> Int{
+    Int::with_name(format!("TIMESTAMPDIFF ({}, {}, CURDATE())", unit, date.into().to_string()))
+}
+
+pub fn curdate() -> Varchar{
+    Varchar::with_name("CURDATE()".to_string())
+}
+
 pub fn year<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("YEAR ({})", field.into().to_string()))
+}
+
+pub fn month<T: Into<SelectField>>(field:T) -> Varchar{
+    Varchar::with_name(format!("MONTH ({})", field.into().to_string()))
 }
 
 pub fn count_all() -> Bigint{

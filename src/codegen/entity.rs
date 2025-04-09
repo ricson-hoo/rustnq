@@ -556,7 +556,7 @@ fn get_enum_name(table_name: &str, column_name: &str) -> String {
 
 fn get_qualified_enum_key(enum_value: &str, unsupported_char_in_enum_key: &HashSet<&str>) -> String {
     let mut qualified_key = enum_value.to_string();
-    let is_numeric = enum_value.chars().next().unwrap().is_numeric();
+    let is_numeric = enum_value.chars().next().unwrap_or_default().is_numeric();
 
     if is_numeric {
         qualified_key = format!("_{}", enum_value);
