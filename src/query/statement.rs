@@ -3,7 +3,7 @@ use uuid::uuid;
 use crate::mapping::description::{Column, SqlColumn};
 use crate::mapping::description::Table;
 use crate::mapping::column_types::{Bigint, Date, Int};
-use crate::query::builder::{Condition, QueryBuilder, SelectField, TargetTable};
+use crate::query::builder::{Condition, InnerTable, QueryBuilder, SelectField, TargetTable};
 use serde::Serialize;
 use sqlx::Error;
 use tokio::sync::RwLock;
@@ -24,6 +24,22 @@ pub fn select_distinct<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
 
 pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
    Bigint::with_name(format!("count ({})", field.into().to_string()))
+}
+
+pub fn union_all(sql_list: Vec<QueryBuilder>) -> QueryBuilder{
+    let mut list: Vec<String> = vec![];
+    for sql in sql_list {
+        let sql_result = sql.build();
+        if let Ok(sql_string) = sql_result {
+            println!("sql string {}", sql_string);
+            list.push(sql_string);
+        }
+    }
+    let table = InnerTable{
+        table_name: format!("({}) as my_table", list.join(" union all ")),
+        map_fields: Default::default(),
+    };
+    QueryBuilder::init_with_select_all_fields(&table)
 }
 
 pub fn exists(sql:QueryBuilder) -> Condition{

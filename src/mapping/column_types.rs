@@ -107,6 +107,14 @@ impl<T:Clone+Into<String>> Enum<T>{
             .join(" , ")))
     }
 
+    pub fn not_in(&self, input_list: Vec<T>) -> Condition
+    {
+        Condition::new(format!("{} not in ({})", self.qualified_name(), input_list.into_iter()
+            .map(|input| format!("'{}'", input.into().to_string()))
+            .collect::<Vec<String>>()
+            .join(" , ")))
+    }
+
 }
 
 impl <T:Clone+Into<String>> Column for Enum<T>{

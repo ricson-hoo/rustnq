@@ -753,6 +753,11 @@ impl QueryBuilder {
         QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
     }
 
+    pub fn init_with_select_all_fields<A>(table: & A) -> QueryBuilder where A : Table {
+        //let fields_strs = fields.iter().map(|field| field.name()).collect();
+        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+    }
+
     pub fn init_with_select_distinct_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
         QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
@@ -1239,14 +1244,18 @@ impl QueryBuilder {
         let mut queryString = "".to_string();
         match self.operation {
             Operation::Select => {
-                if(!self.select_fields.is_empty()){
+                if !self.select_fields.is_empty() {
                     if self.distinct.is_some() && self.distinct.unwrap() {
                         queryString = format!("select distinct {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
                     }else {
                         queryString = format!("select {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
                     }
                 }else {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
+                    if let Some(true) = self.is_select_all {
+                        queryString = "select *".to_string();
+                    }else{
+                        return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
+                    }
                 }
                 if self.target_table.is_some() {
                     queryString = format!("{} from {}",queryString, self.target_table.clone().unwrap().name);
