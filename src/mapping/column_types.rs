@@ -1047,6 +1047,20 @@ impl From<i32> for Int {
     }
 }
 
+impl From<String> for Int {
+    fn from(v: String) -> Self {
+        let res = v.parse::<i32>();
+        match res {
+            Ok(num) => {
+                Int::with_value(Some(num))
+            }
+            Err(err) => {
+                Int::with_value(None)
+            }
+        }
+    }
+}
+
 impl Column for Int {
     fn table(&self) -> String {
         self.table.clone().unwrap_or_default()
@@ -1448,6 +1462,11 @@ impl From<Tinyint> for Varchar {
 impl From<bool> for Tinyint {
     fn from(v: bool) -> Self {
         Tinyint::with_value(if v { Some(1) } else { Some(0) })
+    }
+}
+impl From<i8> for Tinyint {
+    fn from(v: i8) -> Self {
+        Tinyint::with_value(Some(v))
     }
 }
 
