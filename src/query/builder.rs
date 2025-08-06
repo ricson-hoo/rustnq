@@ -408,12 +408,17 @@ pub struct QueryBuilder {
     group_by:Vec<SelectField>,
 }
 
+fn escape_string(value: &str) -> String {
+    // 替换单引号为两个单引号
+    value.replace("'", "''")
+}
+
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
     if(!insert_fields.contains(&name)){
         update_fields_values.push(format!("{} = VALUES({})", &name, &name));
         insert_fields.push(name);
         if let Some(string_value) = value {
-            insert_values.push(format!("'{}'", string_value));
+            insert_values.push(format!("'{}'", escape_string(&string_value)));
         }else{
             insert_values.push("null".to_string());
         }
@@ -862,7 +867,7 @@ impl QueryBuilder {
                     Ok(item_parsed) => {
                         result.push(item_parsed);
                     }
-                    Err(err) => {println!("error={:?}", err);}
+                    Err(err) => {println!("failed to fetch, error={:?}", err);}
                 }
                 // if let Ok(item_parsed) = item_parsed_result {
                 //     result.push(item_parsed);
