@@ -19,6 +19,15 @@ pub struct TableFieldRow {
     pub(crate) is_primary_key:bool
 }
 
+#[derive(Debug)]
+pub struct TableFullFieldRow {
+    pub(crate) name: String,
+    pub(crate) comment: String,
+    pub(crate) data_type: String,//varchar(32),enum('a','b'),set('a','b'),tinyint(1)
+    pub(crate) nullable:bool,
+    pub(crate) is_primary_key:bool
+}
+
 impl From<&MySqlRow> for TableRow {
     fn from(row: &MySqlRow) -> Self {
         let mut str = "".to_string();
@@ -79,6 +88,51 @@ impl From<&MySqlRow> for TableFieldRow {
     }
 }
 
+impl From<&MySqlRow> for TableFullFieldRow {
+    fn from(row: &MySqlRow) -> Self {
+        let name_value = row.try_get::<String,_>("Field").unwrap_or_else(|error|{
+            panic!("failed to get name: {}",error);
+        });
+        // Attempt to get the value of the "Type" column as a String
+        let type_value = match row.try_get::<String, _>("Type") {
+            Ok(value) => value,
+            Err(_) => {
+                let blob_value: Vec<u8> = row.try_get("Type").expect("Failed to get BLOB value");
+                String::from_utf8_lossy(&blob_value).to_string()
+            }
+        };
+        let nullable_value = match row.try_get::<String, _>("Null") {
+            Ok(value) => value,
+            Err(_) => {
+                let blob_value: Vec<u8> = row.try_get("Null").expect("Failed to get BLOB value");
+                String::from_utf8_lossy(&blob_value).to_string()
+            }
+        };
+        let primary_value = match row.try_get::<String, _>("Key") {
+            Ok(value) => value,
+            Err(_) => {
+                let blob_value: Vec<u8> = row.try_get("Key").expect("Failed to get BLOB value");
+                String::from_utf8_lossy(&blob_value).to_string()
+            }
+        };
+        let comment_value = match row.try_get::<String, _>("Comment") {
+            Ok(value) => value,
+            Err(_) => {
+                let blob_value: Vec<u8> = row.try_get("Comment").expect("Failed to get BLOB value");
+                String::from_utf8_lossy(&blob_value).to_string()
+            }
+        };
+
+        TableFullFieldRow {
+            name: name_value,
+            comment: comment_value,
+            data_type: type_value,
+            nullable: "Yes" == nullable_value || "YES" == nullable_value,
+            is_primary_key: "Pri" == primary_value || "PRI" == primary_value,
+        }
+    }
+}
+
 //get tables' definitions via show tables statement
 pub(crate) async fn get_tables(conn: &sqlx::pool::Pool<sqlx_mysql::MySql>) -> Result<Vec<TableRow>, sqlx::Error> {
     let select_query = sqlx::query("SHOW TABLES");
@@ -95,6 +149,16 @@ pub(crate) async fn get_table_fields(conn: &sqlx::pool::Pool<sqlx_mysql::MySql>,
     let select_query = sqlx::query(&query);
     let rows = select_query.fetch_all(conn).await?;
     let fields: Vec<TableFieldRow> = rows.iter().map(|row:&MySqlRow| {
+        row.into()
+    }).collect();
+    Ok(fields)
+}
+
+pub(crate) async fn get_table_full_fields(conn: &sqlx::pool::Pool<sqlx_mysql::MySql>, table_name: &str) -> Result<Vec<TableFullFieldRow>, sqlx::Error> {
+    let query = format!("SHOW FULL COLUMNS FROM `{}`;",table_name);
+    let select_query = sqlx::query(&query);
+    let rows = select_query.fetch_all(conn).await?;
+    let fields: Vec<TableFullFieldRow> = rows.iter().map(|row:&MySqlRow| {
         row.into()
     }).collect();
     Ok(fields)

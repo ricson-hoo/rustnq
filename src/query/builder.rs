@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime};
 use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
@@ -67,6 +67,12 @@ impl Condition {
     pub fn and(self, other: Condition) -> Condition {
         Condition {
             query: format!("({}) AND ({})", self.query, other.query),
+        }
+    }
+
+    pub fn and_not_exists(self, other: QueryBuilder) -> Condition {
+        Condition {
+            query: format!("({}) AND NOT EXISTS ({})", self.query, other.build().unwrap_or_default()),
         }
     }
 
@@ -296,6 +302,58 @@ impl From<Varchar> for SelectField{
         }
     }
 }
+impl From<Int> for SelectField{
+    fn from(value: Int) -> SelectField {
+        match value.holding() {
+            Holding::Name=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+            },
+            Holding::Value => {
+                if value.alias().is_some() {
+                    SelectField::Untyped(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
+                }else {
+                    SelectField::Untyped(format!("{}",&value.value().unwrap_or_default()))
+                }
+            },
+            Holding::NameValue=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+            },
+            Holding::SubQuery=> {
+                if let Some(sub_query) = value.sub_query(){
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(value.name())})
+                }else{
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(value.name())})
+                }
+            }
+        }
+    }
+}
+impl From<Datetime> for SelectField{
+    fn from(value: Datetime) -> SelectField {
+        match value.holding() {
+            Holding::Name=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+            },
+            Holding::Value => {
+                if value.alias().is_some() {
+                    SelectField::Untyped(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
+                }else {
+                    SelectField::Untyped(format!("{}",&value.value().unwrap_or_default()))
+                }
+            },
+            Holding::NameValue=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+            },
+            Holding::SubQuery=> {
+                if let Some(sub_query) = value.sub_query(){
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(value.name())})
+                }else{
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(value.name())})
+                }
+            }
+        }
+    }
+}
 
 impl From<Bigint> for SelectField{
     fn from(value: Bigint) -> SelectField {
@@ -397,6 +455,7 @@ impl ToString for SelectField {
 pub struct QueryBuilder {
     operation:Operation,
     is_select_all:Option<bool>,
+    distinct:Option<bool>,
     pub target_table: Option<TargetTable>,//Option<String>,
     select_fields: Vec<SelectField>,
     pending_join: Option<TableJoin>,
@@ -408,17 +467,12 @@ pub struct QueryBuilder {
     group_by:Vec<SelectField>,
 }
 
-fn escape_string(value: &str) -> String {
-    // 替换单引号为两个单引号
-    value.replace("'", "''")
-}
-
-fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
+fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>){
     if(!insert_fields.contains(&name)){
         update_fields_values.push(format!("{} = VALUES({})", &name, &name));
         insert_fields.push(name);
         if let Some(string_value) = value {
-            insert_values.push(format!("'{}'", escape_string(&string_value)));
+            insert_values.push(format!("'{}'", string_value));
         }else{
             insert_values.push("null".to_string());
         }
@@ -691,38 +745,48 @@ pub fn construct_upsert_primary_key_value(columns:&Vec<SqlColumn>, insert_fields
 impl QueryBuilder {
 
     pub fn select_all_fields() -> QueryBuilder {
-        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
     }
 
     pub fn init_with_select_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+    }
+
+    pub fn init_with_select_all_fields<A>(table: & A) -> QueryBuilder where A : Table {
+        //let fields_strs = fields.iter().map(|field| field.name()).collect();
+        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+    }
+
+    pub fn init_with_select_distinct_fields(fields: Vec<SelectField>) -> QueryBuilder {
+        //let fields_strs = fields.iter().map(|field| field.name()).collect();
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert, is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Update,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![] }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![] }
     }
 
     pub fn delete_all_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
@@ -867,7 +931,7 @@ impl QueryBuilder {
                     Ok(item_parsed) => {
                         result.push(item_parsed);
                     }
-                    Err(err) => {println!("failed to fetch, error={:?}", err);}
+                    Err(err) => {println!("error={:?}", err);}
                 }
                 // if let Ok(item_parsed) = item_parsed_result {
                 //     result.push(item_parsed);
@@ -1180,10 +1244,18 @@ impl QueryBuilder {
         let mut queryString = "".to_string();
         match self.operation {
             Operation::Select => {
-                if(!self.select_fields.is_empty()){
-                    queryString = format!("select {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
+                if !self.select_fields.is_empty() {
+                    if self.distinct.is_some() && self.distinct.unwrap() {
+                        queryString = format!("select distinct {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
+                    }else {
+                        queryString = format!("select {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
+                    }
                 }else {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
+                    if let Some(true) = self.is_select_all {
+                        queryString = "select *".to_string();
+                    }else{
+                        return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
+                    }
                 }
                 if self.target_table.is_some() {
                     queryString = format!("{} from {}",queryString, self.target_table.clone().unwrap().name);
@@ -1290,7 +1362,8 @@ impl QueryBuilder {
             }
         }
         // println!("buider: {:#?}",self);
-        println!("queryString: {:#?}",queryString);
+        //println!("queryString: {:#?}",queryString);
+        println!("");
         Ok(queryString.to_string())
     }
 }

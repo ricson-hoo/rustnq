@@ -2,30 +2,72 @@ use std::collections::HashMap;
 use uuid::uuid;
 use crate::mapping::description::{Column, SqlColumn};
 use crate::mapping::description::Table;
-use crate::mapping::column_types::{Bigint, Int};
-use crate::query::builder::{Condition, QueryBuilder, SelectField, TargetTable};
+use crate::mapping::column_types::{Bigint, Date, Int};
+use crate::query::builder::{Condition, InnerTable, QueryBuilder, SelectField, TargetTable};
 use serde::Serialize;
 use sqlx::Error;
 use tokio::sync::RwLock;
 use crate::configuration::{get_processors, PROCESSORS};
 use crate::mapping::column_types::Varchar;
 use crate::query::builder::construct_upsert_primary_key_value;
+use crate::utils::date_sub_unit::DateSubUnit;
 
 pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
     let fields = fields.into_iter().map(|field| field.into()).collect();
     QueryBuilder::init_with_select_fields(fields)
 }
 
+pub fn select_distinct<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
+    let fields = fields.into_iter().map(|field| field.into()).collect();
+    QueryBuilder::init_with_select_distinct_fields(fields)
+}
+
 pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
    Bigint::with_name(format!("count ({})", field.into().to_string()))
+}
+
+pub fn union_all(sql_list: Vec<QueryBuilder>) -> QueryBuilder{
+    let mut list: Vec<String> = vec![];
+    for sql in sql_list {
+        let sql_result = sql.build();
+        if let Ok(sql_string) = sql_result {
+            println!("sql string {}", sql_string);
+            list.push(sql_string);
+        }
+    }
+    let table = InnerTable{
+        table_name: format!("({}) as my_table", list.join(" union all ")),
+        map_fields: Default::default(),
+    };
+    QueryBuilder::init_with_select_all_fields(&table)
+}
+
+pub fn exists(sql:QueryBuilder) -> Condition{
+    Condition::new(format!("exists ({})", sql.build().unwrap_or_default()))
+}
+
+pub fn not_exists(sql:QueryBuilder) -> Condition{
+    Condition::new(format!("not exists ({})", sql.build().unwrap_or_default()))
 }
 
 pub fn max<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("max ({})", field.into().to_string()))
 }
 
+pub fn timestamp_diff<T: Into<SelectField>>(date: T, unit: DateSubUnit) -> Int{
+    Int::with_name(format!("TIMESTAMPDIFF ({}, {}, CURDATE())", unit, date.into().to_string()))
+}
+
+pub fn curdate() -> Varchar{
+    Varchar::with_name("CURDATE()".to_string())
+}
+
 pub fn year<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("YEAR ({})", field.into().to_string()))
+}
+
+pub fn month<T: Into<SelectField>>(field:T) -> Varchar{
+    Varchar::with_name(format!("MONTH ({})", field.into().to_string()))
 }
 
 pub fn count_all() -> Bigint{
@@ -34,6 +76,11 @@ pub fn count_all() -> Bigint{
 
 pub fn count_distinct<T: Into<SelectField>>(field:T) -> Bigint{
     Bigint::with_name(format!("count (distinct {})", field.into().to_string()))
+}
+
+///DATE_SUB(date, INTERVAL value unit)
+pub fn date_sub<T: Into<SelectField>>(value: i32, unit: DateSubUnit) -> Date{
+    Date::with_name(format!("DATE_SUB (CURDATE(), INTERVAL {} {})", value, unit))
 }
 
 pub fn group_concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
