@@ -98,7 +98,7 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
     //let mut multiple_typed_primary_key = MultiTypedPrimaryKey{uuid_key:None,i32_key:None,i64_key:None,u64_key:None};
     let primary_key_vec = table_with_value.primary_key();
     if primary_key_vec.len()<1{
-        Err(sqlx::Error::Encode("no primary key is found".into()))?
+        Err(sqlx::Error::ColumnNotFound("no primary key column is found".to_string()))?
     }
     let mut text_primary_key_value:Option<String> = None;
     let mut text_primary_key_name:Option<String> = None;
