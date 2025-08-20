@@ -1311,6 +1311,14 @@ impl crate::mapping::column_types::Boolean {
         self.clone()
     }
 
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+
     pub fn equal<T>(&self, input: T) -> Condition
     where
         T: Into<Boolean>,

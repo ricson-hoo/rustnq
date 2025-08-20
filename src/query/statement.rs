@@ -189,6 +189,10 @@ pub fn delete_one_where<A>(table:& A, condition: Condition) -> QueryBuilder wher
     QueryBuilder::delete_one_where(table, condition)
 }
 
+pub fn update_field_where<A>(table:& A, condition: Condition) -> QueryBuilder where A : Table{
+    QueryBuilder::update_table_with_value(table).where_(condition)
+}
+
 /*pub fn insert_into<'a,A>(table:&'a A) -> QueryBuilder<'a> where A : Table{
 
 }

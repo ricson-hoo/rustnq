@@ -328,6 +328,32 @@ impl From<Int> for SelectField{
         }
     }
 }
+impl From<Boolean> for SelectField{
+    fn from(value: Boolean) -> SelectField {
+        match value.holding() {
+            Holding::Name=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+            },
+            Holding::Value => {
+                if value.alias().is_some() {
+                    SelectField::Untyped(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
+                }else {
+                    SelectField::Untyped(format!("{}",&value.value().unwrap_or_default()))
+                }
+            },
+            Holding::NameValue=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+            },
+            Holding::SubQuery=> {
+                if let Some(sub_query) = value.sub_query(){
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(value.name())})
+                }else{
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(value.name())})
+                }
+            }
+        }
+    }
+}
 impl From<Datetime> for SelectField{
     fn from(value: Datetime) -> SelectField {
         match value.holding() {
@@ -465,6 +491,7 @@ pub struct QueryBuilder {
     limit:Option<LimitJoin>,
     order_by:Vec<SelectField>,
     group_by:Vec<SelectField>,
+    update_values: Vec<(SelectField, SelectField)>, // 用于存储更新字段和值的元组
 }
 
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>){
@@ -745,48 +772,48 @@ pub fn construct_upsert_primary_key_value(columns:&Vec<SqlColumn>, insert_fields
 impl QueryBuilder {
 
     pub fn select_all_fields() -> QueryBuilder {
-        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn init_with_select_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn init_with_select_all_fields<A>(table: & A) -> QueryBuilder where A : Table {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn init_with_select_distinct_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Update,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn delete_all_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
@@ -872,6 +899,16 @@ impl QueryBuilder {
     ///every call to where_, put a new condition or condition group to conditions
     pub fn where_(mut self, condition: Condition) -> QueryBuilder {
         self.conditions.push(condition);
+        self
+    }
+
+    /// 设置要更新的字段和值
+    pub fn set<T: Into<SelectField>>(mut self, field: T, value: T) -> QueryBuilder
+    where
+        T: Into<SelectField>,
+    {
+        let set_value: SelectField = value.into();
+        self.update_values.push((field.into(), set_value));
         self
     }
 
@@ -1317,10 +1354,21 @@ impl QueryBuilder {
                     return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
                 }
 
+                if self.conditions.is_empty() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for update operation".to_string()));
+                }
+
                 let mut primary_key_conditions = Vec::<String>::new();
                 let mut update_fields_values: Vec<String> = Vec::new();
+                if self.update_values.is_empty() {
+                    construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
+                }else{
+                    update_fields_values = self.update_values
+                                        .iter()
+                                        .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
+                                        .collect();
+                }
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
-                construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
                 //decrypt?
                 queryString = format!("update {} set {} where {}", self.target_table.clone().unwrap().name, update_fields_values.join(", "), primary_key_conditions.iter()
                     .map(|condition| condition.clone())
