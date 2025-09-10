@@ -498,7 +498,7 @@ fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:St
     let output = match input_holding {
         Holding::Name => format!(" = {}",input_name),
         Holding::Value => match input_value {
-            Some(value) => format!(" = '{}'",if self_is_encrypted {encrypt_value(value)} else {value}),
+            Some(value) => format!(" = {}",if self_is_encrypted {encrypt_value(value)} else {format!("'{}'",value)}),
             None => "is null".to_string()
         },
         _ => "build_equal_condition_for_string_type to do ".to_string() //subquery
