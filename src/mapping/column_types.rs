@@ -5,6 +5,7 @@ use serde::{Serialize,Deserialize};
 use std::fmt;
 use std::str::FromStr;
 use crate::utils::date_sub_unit::DateSubUnit;
+use crate::configuration::{encryptor, get_encryptor};
 
 pub trait And {
     fn and(&self, other:& (impl Column + Clone+ 'static)) -> Vec<String>;
@@ -248,7 +249,7 @@ impl Varchar {
         T: Into<Varchar>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding, input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted, input.holding, input.table,input.name,input.value)
         /*let output = match varchar.holding {
             Holding::Name => varchar.name.clone(),
             Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
@@ -480,7 +481,12 @@ pub struct Char{
     is_encrypted:bool
 }
 
-fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>) -> Condition {
+fn encrypt_value(value:String) -> String {
+    let encryptor = get_encryptor();
+    encryptor.wrap_encrypt(value)
+}
+
+fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,self_is_encrypted: bool, input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>) -> Condition {
     let mut self_name = self_name.clone();
     if self_table.is_some() {
         self_name = format!("{}.{}",self_table.unwrap(),self_name);
@@ -492,7 +498,7 @@ fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:St
     let output = match input_holding {
         Holding::Name => format!(" = {}",input_name),
         Holding::Value => match input_value {
-            Some(value) => format!(" = '{}'",value),
+            Some(value) => format!(" = '{}'",if self_is_encrypted {encrypt_value(value)} else {value}),
             None => "is null".to_string()
         },
         _ => "build_equal_condition_for_string_type to do ".to_string() //subquery
@@ -540,7 +546,7 @@ impl Char {
         T: Into<Char>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding, input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding, input.table,input.name,input.value)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -621,7 +627,7 @@ impl crate::mapping::column_types::Tinytext {
         T: Into<crate::mapping::column_types::Tinytext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), input.holding,input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -702,7 +708,7 @@ impl crate::mapping::column_types::Text {
         T: Into<crate::mapping::column_types::Text>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), input.holding,input.table, input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), self.is_encrypted.clone(), input.holding,input.table, input.name,input.value)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -797,7 +803,7 @@ impl crate::mapping::column_types::Mediumtext {
         T: Into<crate::mapping::column_types::Mediumtext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding,input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -878,7 +884,7 @@ impl crate::mapping::column_types::Longtext {
         T: Into<crate::mapping::column_types::Longtext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), input.holding,input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -2423,7 +2429,7 @@ impl crate::mapping::column_types::Json {
         T: Into<crate::mapping::column_types::Json>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(),input.holding,input.table, input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table, input.name,input.value)
     }
 
     pub fn like(&self, pattern: String) -> Condition
