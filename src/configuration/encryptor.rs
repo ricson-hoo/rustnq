@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use once_cell::sync::OnceCell;
+use crate::query::builder::Field;
 
 pub trait Encryptor: Send + Sync {
-    fn wrap_encrypt(&self, value: String) ->  String;
-    fn wrap_decrypt(&self, value: String) ->  String;
+    fn encrypt(&self, value: String) ->  String;
+    fn decrypt(&self, value: String) ->  String;
+    fn decrypt_field(&self, field: Field) ->  String;
 }
 pub static ENCRYPTOR: OnceCell<Arc<dyn Encryptor>> = OnceCell::new();
 pub fn set_encryptor<E: Encryptor + 'static>(encryptor: E) {

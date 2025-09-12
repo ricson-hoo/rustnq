@@ -483,7 +483,7 @@ pub struct Char{
 
 fn encrypt_value(value:String) -> String {
     let encryptor = get_encryptor();
-    encryptor.wrap_encrypt(value)
+    encryptor.encrypt(value)
 }
 
 fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,self_is_encrypted: bool, input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>) -> Condition {

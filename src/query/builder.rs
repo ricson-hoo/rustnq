@@ -429,9 +429,9 @@ impl From<&Timestamp> for SelectField{
     }
 }
 
-fn decrypt_field(field:String) -> String {
+fn decrypt_field(field:Field) -> String {
     let encryptor = get_encryptor();
-    encryptor.wrap_decrypt(field)
+    encryptor.decrypt_field(field)
 }
 
 impl ToString for Field {
@@ -445,7 +445,7 @@ impl ToString for Field {
         if self.is_encrypted {
             //这里如果是用于select的话，需要解密，如果是用于其它地方如Where ... 的话，需要加密。当前仅按select来处理.
             //如果要区分用途，需要在Field中增加一个context字段表示用途，如context:Select,Where ... ，目前先不增加
-            qualified_field = decrypt_field(qualified_field);
+            qualified_field = decrypt_field(self.clone());
             if alias.is_none(){
                 alias = Some(self.name.clone())
             }
