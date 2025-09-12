@@ -1017,7 +1017,14 @@ impl QueryBuilder {
                     }
                 },
                 Err(e) => {
-                    Err(e)
+                    match e {
+                        Error::RowNotFound => {
+                            Ok(None)
+                        }
+                        _ => {
+                            Err(e)
+                        }
+                    }
                 }
             }
         }else if let Err(e) = build_result {
