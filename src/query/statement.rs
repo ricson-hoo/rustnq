@@ -23,7 +23,7 @@ pub fn select_distinct<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
 }
 
 pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
-   Bigint::with_name(format!("count ({})", field.into().to_string()))
+   Bigint::with_name(format!("count({})", field.into().to_string()))
 }
 
 pub fn union_all(sql_list: Vec<QueryBuilder>) -> QueryBuilder{
@@ -71,11 +71,11 @@ pub fn month<T: Into<SelectField>>(field:T) -> Varchar{
 }
 
 pub fn count_all() -> Bigint{
-    Bigint::with_name("count (*)".to_string())
+    Bigint::with_name("count(*)".to_string())
 }
 
 pub fn count_distinct<T: Into<SelectField>>(field:T) -> Bigint{
-    Bigint::with_name(format!("count (distinct {})", field.into().to_string()))
+    Bigint::with_name(format!("count(distinct {})", field.into().to_string()))
 }
 
 ///DATE_SUB(date, INTERVAL value unit)
