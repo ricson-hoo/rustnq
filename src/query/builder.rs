@@ -1129,7 +1129,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "BOOLEAN" => {
+                "BOOLEAN" | "TINYINT" => {
                     let value_result: Result<Option<i8>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
