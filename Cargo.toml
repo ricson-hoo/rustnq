@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sqlx = { version = "0.8.2",features = ["json","chrono","rust_decimal"]}
-sqlx-mysql = {version = "0.8.2", features = ["json","chrono","rust_decimal"]}
+sqlx = { version = "0.8.6",features = ["json","chrono","rust_decimal"]}
+sqlx-mysql = {version = "0.8.6", features = ["json","chrono","rust_decimal"]}
 anyhow = "1.0.89"
 serde = "1.0.210"
 chrono = { version = "^0", features = ["serde"] }

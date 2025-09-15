@@ -2060,7 +2060,7 @@ impl crate::mapping::column_types::Date {
 
     pub fn ge<T: ToString>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+        Condition::new(format!("{} >= '{}'", self.qualified_name(), value.to_string()))
     }
 
     pub fn gt<T: ToString>(&self, value: T) -> Condition
@@ -2080,7 +2080,7 @@ impl crate::mapping::column_types::Date {
 
     pub fn le<T: ToString>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+        Condition::new(format!("{} <= '{}'", self.qualified_name(), value.to_string()))
     }
 
     pub fn between(&self, date1: chrono::NaiveDate,date2: chrono::NaiveDate) -> Condition {

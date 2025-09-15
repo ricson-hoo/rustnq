@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum};
 use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
@@ -425,6 +425,18 @@ impl From<Timestamp> for SelectField{
 
 impl From<&Timestamp> for SelectField{
     fn from(value: &Timestamp) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl <T:Clone+Into<String>> From<Enum<T>> for SelectField{
+    fn from(value: Enum<T>) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl <T:Clone+Into<String>> From<&Enum<T>> for SelectField{
+    fn from(value: &Enum<T>) -> SelectField {
         SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
     }
 }
