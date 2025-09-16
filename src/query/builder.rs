@@ -882,7 +882,7 @@ impl QueryBuilder {
     pub fn as_table(mut self, table: &str) -> InnerTable {
         let build_result = self.build();
         if let Ok(query_string) = build_result {
-            println!("query string {}", query_string);
+            println!("query string # {}", query_string);
             InnerTable {
                 table_name: format!("({}) as {}", query_string, table),
                 map_fields: self.select_fields.iter().map(|field| (field.clone().to_string(), Varchar::with_name(field.clone().to_string()))).collect::<HashMap<String, Varchar>>(),
@@ -951,7 +951,7 @@ impl QueryBuilder {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
         if let Ok(query_string) = build_result {
-            println!("query string {}", query_string);
+            println!("query string # {}", query_string);
             let result = sqlx::query(&query_string).execute(pool).await? as MySqlQueryResult; // Pass the reference to sqlx::query()
             Ok(result)
         }else if let Err(e) = build_result {
@@ -966,7 +966,7 @@ impl QueryBuilder {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
         if let Ok(query_string) = build_result {
-            println!("query string {}", query_string);
+            println!("query string # {}", query_string);
 
             let jsons = sqlx::query(&query_string)
                 .try_map(|row:MySqlRow| {
@@ -1006,7 +1006,7 @@ impl QueryBuilder {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
         if let Ok(query_string) = build_result {
-            println!("query string {}", query_string);
+            println!("query string # {}", query_string);
 
             let json_result = sqlx::query(&query_string)
                 .try_map(|row:MySqlRow| {
@@ -1049,7 +1049,7 @@ impl QueryBuilder {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
         if let Ok(query_string) = build_result {
-            println!("query string {}", query_string);
+            println!("query string # {}", query_string);
 
             let value = sqlx::query(&query_string)
                 .try_map(|row:MySqlRow| {
