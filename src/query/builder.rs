@@ -515,27 +515,32 @@ pub struct QueryBuilder {
 
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>, is_encrypted:bool){
     if(!insert_fields.contains(&name)){
-        update_fields_values.push(format!("{} = VALUES({})", &name, &name));
-        insert_fields.push(name);
+        //update_fields_values.push(format!("{} = VALUES({})", &name, &name));
+        insert_fields.push(name.clone());
         if let Some(string_value) = value {
             if is_encrypted {
-                insert_values.push(format!("'{}'", encrypt_value(string_value)));
+                insert_values.push(format!("{}", encrypt_value(string_value.clone())));
+                update_fields_values.push(format!("{} = {}", &name.clone(), &encrypt_value(string_value)));
             }else{
-                insert_values.push(format!("'{}'", string_value));
+                insert_values.push(format!("'{}'", string_value.clone()));
+                update_fields_values.push(format!("{} = '{}'", &name.clone(), &string_value));
             }
         }else{
             insert_values.push("null".to_string());
+            update_fields_values.push(format!("{} = null", &name.clone()));
         }
     }
 }
 
 fn add_non_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
-    update_fields_values.push(format!("{} = VALUES({})", &name, &name));
-    insert_fields.push(name);
+    //update_fields_values.push(format!("{} = VALUES('{}')", &name, &name));
+    insert_fields.push(name.clone());
     if let Some(string_value) = value {
         insert_values.push(format!("{}", string_value));
+        update_fields_values.push(format!("{} = {}", &name.clone(), &string_value));
     }else{
         insert_values.push("null".to_string());
+        update_fields_values.push(format!("{} = null", &name));
     }
 }
 
