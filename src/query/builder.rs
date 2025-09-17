@@ -441,6 +441,11 @@ impl <T:Clone+Into<String>> From<&Enum<T>> for SelectField{
     }
 }
 
+fn encrypt_value(value:String)->String{
+    let encryptor = get_encryptor();
+    encryptor.encrypt(value)
+}
+
 fn decrypt_field(field:Field) -> String {
     let encryptor = get_encryptor();
     encryptor.decrypt_field(field)
@@ -508,12 +513,16 @@ pub struct QueryBuilder {
     update_values: Vec<(SelectField, SelectField)>, // 用于存储更新字段和值的元组
 }
 
-fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>){
+fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>, is_encrypted:bool){
     if(!insert_fields.contains(&name)){
         update_fields_values.push(format!("{} = VALUES({})", &name, &name));
         insert_fields.push(name);
         if let Some(string_value) = value {
-            insert_values.push(format!("'{}'", string_value));
+            if is_encrypted {
+                insert_values.push(format!("'{}'", encrypt_value(string_value)));
+            }else{
+                insert_values.push(format!("'{}'", string_value));
+            }
         }else{
             insert_values.push("null".to_string());
         }
@@ -536,56 +545,56 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
             SqlColumn::Varchar(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Char(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Tinytext(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Text(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Mediumtext(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Longtext(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),col.value(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Enum(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Set(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
@@ -662,28 +671,28 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
             SqlColumn::Date(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d").to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d").to_string())} else {None},insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Time(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Datetime(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
             SqlColumn::Timestamp(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values);
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }
@@ -704,7 +713,7 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
             SqlColumn::Json(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_text_upsert_fields_values(col.name(), if let Some(value) = col.value() { Some(value.to_string()) } else { None }, insert_fields, insert_values, update_fields_values);
+                        add_text_upsert_fields_values(col.name(), if let Some(value) = col.value() { Some(value.to_string()) } else { None }, insert_fields, insert_values, update_fields_values,col.is_encrypted());
                     }
                 }
             }
