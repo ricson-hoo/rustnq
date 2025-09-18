@@ -731,7 +731,18 @@ pub fn construct_upsert_primary_key_value(columns:&Vec<SqlColumn>, insert_fields
         match primary_key_def {
             SqlColumn::Varchar(column_def) => {
                 if let Some(col) = column_def {
-                    if let Some(string_value) = col.value(){
+                    let mut value = col.value();
+                    match value {
+                        None => {
+                            value = Some(uuid::Uuid::new_v4().to_string().replace("-", ""));
+                        }
+                        Some(ref str_value) => {
+                            if(str_value.is_empty()) {
+                                value = Some(uuid::Uuid::new_v4().to_string().replace("-", ""));
+                            }
+                        }
+                    }
+                    if let Some(string_value) = value{
                         insert_fields.push(col.name());
                         insert_values.push(format!("'{}'", &string_value));
                         primary_key_as_conditions.push(format!("{} = '{}'", col.name(), string_value));
@@ -742,7 +753,18 @@ pub fn construct_upsert_primary_key_value(columns:&Vec<SqlColumn>, insert_fields
             }
             SqlColumn::Char(column_def) => {
                 if let Some(col) = column_def {
-                    if let Some(string_value) = col.value(){
+                    let mut value = col.value();
+                    match value {
+                        None => {
+                            value = Some(uuid::Uuid::new_v4().to_string().replace("-", ""));
+                        }
+                        Some(ref str_value) => {
+                            if(str_value.is_empty()) {
+                                value = Some(uuid::Uuid::new_v4().to_string().replace("-", ""));
+                            }
+                        }
+                    }
+                    if let Some(string_value) = value{
                         insert_fields.push(col.name());
                         insert_values.push(format!("'{}'", &string_value));
                         primary_key_as_conditions.push(format!("{} = '{}'", col.name(), string_value));
