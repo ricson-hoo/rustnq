@@ -189,6 +189,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                 let field_definition: String = it.data_type;
                 let nullable = it.nullable;
                 let is_primary_key = it.is_primary_key;
+                println!("field_name : {}.{}, field_definition",&table.name.clone(), &field_name.clone(), &field_definition.clone());
                 let field_type = resolve_type_from_column_definition(&table.name, &field_name, &field_definition, boolean_columns, trait_for_enum_types, output_path);
                 if !field_type.enum_file_name_without_ext.is_empty() {
                     enum_file_names_without_ext.push(field_type.enum_file_name_without_ext);
@@ -203,7 +204,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                     }
                 }
 
-                //here we need to modify the field name if it matchs one of the rust keyword
+                //here we need to modify the field name if it matches one of the rust keyword
                 if utils::reserved_field_names().contains(&it.name){
                     let mut struct_field_definition = format!("#[serde(rename = \"{}\")] pub {}_:{},",&it.name, &it.name,field_type_qualified_name);
                     struct_fields.push(struct_field_definition);
@@ -222,7 +223,10 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                     }else if field_type_qualified_name.clone().contains("NaiveTime"){
                         struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_time\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_time\")]".to_string()); //note:this is a temp solution
-                    }
+                    }/*else if field_type_qualified_name.clone().contains("bool"){
+                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_bool\")]".to_string()); //note:this is a temp solution
+                        //struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_time\")]".to_string()); //note:this is a temp solution
+                    }*/
                     let mut struct_field_definition = format!("pub {}:{},", format_name(&it.name, field_naming_convention), field_type_qualified_name);
                     struct_fields.push(struct_field_definition);
                     struct_fields_init.push(format!("{}:{},", format_name(&it.name, field_naming_convention), "None"));

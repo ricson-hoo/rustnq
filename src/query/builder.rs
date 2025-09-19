@@ -1053,7 +1053,7 @@ impl QueryBuilder {
 
             match json_result {
                 Ok(json)=>{
-                    // println!("json of product {:#?}", json);
+                     println!("json of product {:#?}", json);
                     let json_parse_result = serde_json::from_value(json);
                     match json_parse_result {
                         Ok(json)=>{
@@ -1115,7 +1115,7 @@ impl QueryBuilder {
             if type_detail.contains("ColumnFlags(SET)"){
                 type_name = "SET";
             }
-            // println!("type_name of {} {} {}",column_name, type_name, type_detail);
+             println!("type_name of {} {} {}",column_name, type_name, type_detail);
             match type_name {
                 "VARCHAR" => {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
@@ -1132,7 +1132,8 @@ impl QueryBuilder {
                     }
                 }
                 "INT" | "BIGINT" => {
-                    let value_result: Result<Option<i32>, _> = row.try_get(i);
+                    println!("decoding INT {}",column_name);
+                    let value_result: Result<Option<i32>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
                             json_obj[column_name] = value.clone().into();
@@ -1165,12 +1166,29 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "BOOLEAN" | "TINYINT" => {
-                    let value_result: Result<Option<i8>, _> = row.try_get(i);
+                "BOOLEAN" => {   //max_size为1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(1) }
+                    println!("decoding BOOLEAN {}",column_name);
+                    let value_result: Result<Option<i8>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
                             json_obj[column_name] = if value>0 {serde_json::Value::Bool(true)} else {serde_json::Value::Bool(false)};
                             json_obj[camel_case_column_name] = if value>0 {serde_json::Value::Bool(true)} else {serde_json::Value::Bool(false)};
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                "TINYINT" => {//max_size>1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(4) }
+                    println!("decoding TINYINT {}",column_name);
+                    let value_result: Result<Option<i8>, Error> = row.try_get(i);
+
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            json_obj[column_name] = serde_json::Value::Number(value.into());
+                            json_obj[camel_case_column_name] = serde_json::Value::Number(value.into());
                         }else {
                             json_obj[column_name] = serde_json::Value::Null;
                             json_obj[camel_case_column_name] = serde_json::Value::Null;
