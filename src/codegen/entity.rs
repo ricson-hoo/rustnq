@@ -189,7 +189,7 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                 let field_definition: String = it.data_type;
                 let nullable = it.nullable;
                 let is_primary_key = it.is_primary_key;
-                println!("field_name : {}.{}, field_definition",&table.name.clone(), &field_name.clone(), &field_definition.clone());
+                println!("field_name : {}.{}, field_definition:{}",&table.name.clone(), &field_name.clone(), &field_definition.clone());
                 let field_type = resolve_type_from_column_definition(&table.name, &field_name, &field_definition, boolean_columns, trait_for_enum_types, output_path);
                 if !field_type.enum_file_name_without_ext.is_empty() {
                     enum_file_names_without_ext.push(field_type.enum_file_name_without_ext);
