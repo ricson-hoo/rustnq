@@ -91,7 +91,8 @@ impl fmt::Display for Condition {
 
 #[derive(Debug,Clone)]
 pub enum Operation{
-    Select,Insert,Update,Insert_Or_Update,Delete
+    Select,Insert, Update_By_PrimaryKey,
+    Update_By_Condition,Insert_Or_Update,Delete
 }
 
 #[derive(Debug,Clone)]
@@ -845,9 +846,14 @@ impl QueryBuilder {
         QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
+    pub fn update<A>(table:& A) -> QueryBuilder where A : Table{
+        //table.update_query_builder()
+        QueryBuilder { operation:Operation::Update_By_Condition,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+    }
+
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Update_By_PrimaryKey,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
@@ -1419,14 +1425,44 @@ impl QueryBuilder {
                 //decrypt?
                 queryString = format!("INSERT INTO {} ({}) VALUES ({})", &target_table.name, insert_fields.join(", "), insert_values.join(", "));
             },
-            Operation::Update => {
+            Operation::Update_By_PrimaryKey => {
+                if self.target_table.is_none() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
+                }
+                let target_table = self.target_table.clone().unwrap();
+
+                if target_table.primary_key.is_empty() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for Update_By_Key operation".to_string()));
+                }
+
+                let mut primary_key_conditions = Vec::<String>::new();
+                let mut update_fields_values: Vec<String> = Vec::new();
+                if self.update_values.is_empty() {
+                    construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
+                }else{
+                    update_fields_values = self.update_values
+                        .iter()
+                        .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
+                        .collect();
+                }
+                construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
+                if primary_key_conditions.is_empty() {
+                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for update operation".to_string()));
+                }
+                //decrypt?
+                queryString = format!("update {} set {} where {}", self.target_table.clone().unwrap().name, update_fields_values.join(", "), primary_key_conditions.iter()
+                    .map(|condition| condition.clone())
+                    .collect::<Vec<String>>()
+                    .join(" AND "));
+            },
+            Operation::Update_By_Condition => {
                 if self.target_table.is_none() {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
                 }
                 let target_table = self.target_table.clone().unwrap();
 
                 if self.conditions.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for update operation".to_string()));
+                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for Update_By_Condtion operation".to_string()));
                 }
 
                 let mut update_fields_values: Vec<String> = Vec::new();
