@@ -1425,15 +1425,10 @@ impl QueryBuilder {
                 }
                 let target_table = self.target_table.clone().unwrap();
 
-                if target_table.primary_key.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
-                }
-
                 if self.conditions.is_empty() {
                     return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for update operation".to_string()));
                 }
 
-                let mut primary_key_conditions = Vec::<String>::new();
                 let mut update_fields_values: Vec<String> = Vec::new();
                 if self.update_values.is_empty() {
                     construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
@@ -1443,12 +1438,17 @@ impl QueryBuilder {
                                         .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
                                         .collect();
                 }
-                construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
-                //decrypt?
-                queryString = format!("update {} set {} where {}", self.target_table.clone().unwrap().name, update_fields_values.join(", "), primary_key_conditions.iter()
-                    .map(|condition| condition.clone())
+                
+                // 修复：使用传入的条件而不是主键条件
+                let where_conditions = self.conditions.iter()
+                    .map(|condition| condition.query.clone())
                     .collect::<Vec<String>>()
-                    .join(" AND "));
+                    .join(" AND ");
+                
+                queryString = format!("update {} set {} where {}", 
+                    self.target_table.clone().unwrap().name, 
+                    update_fields_values.join(", "), 
+                    where_conditions);
             },
             Operation::Insert_Or_Update => {
                 if self.target_table.is_none() {
