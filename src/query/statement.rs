@@ -181,6 +181,10 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
     }
 }
 
+pub fn update<A>(table:& A) -> QueryBuilder where A : Table{
+    QueryBuilder::update(table)
+}
+
 pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
     QueryBuilder::delete_one_from(table)
 }
