@@ -1990,6 +1990,30 @@ impl Column for crate::mapping::column_types::Decimal {
     }
 }
 
+// 为Decimal类型添加比较方法
+impl crate::mapping::column_types::Decimal {
+    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn gt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn le<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+    }
+}
+
+
 impl From<Decimal> for Varchar {
     fn from(v: Decimal) -> Self {
         Varchar{
