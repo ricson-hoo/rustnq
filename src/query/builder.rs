@@ -61,31 +61,31 @@ pub struct Condition {
 
 impl Condition {
     pub fn new(query: String) -> Condition {
-        Condition { query:if is_valid_condition(query) {query} else {"0>1"} }
+        Condition { query:if Self::is_valid_condition(query.clone()) {query} else {"0>1".to_string()} }
     }
 
     pub fn and(self, other: Condition) -> Condition {
         Condition {
-            query: format!("({}) AND ({})", self.query, if is_valid_condition(other.query) {other.query} else {"0>1"}),
+            query: format!("({}) AND ({})", self.query, if Self::is_valid_condition(other.query.clone()) {other.query} else {"0>1".to_string()}),
         }
     }
 
     pub fn and_not_exists(self, other: QueryBuilder) -> Condition {
         let other_query = other.build().unwrap_or_default();
         Condition {
-            query: format!("({}) AND NOT EXISTS ({})", self.query, if is_valid_condition(other_query) {other_query} else {"0>1"}),
+            query: format!("({}) AND NOT EXISTS ({})", self.query, if Self::is_valid_condition(other_query.clone()) {other_query} else {"0>1".to_string()}),
         }
     }
 
     pub fn or(self, other: Condition) -> Condition {
         Condition {
-            query: format!("({}) OR ({})", self.query, if is_valid_condition(other.query.clone()) {other.query} else {"0>1"}),
+            query: format!("({}) OR ({})", self.query, if Self::is_valid_condition(other.query.clone()) {other.query} else {"0>1".to_string()}),
         }
     }
 
-    fn is_valid_condition(condition:String){
+    fn is_valid_condition(condition:String) -> bool {
         // 允许字母、数字、空格、=、>、<、AND、OR、特定字符和中文字符
-        let is_valid = condition.chars().all(|c| {
+        let mut is_valid = condition.chars().all(|c| {
             c.is_alphanumeric() || c.is_whitespace() ||
                 c == '=' || c == '>' || c == '<' ||
                 c == '\'' || c == '"' ||
