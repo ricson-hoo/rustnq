@@ -984,8 +984,6 @@ impl Int {
         self.clone()
     }
 
-
-
     pub fn gt<T: ToString>(&self, value: T) -> Condition
     {
         Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))

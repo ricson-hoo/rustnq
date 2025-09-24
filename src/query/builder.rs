@@ -61,25 +61,44 @@ pub struct Condition {
 
 impl Condition {
     pub fn new(query: String) -> Condition {
-        Condition { query }
+        Condition { query:if is_valid_condition(query) {query} else {"0>1"} }
     }
 
     pub fn and(self, other: Condition) -> Condition {
         Condition {
-            query: format!("({}) AND ({})", self.query, other.query),
+            query: format!("({}) AND ({})", self.query, if is_valid_condition(other.query) {other.query} else {"0>1"}),
         }
     }
 
     pub fn and_not_exists(self, other: QueryBuilder) -> Condition {
+        let other_query = other.build().unwrap_or_default();
         Condition {
-            query: format!("({}) AND NOT EXISTS ({})", self.query, other.build().unwrap_or_default()),
+            query: format!("({}) AND NOT EXISTS ({})", self.query, if is_valid_condition(other_query) {other_query} else {"0>1"}),
         }
     }
 
     pub fn or(self, other: Condition) -> Condition {
         Condition {
-            query: format!("({}) OR ({})", self.query, other.query),
+            query: format!("({}) OR ({})", self.query, if is_valid_condition(other.query.clone()) {other.query} else {"0>1"}),
         }
+    }
+
+    fn is_valid_condition(condition:String){
+        // 允许字母、数字、空格、=、>、<、AND、OR、特定字符和中文字符
+        let is_valid = condition.chars().all(|c| {
+            c.is_alphanumeric() || c.is_whitespace() ||
+                c == '=' || c == '>' || c == '<' ||
+                c == '\'' || c == '"' ||
+                c == '-' || c == '_' ||
+                c == '&' || c == '|' ||
+                c.is_digit(10) ||  // 允许数字
+                (c >= '\u{4E00}' && c <= '\u{9FA5}') // 允许中文字符（CJK 统一汉字范围）
+        });
+        if is_valid {
+            let condition_lowercase =  condition.to_lowercase();
+            is_valid = !condition_lowercase.contains("update ") && !condition_lowercase.contains("delete ");
+        }
+        is_valid
     }
 }
 
