@@ -92,13 +92,19 @@ impl Condition {
                 c == '-' || c == '_' ||
                 c == '(' || c == ')' ||
                 c == '&' || c == '|' ||
-                c == '.' ||
+                c == '.' || c == ',' ||
             c.is_digit(10) ||  // 允许数字
                 (c >= '\u{4E00}' && c <= '\u{9FA5}') // 允许中文字符（CJK 统一汉字范围）
         });
         if is_valid {
             let condition_lowercase =  condition.to_lowercase();
-            is_valid = !condition_lowercase.contains("update ") && !condition_lowercase.contains("delete ");
+            // 检查是否包含不允许的SQL关键字
+            is_valid = !condition_lowercase.contains("update ") && 
+                      !condition_lowercase.contains("delete ") &&
+                      !condition_lowercase.contains("insert ") &&
+                      !condition_lowercase.contains("drop ") &&
+                      !condition_lowercase.contains("create ") &&
+                      !condition_lowercase.contains("alter ");
         }
         is_valid
     }
