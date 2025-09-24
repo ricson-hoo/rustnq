@@ -88,10 +88,12 @@ impl Condition {
         let mut is_valid = condition.chars().all(|c| {
             c.is_alphanumeric() || c.is_whitespace() ||
                 c == '=' || c == '>' || c == '<' ||
-                c == '\'' || c == '"' ||
+                c == '\'' || c == '"' || c == '`' ||
                 c == '-' || c == '_' ||
+                c == '(' || c == ')' ||
                 c == '&' || c == '|' ||
-                c.is_digit(10) ||  // 允许数字
+                c == '.' ||
+            c.is_digit(10) ||  // 允许数字
                 (c >= '\u{4E00}' && c <= '\u{9FA5}') // 允许中文字符（CJK 统一汉字范围）
         });
         if is_valid {
