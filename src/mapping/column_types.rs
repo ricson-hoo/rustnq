@@ -2085,6 +2085,11 @@ impl crate::mapping::column_types::Date {
         Condition::new(format!("{} >= '{}'", self.qualified_name(), value.to_string()))
     }
 
+    pub fn equal<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} = '{}'", self.qualified_name(), value.to_string()))
+    }
+
     pub fn gt<T: ToString>(&self, value: T) -> Condition
     {
         Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
@@ -2133,6 +2138,21 @@ impl From<Date> for Varchar {
             name: i.name.clone(),
             alias: i.alias.clone(),
             value: i.value().clone().map(|v| v.to_string()),
+            sub_query: i.sub_query.clone(),
+            holding: i.holding.clone(),
+            is_encrypted: i.is_encrypted,
+        }
+    }
+}
+
+impl From<Timestamp> for Date {
+    fn from(i: Timestamp) -> Self {
+        //Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
+        Date{
+            table: i.table.clone(),
+            name: i.name.clone(),
+            alias: i.alias.clone(),
+            value: i.value().clone().map(|v| v.date_naive()),
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
