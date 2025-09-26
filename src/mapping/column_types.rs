@@ -6,6 +6,7 @@ use std::fmt;
 use std::str::FromStr;
 use crate::utils::date_sub_unit::DateSubUnit;
 use crate::configuration::{encryptor, get_encryptor};
+use chrono::NaiveDateTime;
 
 pub trait And {
     fn and(&self, other:& (impl Column + Clone+ 'static)) -> Vec<String>;
