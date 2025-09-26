@@ -2379,6 +2379,26 @@ impl crate::mapping::column_types::Timestamp {
         self.clone()
     }
 
+    pub fn in_date(&self, input: NaiveDate) -> Condition
+    {
+        // 获取开始时间戳 (当天的开始时间)
+        let timestamp_begin = NaiveDateTime::new(input, NaiveTime::from_hms(0, 0, 0));
+        // 获取结束时间戳 (当天的结束时间)
+        let timestamp_end = NaiveDateTime::new(input, NaiveTime::from_hms(23, 59, 59));
+
+        // 将它们格式化为字符串
+        let timestamp_begin_str = timestamp_begin.to_string();
+        let timestamp_end_str = timestamp_end.to_string();
+
+        // 创建 Condition 对象
+        Condition::new(format!(
+            "{} BETWEEN '{}' AND '{}'",
+            self.qualified_name(),
+            timestamp_begin_str,
+            timestamp_end_str
+        ))
+    }
+
     pub fn desc(&self) -> SelectField{
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.alias(), self.is_encrypted()))
     }
