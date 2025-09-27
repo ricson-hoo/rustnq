@@ -23,6 +23,7 @@ use crate::utils::stringUtils::to_camel_case;
 use crate::mapping::description::SqlColumn;
 use crate::query::builder::JoinType::{INNER, LEFT};
 use crate::query::select;
+use crate::result::PagingData;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum BuildErrorType {
@@ -174,15 +175,15 @@ impl TableJoin{
 }
 
 #[derive(Debug,Clone)]
-pub struct LimitJoin{
+pub struct Limit {
     offset: i32,
-    row_count: i32,
+    limit: i32,
 }
-impl LimitJoin{
-    pub fn new(offset: i32, row_count: i32) -> Self {
-        LimitJoin{
+impl Limit{
+    pub fn new(offset: i32, limit: i32) -> Self {
+        Limit{
             offset,
-            row_count,
+            limit,
         }
     }
 }
@@ -530,16 +531,17 @@ pub struct QueryBuilder {
     operation:Operation,
     is_select_all:Option<bool>,
     distinct:Option<bool>,
+    count_all:Option<bool>,
     pub target_table: Option<TargetTable>,//Option<String>,
     select_fields: Vec<SelectField>,
     pending_join: Option<TableJoin>,
     joins: Vec<TableJoin>,
     //upsert_values: Vec<String>,//insert values or update values
     conditions: Vec<Condition>,
-    limit:Option<LimitJoin>,
+    limit:Option<Limit>,
     order_by:Vec<SelectField>,
     group_by:Vec<SelectField>,
-    update_values: Vec<(SelectField, SelectField)>, // 用于存储更新字段和值的元组
+    update_values: Vec<(SelectField, SelectField)>, // 用于存储更新字段和值
 }
 
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>, is_encrypted:bool){
@@ -851,53 +853,53 @@ pub fn construct_upsert_primary_key_value(columns:&Vec<SqlColumn>, insert_fields
 impl QueryBuilder {
 
     pub fn select_all_fields() -> QueryBuilder {
-        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None,count_all:None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn init_with_select_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, count_all:None,target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn init_with_select_all_fields<A>(table: & A) -> QueryBuilder where A : Table {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn init_with_select_distinct_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), count_all:None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn update<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update_By_Condition,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Update_By_Condition,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update_By_PrimaryKey,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Update_By_PrimaryKey,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(LimitJoin::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn delete_all_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![] }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
@@ -997,12 +999,12 @@ impl QueryBuilder {
     }
 
     pub fn limit(mut self, limit: i32) -> QueryBuilder {
-        self.limit = Some(LimitJoin::new(0, limit));
+        self.limit = Some(Limit::new(0, limit));
         self
     }
 
     pub fn limit_offset(mut self, limit: i32, offset: i32) -> QueryBuilder {
-        self.limit = Some(LimitJoin::new(offset, limit));
+        self.limit = Some(Limit::new(offset, limit));
         self
     }
 
@@ -1069,9 +1071,72 @@ impl QueryBuilder {
         }
     }
 
+    ///paging query
+    pub async fn fetch_paging<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
+
+        let pool = POOL.get().unwrap();
+        let mut count_query_builder = self.clone();
+        count_query_builder.select_fields = vec![SelectField::Untyped("count(*)".to_string())];
+        count_query_builder.limit = None;
+        let count_query_build_result = count_query_builder.build();
+
+        let mut count = 0;
+
+        if let Ok(query_string) = count_query_build_result {
+            println!("count query string # {}", query_string);
+
+            count = sqlx::query(&query_string)
+                .try_map(|row:MySqlRow| {
+                    self.convert_to_number(row)
+                })
+                .fetch_one(pool)
+                .await?;
+        }else if let Err(e) = count_query_build_result {
+           return  Err(Error::Configuration(e.message.into()))
+        }else {
+            return Err(Error::Configuration("未知错误".into()))
+        }
+
+        let build_result = self.build();
+        if let Ok(query_string) = build_result {
+            println!("query string # {}", query_string);
+
+            let jsons = sqlx::query(&query_string)
+                .try_map(|row:MySqlRow| {
+                    self.convert_to_json_value(row)
+                })
+                .fetch_all(pool)
+                .await?;
+
+            let mut result = Vec::new();
+            for json in jsons {
+                let item_parsed_result = serde_json::from_value::<T>(json.clone());
+                match item_parsed_result {
+                    Ok(item_parsed) => {
+                        result.push(item_parsed);
+                    }
+                    Err(err) => {println!("error={:?}", err);}
+                }
+                // if let Ok(item_parsed) = item_parsed_result {
+                //     result.push(item_parsed);
+                // }else {
+                //     println!("entity={:?}", json);
+                //     // println!("注意类型不匹配");
+                // }
+            }
+            let limit = self.limit.clone().unwrap().limit;
+            let current_page = self.limit.clone().unwrap().offset/limit.clone()+1;
+            Ok(PagingData::new(result,Some(current_page), Some(limit), Some(count)))
+        }else if let Err(e) = build_result {
+            Err(Error::Configuration(e.message.into()))
+        }else {
+            Err(Error::Configuration("未知错误".into()))
+        }
+    }
+
     pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&mut self) -> Result<Option<T>,Error> {
 
-        self.limit = Some(LimitJoin::new(0, 1));
+        self.limit = Some(Limit::new(0, 1));
 
         let pool = POOL.get().unwrap();
         let build_result = self.build();
@@ -1149,7 +1214,7 @@ impl QueryBuilder {
             if type_detail.contains("ColumnFlags(SET)"){
                 type_name = "SET";
             }
-             println!("type_name of {} {} {}",column_name, type_name, type_detail);
+            //println!("type_name of {} {} {}",column_name, type_name, type_detail);
             match type_name {
                 "VARCHAR" => {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
@@ -1349,7 +1414,7 @@ impl QueryBuilder {
                     }
                 }
                 &_ => {
-                    println!("type_name of {} {} {}",column_name, type_name, type_detail);
+                    //println!("type_name of {} {} {}",column_name, type_name, type_detail);
                     json_obj[column_name] = serde_json::Value::Null;
                     json_obj[camel_case_column_name] = serde_json::Value::Null;
                 }
@@ -1375,7 +1440,7 @@ impl QueryBuilder {
                     }
                 }
                 &_ => {
-                    println!("type_name of {} {}",column_name, type_name);
+                    //println!("type_name of {} {}",column_name, type_name);
                 }
             }
         }
@@ -1403,6 +1468,7 @@ impl QueryBuilder {
                         return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
                     }
                 }
+
                 if self.target_table.is_some() {
                     queryString = format!("{} from {}",queryString, self.target_table.clone().unwrap().name);
                 }else {
@@ -1434,7 +1500,7 @@ impl QueryBuilder {
                             .join(", "));
                 }
                 if self.limit.is_some() {
-                    queryString = format!("{} limit {}, {}",queryString,self.clone().limit.unwrap().offset,self.clone().limit.unwrap().row_count);
+                    queryString = format!("{} limit {}, {}",queryString,self.clone().limit.unwrap().offset,self.clone().limit.unwrap().limit);
                 }
             },
             Operation::Insert => {
