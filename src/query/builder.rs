@@ -1097,11 +1097,16 @@ impl QueryBuilder {
             return Err(Error::Configuration("未知错误".into()))
         }
 
-        if self.limit.is_none() {
-            self.limit = Limit::new(0,20);
+        let mut query_builder = self.clone();
+        if query_builder.limit.is_none() {
+            query_builder.limit = Some(Limit::new(0,20));
+        }else if let(Some(ref limit)) = query_builder.limit{
+            if limit.limit < 1 {
+                query_builder.limit = Some(Limit::new(limit.offset.clone(),1));
+            }
         }
 
-        let build_result = self.build();
+        let build_result = query_builder.build();
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
 
@@ -1128,11 +1133,8 @@ impl QueryBuilder {
                 //     // println!("注意类型不匹配");
                 // }
             }
-            let mut limit = self.limit.clone().unwrap().limit;
-            if limit <1 {
-                limit = 20;
-            }
-            let current_page = self.limit.clone().unwrap().offset/limit.clone()+1;
+            let mut limit = query_builder.limit.clone().unwrap().limit;
+            let current_page = query_builder.limit.clone().unwrap().offset/limit.clone()+1;
             Ok(PagingData::new(result,Some(current_page), Some(limit), Some(count)))
         }else if let Err(e) = build_result {
             Err(Error::Configuration(e.message.into()))
