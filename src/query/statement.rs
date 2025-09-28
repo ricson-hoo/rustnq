@@ -66,6 +66,10 @@ pub fn year<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("YEAR ({})", field.into().to_string()))
 }
 
+pub fn date<T: Into<SelectField>>(field:T) -> Varchar{
+    Varchar::with_name(format!("DATE ({})", field.into().to_string()))
+}
+
 pub fn month<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("MONTH ({})", field.into().to_string()))
 }

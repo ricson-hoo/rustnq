@@ -1247,6 +1247,14 @@ impl<T:Clone+Into<String>> Set<T> {
             None => None
         }
     }
+    
+    pub fn in_(&self, input_list: Vec<T>) -> Condition
+    {
+        Condition::new(format!("{} in ({})", self.qualified_name(), input_list.into_iter()
+            .map(|input| format!("'{}'", input.into().to_string()))
+            .collect::<Vec<String>>()
+            .join(" , ")))
+    }
 }
 
 impl <T:Clone+Into<String>> Column for Set<T> {
