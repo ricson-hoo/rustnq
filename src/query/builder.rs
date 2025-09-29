@@ -94,7 +94,7 @@ impl Condition {
                 c == '(' || c == ')' ||
                 c == '&' || c == '|' ||
                 c == '.' || c == ',' ||
-                c == ':' ||
+                c == ':' || c== '!' ||
             c.is_digit(10) ||  // 允许数字
                 (c >= '\u{4E00}' && c <= '\u{9FA5}') // 允许中文字符（CJK 统一汉字范围）
         });
@@ -1126,12 +1126,6 @@ impl QueryBuilder {
                     }
                     Err(err) => {println!("error={:?}", err);}
                 }
-                // if let Ok(item_parsed) = item_parsed_result {
-                //     result.push(item_parsed);
-                // }else {
-                //     println!("entity={:?}", json);
-                //     // println!("注意类型不匹配");
-                // }
             }
             let mut limit = query_builder.limit.clone().unwrap().limit;
             let current_page = query_builder.limit.clone().unwrap().offset/limit.clone()+1;
