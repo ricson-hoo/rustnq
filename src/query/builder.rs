@@ -1146,17 +1146,54 @@ impl QueryBuilder {
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
 
-            let json_result = sqlx::query(&query_string)
+            let query_result = sqlx::query(&query_string)
                 .try_map(|row:MySqlRow| {
                     self.convert_to_json_value(row)
                 })
                 .fetch_one(pool)
                 .await;
 
-            match json_result {
-                Ok(json)=>{
-                     println!("json of product {:#?}", json);
-                    let json_parse_result = serde_json::from_value(json);
+            match query_result {
+                Ok(result)=>{
+                    let colums_count = self.select_fields.len();
+                    // 单列标量分支
+                    if colums_count == 1 {
+                        // 处理单列的查询
+                        let json_obj = result.as_object();
+                        match json_obj {
+                            Some(obj) => {
+                                // 用 row 拿到第一列列名
+                                let first_col_name = obj.keys().next().map(|k| k.to_string());
+                                match first_col_name {
+                                    Some(col_name) => {
+                                        match obj.get(&col_name) {
+                                            Some(v) => {
+                                                match serde_json::from_value::<T>(v.clone()) {
+                                                    Ok(val) => {
+                                                        return Ok(Some(val));
+                                                    }
+                                                    Err(e) => {
+                                                        return Err(Error::Decode(e.to_string().into()));
+                                                    }
+                                                }
+                                            }
+                                            None => {
+                                                return Err(Error::Decode(format!("列 {} 未在 JSON 结果中找到", col_name).into()));
+                                            }
+                                        }
+                                    }
+                                    None => {
+                                        return Err(Error::Decode("JSON 结果不是对象".into()));
+                                    }
+                                }
+                            }
+                            None => {
+                                return Err(Error::Decode("JSON 结果不是对象".into()));
+                            }
+                        }
+                    }
+
+                    let json_parse_result = serde_json::from_value(result);
                     match json_parse_result {
                         Ok(json)=>{
                             Ok(Some(json))
