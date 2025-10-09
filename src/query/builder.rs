@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time};
 use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
 use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
 use url::Url;
@@ -384,8 +384,36 @@ impl From<Boolean> for SelectField{
         }
     }
 }
+
 impl From<Datetime> for SelectField{
     fn from(value: Datetime) -> SelectField {
+        match value.holding() {
+            Holding::Name=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+            },
+            Holding::Value => {
+                if value.alias().is_some() {
+                    SelectField::Untyped(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
+                }else {
+                    SelectField::Untyped(format!("{}",&value.value().unwrap_or_default()))
+                }
+            },
+            Holding::NameValue=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+            },
+            Holding::SubQuery=> {
+                if let Some(sub_query) = value.sub_query(){
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(value.name())})
+                }else{
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(value.name())})
+                }
+            }
+        }
+    }
+}
+
+impl From<Time> for SelectField{
+    fn from(value: Time) -> SelectField {
         match value.holding() {
             Holding::Name=> {
                 SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))

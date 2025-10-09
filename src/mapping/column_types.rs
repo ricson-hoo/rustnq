@@ -2201,7 +2201,7 @@ pub struct Time{
     is_encrypted:bool
 }
 
-impl crate::mapping::column_types::Time {
+impl Time {
     pub fn with_name(name: String) -> Self {
         crate::mapping::column_types::Time { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
@@ -2235,6 +2235,15 @@ impl crate::mapping::column_types::Time {
         self.alias = Some(alias.to_string());
         self.clone()
     }
+
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+
 }
 
 impl Column for crate::mapping::column_types::Time {
