@@ -24,6 +24,7 @@ use crate::mapping::description::SqlColumn;
 use crate::query::builder::JoinType::{INNER, LEFT};
 use crate::query::select;
 use crate::result::PagingData;
+use crate::mapping::column_types::Set;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum BuildErrorType {
@@ -495,6 +496,18 @@ impl <T:Clone+Into<String>> From<Enum<T>> for SelectField{
 
 impl <T:Clone+Into<String>> From<&Enum<T>> for SelectField{
     fn from(value: &Enum<T>) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl <T:Clone+Into<String>> From<Set<T>> for SelectField{
+    fn from(value: Set<T>) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+    }
+}
+
+impl <T:Clone+Into<String>> From<&Set<T>> for SelectField{
+    fn from(value: &Set<T>) -> SelectField {
         SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
     }
 }
@@ -1299,7 +1312,7 @@ impl QueryBuilder {
                     }
                 }
                 "INT" | "BIGINT" => {
-                    println!("decoding INT {}",column_name);
+                    //println!("decoding INT {}",column_name);
                     let value_result: Result<Option<i32>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1334,7 +1347,7 @@ impl QueryBuilder {
                     }
                 }
                 "BOOLEAN" => {   //max_size为1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(1) }
-                    println!("decoding BOOLEAN {}",column_name);
+                    //println!("decoding BOOLEAN {}",column_name);
                     let value_result: Result<Option<i8>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1349,7 +1362,7 @@ impl QueryBuilder {
                     }
                 }
                 "TINYINT" => {//max_size>1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(4) }
-                    println!("decoding TINYINT {}",column_name);
+                    //println!("decoding TINYINT {}",column_name);
                     let value_result: Result<Option<i8>, Error> = row.try_get(i);
 
                     if let Ok(value) = value_result {
