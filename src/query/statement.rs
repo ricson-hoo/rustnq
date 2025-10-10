@@ -51,7 +51,7 @@ pub fn not_exists(sql:QueryBuilder) -> Condition{
 }
 
 pub fn max<T: Into<SelectField>>(field:T) -> Varchar{
-    Varchar::with_name(format!("max ({})", field.into().to_string()))
+    Varchar::with_name(format!("max({})", field.into().to_string()))
 }
 
 pub fn timestamp_diff<T: Into<SelectField>>(date: T, unit: DateSubUnit) -> Int{
