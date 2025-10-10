@@ -1119,6 +1119,7 @@ impl QueryBuilder {
         let mut count_query_builder = self.clone();
         count_query_builder.select_fields = vec![SelectField::Untyped("count(*)".to_string())];
         count_query_builder.limit = None;
+        count_query_builder.order_by = None;
         let count_query_build_result = count_query_builder.build();
 
         let mut count = 0;
