@@ -1,6 +1,6 @@
 use crate::mapping::description::{Table, Column, Holding};
 use std::{fmt, fmt::write, format, result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
@@ -192,14 +192,15 @@ impl Limit{
 pub struct Field {
     pub table: String,
     pub name: String,
+    pub target: Option<String>,
     pub as_: Option<String>,
     pub is_encrypted: bool,
 }
 
 impl Field {
-    pub fn new(table: &str, name: &str, as_: Option<String>, is_encrypted: bool) -> Self {
+    pub fn new(table: &str, name: &str, target: Option<String>, as_: Option<String>, is_encrypted: bool) -> Self {
         Field{
-            table:table.to_string(),name:name.to_string(), as_, is_encrypted,
+            table:table.to_string(),name:name.to_string(), target, as_, is_encrypted,
         }
     }
 }
@@ -207,6 +208,7 @@ impl Field {
 #[derive(Debug,Clone)]
 pub struct SubqueryField {
     pub query_builder: QueryBuilder,
+    pub target: Option<String>,
     pub as_: Option<String>,
 }
 
@@ -217,34 +219,50 @@ pub enum SelectField {
     Untyped(String),
 }
 
+impl SelectField {
+    pub fn target(&self, target: &str) -> Self {
+        match self {
+            SelectField::Field(field) => SelectField::Field(Field::new(&field.table, &field.name, Some(target.to_string()), field.as_.clone(), field.is_encrypted)),
+            SelectField::Subquery(subquery_field) => SelectField::Subquery(SubqueryField{
+                query_builder: subquery_field.query_builder.clone(),
+                target: Some(target.to_string()),
+                as_: subquery_field.as_.clone(),
+            }),
+            SelectField::Untyped(String) => self.clone(), //target for String is not support, pls write it directly as SelectField::Untyped("'xxx' as aaa__bbb".to_string()) where aaa is target
+        }
+    }
+}
+
+
+
 impl From<&SqlColumn> for SelectField {
     fn from(value: &SqlColumn) -> SelectField {
         match value {
-            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), def.alias(),def.is_encrypted()))),
-            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
         }
     }
 }
@@ -252,31 +270,31 @@ impl From<&SqlColumn> for SelectField {
 impl From<SqlColumn> for SelectField {
     fn from(value: SqlColumn) -> SelectField {
         match value {
-            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), def.alias(),def.is_encrypted()))),
-            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
-            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(),def.alias(),def.is_encrypted()))),
+            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
         }
     }
 }
@@ -285,7 +303,7 @@ impl From<&Varchar> for SelectField{
     fn from(varchar: &Varchar) -> SelectField {
         match varchar.holding() {
             Holding::Name=> {
-                SelectField::Field(Field::new(&varchar.table(),&varchar.name(),varchar.alias(),varchar.is_encrypted()))
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()))
             },
             Holding::Value => {
                 if varchar.alias().is_some() {
@@ -295,13 +313,13 @@ impl From<&Varchar> for SelectField{
                 }
             },
             Holding::NameValue=> {
-                SelectField::Field(Field::new(&varchar.table(),&varchar.name(),varchar.alias(),varchar.is_encrypted()))
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()))
             },
             Holding::SubQuery=> {
                 if let Some(sub_query) = varchar.sub_query(){
-                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(varchar.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(varchar.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("'?'".to_string())]), as_:Some(varchar.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("'?'".to_string())]), target:None, as_:Some(varchar.name())})
                 }
             }
         }
@@ -311,7 +329,7 @@ impl From<Varchar> for SelectField{
     fn from(varchar: Varchar) -> SelectField {
         match varchar.holding() {
             Holding::Name=> {
-                SelectField::Field(Field::new(&varchar.table(),&varchar.name(),varchar.alias(),varchar.is_encrypted()))
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()))
             },
             Holding::Value => {
                 if varchar.alias().is_some() {
@@ -321,13 +339,13 @@ impl From<Varchar> for SelectField{
                 }
             },
             Holding::NameValue=> {
-                SelectField::Field(Field::new(&varchar.table(),&varchar.name(),varchar.alias(),varchar.is_encrypted()))
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()))
             },
             Holding::SubQuery=> {
                 if let Some(sub_query) = varchar.sub_query(){
-                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(varchar.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(varchar.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(varchar.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), target:None, as_:Some(varchar.name())})
                 }
             }
         }
@@ -337,7 +355,7 @@ impl From<Int> for SelectField{
     fn from(value: Int) -> SelectField {
         match value.holding() {
             Holding::Name=> {
-                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
             },
             Holding::Value => {
                 if value.alias().is_some() {
@@ -347,13 +365,13 @@ impl From<Int> for SelectField{
                 }
             },
             Holding::NameValue=> {
-                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
             },
             Holding::SubQuery=> {
                 if let Some(sub_query) = value.sub_query(){
-                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -363,7 +381,7 @@ impl From<Boolean> for SelectField{
     fn from(value: Boolean) -> SelectField {
         match value.holding() {
             Holding::Name=> {
-                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
             },
             Holding::Value => {
                 if value.alias().is_some() {
@@ -373,13 +391,13 @@ impl From<Boolean> for SelectField{
                 }
             },
             Holding::NameValue=> {
-                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
             },
             Holding::SubQuery=> {
                 if let Some(sub_query) = value.sub_query(){
-                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -390,7 +408,7 @@ impl From<Datetime> for SelectField{
     fn from(value: Datetime) -> SelectField {
         match value.holding() {
             Holding::Name=> {
-                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
             },
             Holding::Value => {
                 if value.alias().is_some() {
@@ -400,13 +418,13 @@ impl From<Datetime> for SelectField{
                 }
             },
             Holding::NameValue=> {
-                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
             },
             Holding::SubQuery=> {
                 if let Some(sub_query) = value.sub_query(){
-                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -417,7 +435,7 @@ impl From<Time> for SelectField{
     fn from(value: Time) -> SelectField {
         match value.holding() {
             Holding::Name=> {
-                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
             },
             Holding::Value => {
                 if value.alias().is_some() {
@@ -427,13 +445,13 @@ impl From<Time> for SelectField{
                 }
             },
             Holding::NameValue=> {
-                SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
             },
             Holding::SubQuery=> {
                 if let Some(sub_query) = value.sub_query(){
-                    SelectField::Subquery(SubqueryField{query_builder:sub_query, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -442,73 +460,73 @@ impl From<Time> for SelectField{
 
 impl From<Bigint> for SelectField{
     fn from(value: Bigint) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl From<&Bigint> for SelectField{
     fn from(value: &Bigint) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl From<Date> for SelectField{
     fn from(value: Date) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl From<&Date> for SelectField{
     fn from(value: &Date) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl From<Decimal> for SelectField{
     fn from(value: Decimal) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl From<&Decimal> for SelectField{
     fn from(value: &Decimal) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl From<Timestamp> for SelectField{
     fn from(value: Timestamp) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl From<&Timestamp> for SelectField{
     fn from(value: &Timestamp) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl <T:Clone+Into<String>> From<Enum<T>> for SelectField{
     fn from(value: Enum<T>) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl <T:Clone+Into<String>> From<&Enum<T>> for SelectField{
     fn from(value: &Enum<T>) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl <T:Clone+Into<String>> From<Set<T>> for SelectField{
     fn from(value: Set<T>) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
 impl <T:Clone+Into<String>> From<&Set<T>> for SelectField{
     fn from(value: &Set<T>) -> SelectField {
-        SelectField::Field(Field::new(&value.table(),&value.name(),value.alias(),value.is_encrypted()))
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
 
@@ -538,9 +556,16 @@ impl ToString for Field {
                 alias = Some(self.name.clone())
             }
         }
-        if alias.is_some() {
-            qualified_field = format!("{} AS {}", qualified_field, alias.unwrap());
+
+        if self.target.is_some() {
+            if alias.is_some() {
+                qualified_field = format!("{} AS {}__{}", qualified_field, self.target.clone().unwrap(), alias.unwrap());
+            }else{
+                qualified_field = format!("{} AS {}__{}", qualified_field, self.target.clone().unwrap(), self.name);
+            }
         }
+
+
         qualified_field
     }
 }
@@ -1289,7 +1314,18 @@ impl QueryBuilder {
         let columns = row.columns();
         let mut i=0;
         for column in columns {
-            let column_name = column.name();
+            let mut column_name = column.name();
+            let mut obj_name: Option<String> = None;
+            if column_name.contains("__"){
+                let parts: Vec<&str> = column_name.split("__").collect();
+                if parts.len() == 2 {
+                    obj_name = Some(parts[0].to_string());
+                    column_name = parts[1];
+                    if !json_obj[obj_name.as_ref().unwrap()].is_object() {
+                        json_obj[obj_name.as_ref().unwrap()] = json!({});
+                    }
+                }
+            }
             let camel_case_column_name = to_camel_case(&column_name);
             let mut type_name = column.type_info().name();
             let type_detail = format!("{:?}", column.type_info());
@@ -1302,11 +1338,21 @@ impl QueryBuilder {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = serde_json::Value::String(value.clone());
-                            json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
+                            }else {
+                                json_obj[column_name] = serde_json::Value::String(value.clone());
+                                json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                            }
                         }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1317,11 +1363,21 @@ impl QueryBuilder {
                     let value_result: Result<Option<i32>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = value.clone().into();
-                            json_obj[camel_case_column_name] = value.into();
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                            }else {
+                                json_obj[column_name] = value.clone().into();
+                                json_obj[camel_case_column_name] = value.into();
+                            }
                         }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1333,15 +1389,30 @@ impl QueryBuilder {
                         if let Some(value) = value {
                             // 将 Decimal 转换为 f64
                             if let Some(float_value) = value.to_f64() {
-                                json_obj[column_name] = float_value.clone().into();
-                                json_obj[camel_case_column_name] = float_value.into();
+                                if obj_name.is_some() {
+                                    json_obj[obj_name.as_ref().unwrap()][column_name] = float_value.clone().into();
+                                    json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = float_value.into();
+                                }else {
+                                    json_obj[column_name] = float_value.clone().into();
+                                    json_obj[camel_case_column_name] = float_value.into();
+                                }
                             } else {
+                                if obj_name.is_some() {
+                                    json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                    json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                                }else {
+                                    json_obj[column_name] = serde_json::Value::Null;
+                                    json_obj[camel_case_column_name] = serde_json::Value::Null;
+                                }
+                            }
+                        }else {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
                                 json_obj[column_name] = serde_json::Value::Null;
                                 json_obj[camel_case_column_name] = serde_json::Value::Null;
                             }
-                        }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1352,11 +1423,21 @@ impl QueryBuilder {
                     let value_result: Result<Option<i8>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = if value>0 {serde_json::Value::Bool(true)} else {serde_json::Value::Bool(false)};
-                            json_obj[camel_case_column_name] = if value>0 {serde_json::Value::Bool(true)} else {serde_json::Value::Bool(false)};
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = if value>0 {serde_json::Value::Bool(true)} else {serde_json::Value::Bool(false)};
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = if value>0 {serde_json::Value::Bool(true)} else {serde_json::Value::Bool(false)};
+                            }else {
+                                json_obj[column_name] = if value > 0 { serde_json::Value::Bool(true) } else { serde_json::Value::Bool(false) };
+                                json_obj[camel_case_column_name] = if value > 0 { serde_json::Value::Bool(true) } else { serde_json::Value::Bool(false) };
+                            }
                         }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1368,11 +1449,21 @@ impl QueryBuilder {
 
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = serde_json::Value::Number(value.into());
-                            json_obj[camel_case_column_name] = serde_json::Value::Number(value.into());
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(value.into());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(value.into());
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Number(value.into());
+                                json_obj[camel_case_column_name] = serde_json::Value::Number(value.into());
+                            }
                         }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1382,11 +1473,21 @@ impl QueryBuilder {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = serde_json::Value::String(value.clone());
-                            json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
+                            }else {
+                                json_obj[column_name] = serde_json::Value::String(value.clone());
+                                json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                            }
                         }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1402,11 +1503,21 @@ impl QueryBuilder {
                                     .map(|s| serde_json::Value::String(s.trim().to_string()))  // Optional: trim whitespace and convert to String
                                     .collect::<Vec<_>>();
                             }
-                            json_obj[column_name] = serde_json::Value::Array(values.clone());
-                            json_obj[camel_case_column_name] = serde_json::Value::Array(values);
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Array(values.clone());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Array(values);
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Array(values.clone());
+                                json_obj[camel_case_column_name] = serde_json::Value::Array(values);
+                            }
                         }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1418,12 +1529,22 @@ impl QueryBuilder {
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
                             let timestamp = value.and_utc().timestamp();
-                            json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                            json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                                json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            }
 
                         }else{
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1434,11 +1555,21 @@ impl QueryBuilder {
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
                             let cur_value = value.timestamp_millis();
-                            json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
-                            json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                                json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                            }
                         }else{
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1449,12 +1580,22 @@ impl QueryBuilder {
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
                             let timestamp = value.and_time(NaiveTime::default()).and_utc().timestamp_millis();
-                            json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                            json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                                json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                            }
 
                         }else{
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1465,11 +1606,21 @@ impl QueryBuilder {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
-                            json_obj[column_name] = serde_json::Value::String(value.clone());
-                            json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
+                            }else {
+                                json_obj[column_name] = serde_json::Value::String(value.clone());
+                                json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                            }
                         }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
@@ -1481,8 +1632,13 @@ impl QueryBuilder {
                         if let Some(value) = value {
                             match String::from_utf8(value) {
                                 Ok(utf8_str) => {
-                                    json_obj[column_name] = serde_json::Value::String(utf8_str.to_string());
-                                    json_obj[camel_case_column_name] = serde_json::Value::String(utf8_str.to_string());
+                                    if obj_name.is_some() {
+                                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(utf8_str.to_string());
+                                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(utf8_str.to_string());
+                                    }else {
+                                        json_obj[column_name] = serde_json::Value::String(utf8_str.to_string());
+                                        json_obj[camel_case_column_name] = serde_json::Value::String(utf8_str.to_string());
+                                    }
                                 }
                                 Err(_) => {
                                     json_obj[column_name] = serde_json::Value::Null;
@@ -1490,15 +1646,25 @@ impl QueryBuilder {
                                 }
                             }
                         }else {
-                            json_obj[column_name] = serde_json::Value::Null;
-                            json_obj[camel_case_column_name] = serde_json::Value::Null
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
                         }
                     }
                 }
                 &_ => {
                     //println!("type_name of {} {} {}",column_name, type_name, type_detail);
-                    json_obj[column_name] = serde_json::Value::Null;
-                    json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
                 }
             }
 

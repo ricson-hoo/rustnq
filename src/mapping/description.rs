@@ -207,3 +207,15 @@ pub struct TableFieldConstructInfo {
     pub sql_column_type:Option<SqlColumn>,
     pub sql_column_type_modified:bool
 }
+
+pub trait Target {
+    fn target(&self, name: &str) -> Vec<SelectField>;
+}
+
+impl Target for Vec<SqlColumn> {
+     fn target(&self, target: &str) -> Vec<SelectField> {
+        self.iter().map(|col| {
+            let select_field = SelectField::from(col); select_field.target(target)
+        }).collect()
+    }
+}
