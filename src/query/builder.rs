@@ -558,10 +558,14 @@ impl ToString for Field {
         }
 
         if self.target.is_some() {
+            let mut target = self.target.clone().unwrap_or_default();
+            if target.contains("."){
+                target = target.replace(".","__");
+            }
             if alias.is_some() {
-                qualified_field = format!("{} AS {}__{}", qualified_field, self.target.clone().unwrap(), alias.unwrap());
+                qualified_field = format!("{} AS {}__{}", qualified_field, &target, alias.unwrap());
             }else{
-                qualified_field = format!("{} AS {}__{}", qualified_field, self.target.clone().unwrap(), self.name);
+                qualified_field = format!("{} AS {}__{}", qualified_field, &target, self.name);
             }
         }
 
