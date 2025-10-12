@@ -567,8 +567,9 @@ impl ToString for Field {
             }else{
                 qualified_field = format!("{} AS {}__{}", qualified_field, &target, self.name);
             }
+        }else if alias.is_some() {
+            qualified_field = format!("{} AS {}", qualified_field, alias.unwrap());
         }
-
 
         qualified_field
     }
