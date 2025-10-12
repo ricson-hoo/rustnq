@@ -219,3 +219,15 @@ impl Target for Vec<SqlColumn> {
         }).collect()
     }
 }
+
+pub trait ToSelectFields {
+    fn asFields(&self) -> Vec<SelectField>;
+}
+
+impl ToSelectFields for Vec<SqlColumn> {
+    fn asFields(&self) -> Vec<SelectField> {
+        self.iter().map(|col| {
+            SelectField::from(col)
+        }).collect()
+    }
+}
