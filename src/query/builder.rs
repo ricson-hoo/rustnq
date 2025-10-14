@@ -1196,7 +1196,10 @@ impl QueryBuilder {
                     Ok(item_parsed) => {
                         result.push(item_parsed);
                     }
-                    Err(err) => {println!("error={:?}", err);}
+                    Err(err) => {
+                        println!("error={:?}", err);
+                        return Err(Error::Configuration(err.into()))
+                    }
                 }
             }
             let mut limit = query_builder.limit.clone().unwrap().limit;
