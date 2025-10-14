@@ -1337,6 +1337,9 @@ impl QueryBuilder {
             if type_detail.contains("ColumnFlags(SET)"){
                 type_name = "SET";
             }
+            if type_detail.contains("ColumnFlags(MULTIPLE_KEY | SET)"){
+                type_name = "SET";
+            }
             //println!("type_name of {} {} {}",column_name, type_name, type_detail);
             match type_name {
                 "VARCHAR" => {
