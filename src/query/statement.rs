@@ -23,8 +23,12 @@ pub fn select_distinct<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
     QueryBuilder::init_with_select_distinct_fields(fields)
 }
 
+pub fn sum<T: Into<SelectField>>(field:T) -> Bigint{
+   Bigint::with_name(format!("sum({})", field.into().to_string()))
+}
+
 pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
-   Bigint::with_name(format!("count({})", field.into().to_string()))
+    Bigint::with_name(format!("count({})", field.into().to_string()))
 }
 
 pub fn count_all() -> Bigint{
