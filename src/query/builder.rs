@@ -1,4 +1,4 @@
-use crate::mapping::description::{Table, Column, Holding};
+﻿use crate::mapping::description::{Table, Column, Holding};
 use std::{fmt, fmt::write, format, result};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -1599,6 +1599,33 @@ impl QueryBuilder {
                                 json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
                             }
 
+                        }else{
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                "TIME" => {
+                    // Handle TIME type
+                    let value_result: Result<Option<chrono::NaiveTime>, _> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            // Convert NaiveTime to string format "HH:MM:SS"
+                            let time_str = value.format("%H:%M:%S").to_string();
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(time_str.clone());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(time_str);
+                            }else {
+                                json_obj[column_name] = serde_json::Value::String(time_str.clone());
+                                json_obj[camel_case_column_name] = serde_json::Value::String(time_str);
+                            }
                         }else{
                             if obj_name.is_some() {
                                 json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
