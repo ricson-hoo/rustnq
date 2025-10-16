@@ -11,6 +11,7 @@ use crate::configuration::{get_processors, PROCESSORS};
 use crate::mapping::column_types::Varchar;
 use crate::query::builder::construct_upsert_primary_key_value;
 use crate::utils::date_sub_unit::DateSubUnit;
+use std::any::Any;
 
 pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
     let fields = fields.into_iter().map(|field| field.into()).collect();
@@ -24,6 +25,38 @@ pub fn select_distinct<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
 
 pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
    Bigint::with_name(format!("count({})", field.into().to_string()))
+}
+
+pub fn count_all() -> Bigint{
+    Bigint::with_name("count(*)".to_string())
+}
+
+pub fn count_distinct<T: Into<SelectField>>(field:T) -> Bigint{
+    Bigint::with_name(format!("count(distinct {})", field.into().to_string()))
+}
+
+pub fn case_when<T:Any+ std::fmt::Display>(cases:Vec<(Condition, Option<T>)>, else_value:Option<T>) -> SelectField{
+    let mut case = "CASE".to_string();
+
+    // Add WHEN conditions
+    for (condition, value) in cases {
+        if let Some(val) = value {
+            case.push_str(&format!(" WHEN {} THEN '{}'", condition, val));
+        }else{
+            case.push_str(" WHEN {} THEN null");
+        }
+    }
+
+    // Add ELSE clause if provided
+    if let Some(else_val) = else_value {
+        case.push_str(&format!(" ELSE '{}'", else_val));
+    }else {
+        case.push_str(" ELSE null");
+    }
+
+    case.push_str(" END");
+
+    SelectField::Untyped(case)
 }
 
 pub fn union_all(sql_list: Vec<QueryBuilder>) -> QueryBuilder{
@@ -72,14 +105,6 @@ pub fn date<T: Into<SelectField>>(field:T) -> Varchar{
 
 pub fn month<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("MONTH ({})", field.into().to_string()))
-}
-
-pub fn count_all() -> Bigint{
-    Bigint::with_name("count(*)".to_string())
-}
-
-pub fn count_distinct<T: Into<SelectField>>(field:T) -> Bigint{
-    Bigint::with_name(format!("count(distinct {})", field.into().to_string()))
 }
 
 ///DATE_SUB(date, INTERVAL value unit)
