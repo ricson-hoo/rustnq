@@ -79,6 +79,13 @@ impl Condition {
         }
     }
 
+    pub fn and_exists(self, other: QueryBuilder) -> Condition {
+        let other_query = other.build().unwrap_or_default();
+        Condition {
+            query: format!("({}) AND EXISTS ({})", self.query, if Self::is_valid_condition(other_query.clone()) {other_query} else {"0>1".to_string()}),
+        }
+    }
+
     pub fn or(self, other: Condition) -> Condition {
         Condition {
             query: format!("({}) OR ({})", self.query, if Self::is_valid_condition(other.query.clone()) {other.query} else {"0>1".to_string()}),
@@ -96,6 +103,7 @@ impl Condition {
                 c == '&' || c == '|' ||
                 c == '.' || c == ',' ||
                 c == ':' || c== '!' ||
+                c == '/' || c== '*' ||
             c.is_digit(10) ||  // 允许数字
                 (c >= '\u{4E00}' && c <= '\u{9FA5}') // 允许中文字符（CJK 统一汉字范围）
         });
@@ -1369,9 +1377,59 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "INT" | "BIGINT" => {
+                "INT" => {
                     //println!("decoding INT {}",column_name);
-                    let value_result: Result<Option<i32>, Error> = row.try_get(i);
+                    let value_result: Result<Option<i64>, Error> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                            }else {
+                                json_obj[column_name] = value.clone().into();
+                                json_obj[camel_case_column_name] = value.into();
+                            }
+                        }else {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                "BIGINT" => {
+                    //println!("decoding INT {}",column_name);
+                    let value_result: Result<Option<i64>, Error> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                            }else {
+                                json_obj[column_name] = value.clone().into();
+                                json_obj[camel_case_column_name] = value.into();
+                            }
+                        }else {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                "BIGINT UNSIGNED" => {
+                    //println!("decoding INT {}",column_name);
+                    let value_result: Result<Option<u64>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
                             if obj_name.is_some() {

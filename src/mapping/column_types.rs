@@ -208,6 +208,12 @@ impl Varchar {
        self.clone()
     }
 
+    pub fn multiply<T: std::fmt::Display>(&mut self, value: T) -> Self {
+        self.name = format!("({} * {})", self.name, value);
+        self.clone()
+    }
+
+
     pub fn le<T: ToString>(&self, value: T) -> Condition
     {
         Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
@@ -1033,6 +1039,11 @@ impl Int {
     pub fn le<T: ToString>(&self, value: T) -> Condition
     {
         Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn div<T: std::fmt::Display>(&mut self, value: T) -> Self {
+        self.name = format!("{} DIV {}", self.name, value);
+        self.clone()
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
