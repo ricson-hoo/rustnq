@@ -106,7 +106,7 @@ pub enum RustDataType {
     f64,
     f32,
     u8,//byte
-    chronoNaiveDate,
+    chronoDateLocal,
     chronoNaiveTime,
     chronoDateTimeLocal,
 }
