@@ -214,9 +214,6 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
                     if field_type_qualified_name.clone().contains("DateTime<Local>"){
                         struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_datetime_local\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime_local\")]".to_string()); //note:this is a temp solution
-                    }else if field_type_qualified_name.clone().contains("Date<Local>"){
-                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_date_local\")]".to_string()); //note:this is a temp solution
-                        struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_date_local\")]".to_string()); //note:this is a temp solution
                     }else if field_type_qualified_name.clone().contains("NaiveDateTime"){
                         struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_datetime\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime\")]".to_string()); //note:this is a temp solution
@@ -327,7 +324,7 @@ impl RustDataType {
                     _ => "Option<u8>",
                 }
             }
-            RustDataType::chronoDateLocal => "Option<chrono::Date<Local>>",
+            RustDataType::chronoNaiveDate => "Option<chrono::NaiveDate>",
             RustDataType::chronoNaiveTime => "Option<chrono::NaiveTime>",
             RustDataType::chronoDateTimeLocal => "Option<chrono::DateTime<Local>>",
         };
@@ -459,10 +456,10 @@ impl SqlColumn {
                 import:vec![]
             },
             SqlColumn::Date(_) => MysqlDataTypeProp {
-                rust_type: RustDataType::chronoDateLocal,
+                rust_type: RustDataType::chronoNaiveDate,
                 is_conditional_type: false,
                 container_type: None,
-                import:vec!["chrono".to_string(),"chrono::Local".to_string()]
+                import:vec!["chrono".to_string()]
             },
             SqlColumn::Time(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::chronoNaiveTime,
