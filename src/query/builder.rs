@@ -1,4 +1,4 @@
-﻿use crate::mapping::description::{Table, Column, Holding};
+use crate::mapping::description::{Table, Column, Holding};
 use std::{fmt, fmt::write, format, result};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -239,6 +239,15 @@ impl SelectField {
             }),
             SelectField::Untyped(String) => self.clone(), //target for String is not support, pls write it directly as SelectField::Untyped("'xxx' as aaa__bbb".to_string()) where aaa is target
         }
+    }
+    
+    pub fn unset_as(mut self) -> Self {
+        match &mut self {
+            SelectField::Field(field) => field.as_ = None,
+            SelectField::Subquery(subquery_field) => subquery_field.as_ = None,
+            SelectField::Untyped(_) => {}
+        }
+        self
     }
 }
 
@@ -1020,13 +1029,19 @@ impl QueryBuilder {
     }
 
     pub fn order_by<T: Into<SelectField>>(mut self, fields: Vec<T>) -> QueryBuilder{
-        let fields: Vec<SelectField> = fields.into_iter().map(|field| field.into()).collect();
+        let fields: Vec<SelectField> = fields.into_iter()
+            .map(|field| field.into())
+            .map(|field| field.unset_as())
+            .collect();
         self.order_by.extend(fields);
         self
     }
 
-    pub fn group_by<T: Into<SelectField>>(mut self, fields: Vec<T>) -> QueryBuilder{
-        let fields: Vec<SelectField> = fields.into_iter().map(|field| field.into()).collect();
+    pub fn group_by<T: Into<SelectField>>(mut self, fields: Vec<T>) -> QueryBuilder {
+        let fields: Vec<SelectField> = fields.into_iter()
+            .map(|field| field.into())
+            .map(|field| field.unset_as())
+            .collect();
         self.group_by.extend(fields);
         self
     }
