@@ -25,6 +25,7 @@ use crate::query::builder::JoinType::{INNER, LEFT};
 use crate::query::select;
 use crate::result::PagingData;
 use crate::mapping::column_types::Set;
+use crate::query::builder::JoinType::STRAIGHT;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum BuildErrorType {
@@ -153,13 +154,14 @@ impl TargetTable {
 
 #[derive(Debug,Clone)]
 pub enum JoinType {
-    LEFT,INNER
+    LEFT,INNER,STRAIGHT
 }
 impl fmt::Display for JoinType {
     fn fmt(&self,f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            LEFT => write!(f,"LEFT"),
-            INNER => write!(f,"INNER"),
+            LEFT => write!(f,"LEFT JOIN"),
+            INNER => write!(f,"INNER JOIN"),
+            STRAIGHT => write!(f,"STRAIGHT_JOIN"),
         }
     }
 }
@@ -1015,6 +1017,11 @@ impl QueryBuilder {
         self
     }
 
+    pub fn straight_join<A>(mut self, table:& A) -> QueryBuilder where A : Table{
+        self.pending_join = Some(TableJoin::new(TargetTable::new(table),STRAIGHT,None));
+        self
+    }
+
     pub fn add_join(mut self, join:TableJoin) -> QueryBuilder {
         self.joins.push(join);
         self
@@ -1838,7 +1845,7 @@ impl QueryBuilder {
                     // Traverse joins and generate JOIN statements for each TableJoin
                     for (i, join) in self.joins.iter().enumerate() {
                         // Generate JOIN statements based on joinotype
-                        queryString.push_str(&format!(" {} JOIN {} ON {} ", join.join_type.to_string(), join.target_table.name, join.clone().condition.unwrap().query));
+                        queryString.push_str(&format!(" {} {} ON {} ", join.join_type.to_string(), join.target_table.name, join.clone().condition.unwrap().query));
                     }
                 }
                 if self.conditions.len() > 0 {
