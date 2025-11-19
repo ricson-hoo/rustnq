@@ -103,6 +103,10 @@ pub fn year<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("YEAR({})", field.into().to_string()))
 }
 
+pub fn extract_year<T: Into<SelectField>>(field:T) -> Varchar{
+    Varchar::with_name(format!("Extract(YEAR from {})", field.into().to_string()))
+}
+
 pub fn year_diff<T: Into<SelectField>>(field:T, another_year:i32) -> Int{
     Int::with_name(format!("ABS({} - YEAR({}))", another_year, field.into().to_string()))
 }

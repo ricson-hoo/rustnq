@@ -1187,13 +1187,14 @@ impl QueryBuilder {
 
         if let Ok(query_string) = count_query_build_result {
             println!("count query string # {}", query_string);
-
             count = sqlx::query(&query_string)
                 .try_map(|row:MySqlRow| {
                     self.convert_to_number(row)
                 })
                 .fetch_one(pool)
                 .await?;
+
+
         }else if let Err(e) = count_query_build_result {
            return  Err(Error::Configuration(e.message.into()))
         }else {
