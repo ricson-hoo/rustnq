@@ -1904,7 +1904,7 @@ impl QueryBuilder {
                 }else{
                     update_fields_values = self.update_values
                         .iter()
-                        .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
+                        .map(|(field, value)| format!("{} = '{}'", field.clone().to_string(), value.clone().to_string()))
                         .collect();
                 }
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
@@ -1933,7 +1933,7 @@ impl QueryBuilder {
                 }else{
                     update_fields_values = self.update_values
                                         .iter()
-                                        .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
+                                        .map(|(field, value)| format!("{} = '{}'", field.clone().to_string(), value.clone().to_string()))
                                         .collect();
                 }
                 
