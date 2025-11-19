@@ -230,6 +230,60 @@ pub enum SelectField {
     Untyped(String),
 }
 
+#[derive(Debug,Clone)]
+pub enum FieldValue {
+    Field(Field),
+    String(String),
+    Bool(bool),
+    I32(i32),
+    F64(f64)
+}
+
+//帮实现intoString
+
+impl From<String> for FieldValue {
+    fn from(value: String) -> Self { FieldValue::String(value) }
+}
+
+impl From<&str> for FieldValue {
+    fn from(value: &str) -> Self { FieldValue::String(value.to_string()) }
+}
+
+impl From<bool> for FieldValue {
+    fn from(value: bool) -> Self { FieldValue::Bool(value) }
+}
+
+impl From<i32> for FieldValue {
+    fn from(value: i32) -> Self { FieldValue::I32(value) }
+}
+
+impl From<f64> for FieldValue {
+    fn from(value: f64) -> Self { FieldValue::F64(value) }
+}
+
+impl From<Field> for FieldValue {
+    fn from(value: Field) -> Self { FieldValue::Field(value) }
+}
+
+impl ToString for FieldValue {
+    fn to_string(&self) -> String {
+        match self {
+            FieldValue::Field(f) => f.to_string(),
+            FieldValue::String(s) => {
+                // 简单转义单引号
+                let escaped = s.replace("'", "''");
+                format!("'{}'", escaped)
+            }
+            FieldValue::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+            FieldValue::I32(i) => i.to_string(),
+            FieldValue::F64(f) => {
+                f.to_string()
+            }
+        }
+    }
+}
+
+
 impl SelectField {
     pub fn target(&self, target: &str) -> Self {
         match self {
@@ -632,7 +686,7 @@ pub struct QueryBuilder {
     limit:Option<Limit>,
     order_by:Vec<SelectField>,
     group_by:Vec<SelectField>,
-    update_values: Vec<(SelectField, SelectField)>, // 用于存储更新字段和值
+    update_values: Vec<(SelectField, FieldValue)>, // 用于存储更新字段和值
 }
 
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>, is_encrypted:bool){
@@ -1091,12 +1145,12 @@ impl QueryBuilder {
     }
 
     /// 设置要更新的字段和值
-    pub fn set<T: Into<SelectField>>(mut self, field: T, value: T) -> QueryBuilder
+    pub fn set<T, V>(mut self, field: T, value: V) -> QueryBuilder
     where
         T: Into<SelectField>,
+        V: Into<FieldValue>,
     {
-        let set_value: SelectField = value.into();
-        self.update_values.push((field.into(), set_value));
+        self.update_values.push((field.into(), value.into()));
         self
     }
 
@@ -1904,7 +1958,7 @@ impl QueryBuilder {
                 }else{
                     update_fields_values = self.update_values
                         .iter()
-                        .map(|(field, value)| format!("{} = '{}'", field.clone().to_string(), value.clone().to_string()))
+                        .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
                         .collect();
                 }
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
@@ -1933,7 +1987,7 @@ impl QueryBuilder {
                 }else{
                     update_fields_values = self.update_values
                                         .iter()
-                                        .map(|(field, value)| format!("{} = '{}'", field.clone().to_string(), value.clone().to_string()))
+                                        .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
                                         .collect();
                 }
                 
