@@ -38,7 +38,7 @@ impl<T:Clone+Into<String>> Enum<T>{
         Enum { name:name, value: None ,holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None, target: None }
     }
 
-    fn with_value(value: Option<T>) -> Self {
+    pub fn with_value(value: Option<T>) -> Self {
         Enum { value:value, name:"".to_string() ,holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None, target: None }
     }
 
