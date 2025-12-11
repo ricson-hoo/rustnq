@@ -1511,6 +1511,12 @@ impl Tinyint {
         };
         Condition::new(format!("{} = {}", self.qualified_name(), output))
     }
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
 }
 
 impl Column for Tinyint {
