@@ -2224,17 +2224,17 @@ impl crate::mapping::column_types::Date {
 
     pub fn gt<T: ToString>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
+        Condition::new(format!("{} > '{}'", self.qualified_name(), value.to_string()))
     }
 
     pub fn lt<T: ToString>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+        Condition::new(format!("{} < '{}'", self.qualified_name(), value.to_string()))
     }
 
     pub fn lt_<T: Into<SelectField>>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} < {}", self.qualified_name(), value.into().to_string()))
+        Condition::new(format!("{} < '{}'", self.qualified_name(), value.into().to_string()))
     }
 
     pub fn le<T: ToString>(&self, value: T) -> Condition

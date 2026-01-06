@@ -282,12 +282,18 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_definition:MysqlColumnDefinition, crate_and_root_path_of_entity: String, entity_field_naming_convention: NamingConvention,boolean_columns: &HashMap<String, Vec<String>>,encrypted_columns: Vec<&'static str>) -> Result<TableFieldConstructInfo,Box<dyn Error>>{
 
     let col_definition = mysql_col_definition.column_definition;
+    let mut col_len = "".to_string();
     let mut column_type_name = "".to_string();
     if !col_definition.contains("("){
         column_type_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&col_definition.replace(" ", "_")));
     }else{
         let parts = col_definition.split("(").map(|s| s.to_string()).collect::<Vec<String>>();
         column_type_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&parts[0]));
+        col_len = if parts.len() > 1 {
+            parts[1].replace(")", "")
+        } else {
+            "".to_string()
+        };
     }
     let column_type_parse_result = column_type_name.parse::<SqlColumn>();
     let column_name = mysql_col_definition.name;
@@ -391,7 +397,7 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                     name_and_value_from_entity_default_value = format!("Timestamp::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Tinyint(_) => {
-                    if boolean_columns.contains_key(table_name) && boolean_columns[table_name].contains(&column_name.to_string()) {
+                    if col_len == "1".to_string() || (boolean_columns.contains_key(table_name) && boolean_columns[table_name].contains(&column_name.to_string())) {
                         sql_column_type = Some(SqlColumn::Boolean(None));
                         field_type = "Boolean".to_string();
                         name_only_default_value = format!("Boolean::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});

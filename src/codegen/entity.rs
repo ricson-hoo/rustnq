@@ -506,6 +506,11 @@ impl SqlColumn {
 fn resolve_type_from_column_definition(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, generated_code_dir: &Path) -> StructFieldType {
     let definition_array: Vec<&str> = column_definition.split('(').collect();
     let data_type = definition_array[0];//.replace(" ", "_");
+    let col_len = if definition_array.len() > 1 {
+        definition_array[1].replace(")", "")
+    } else {
+        "".to_string()
+    };
     let mut field_type_qualified_name = "".to_string();
     //let mut container_struct = "";
     let mut is_primitive_type: bool;
@@ -520,7 +525,7 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
             if mysql_data_type_prop.is_conditional_type {
                 match mysql_data_type {
                     SqlColumn::Tinyint(_) => {
-                        field_type_qualified_name = if boolean_columns.contains_key(table_name) && boolean_columns[table_name].contains(&column_name.to_string()) {
+                        field_type_qualified_name = if col_len == "1".to_string() || (boolean_columns.contains_key(table_name) && boolean_columns[table_name].contains(&column_name.to_string())) {
                             "Option<bool>".to_string()
                         }else{
                             mysql_data_type_prop.rust_type.resolve_qualified_type_name(None, None)
