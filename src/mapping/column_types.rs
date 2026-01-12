@@ -1081,6 +1081,10 @@ impl Int {
         self.sub_query.clone()
     }
 
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
     pub fn desc(&self) -> SelectField{
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
