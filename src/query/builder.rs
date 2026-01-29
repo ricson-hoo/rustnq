@@ -716,34 +716,72 @@ pub struct QueryBuilder {
     update_values: Vec<(SelectField, FieldValue)>, // 用于存储更新字段和值
 }
 
+/// 包装字段名，处理SQL关键字
+fn wrap_field_name(field_name: &str) -> String {
+    // SQL 关键字列表
+    let sql_keywords = [
+        "order", "group", "table", "select", "insert", "update", "delete", "where",
+        "from", "as", "and", "or", "not", "null", "is", "in", "like", "between",
+        "join", "left", "right", "inner", "outer", "on", "by", "having", "distinct",
+        "limit", "offset", "set", "values", "into", "create", "alter", "drop",
+        "index", "primary", "key", "foreign", "references", "constraint", "default",
+        "auto_increment", "desc", "asc", "union", "all", "case", "when", "then",
+        "else", "end", "exists", "any", "some", "user", "database", "schema",
+        "view", "procedure", "function", "trigger", "event", "temporary", "if",
+        "elseif", "begin", "end", "declare", "set", "call", "execute", "show",
+        "describe", "explain", "use", "grant", "revoke", "privileges", "flush",
+        "lock", "unlock", "commit", "rollback", "savepoint", "transaction",
+        "character", "collate", "engine", "row_format", "comment", "partition",
+        "check", "cascade", "restrict", "no", "action", "match", "full", "natural",
+        "cross", "using", "current_date", "current_time", "current_timestamp",
+        "interval", "year", "month", "day", "hour", "minute", "second", "microsecond",
+        "date", "time", "timestamp", "datetime", "year", "char", "varchar", "text",
+        "tinytext", "mediumtext", "longtext", "blob", "tinyblob", "mediumblob",
+        "longblob", "enum", "set", "decimal", "numeric", "float", "double", "real",
+        "bit", "bool", "boolean", "serial", "bigserial", "smallserial", "money",
+        "uuid", "json", "jsonb", "xml", "array", "range", "multirange", "domain"
+    ];
+
+    // 转换为小写比较
+    let lower_name = field_name.to_lowercase();
+
+    // 使用迭代器进行查找
+    if sql_keywords.iter().any(|&kw| kw == lower_name) {
+        format!("`{}`", field_name)
+    } else {
+        field_name.to_string()
+    }
+}
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>, is_encrypted:bool){
-    if(!insert_fields.contains(&name)){
+    let wrapped_name = wrap_field_name(&name);
+    if(!insert_fields.contains(&wrapped_name)){
         //update_fields_values.push(format!("{} = VALUES({})", &name, &name));
-        insert_fields.push(name.clone());
+        insert_fields.push(wrapped_name.clone());
         if let Some(string_value) = value {
             if is_encrypted {
                 insert_values.push(format!("{}", encrypt_value(string_value.clone())));
-                update_fields_values.push(format!("{} = {}", &name.clone(), &encrypt_value(string_value)));
+                update_fields_values.push(format!("{} = {}", &wrapped_name.clone(), &encrypt_value(string_value)));
             }else{
                 insert_values.push(format!("'{}'", string_value.clone()));
-                update_fields_values.push(format!("{} = '{}'", &name.clone(), &string_value));
+                update_fields_values.push(format!("{} = '{}'", &wrapped_name.clone(), &string_value));
             }
         }else{
             insert_values.push("null".to_string());
-            update_fields_values.push(format!("{} = null", &name.clone()));
+            update_fields_values.push(format!("{} = null", &wrapped_name.clone()));
         }
     }
 }
 
 fn add_non_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>,update_fields_values: &mut Vec<String>){
+    let wrapped_name = wrap_field_name(&name);
     //update_fields_values.push(format!("{} = VALUES('{}')", &name, &name));
-    insert_fields.push(name.clone());
+    insert_fields.push(wrapped_name.clone());
     if let Some(string_value) = value {
         insert_values.push(format!("{}", string_value));
-        update_fields_values.push(format!("{} = {}", &name.clone(), &string_value));
+        update_fields_values.push(format!("{} = {}", &wrapped_name.clone(), &string_value));
     }else{
         insert_values.push("null".to_string());
-        update_fields_values.push(format!("{} = null", &name));
+        update_fields_values.push(format!("{} = null", &wrapped_name));
     }
 }
 
