@@ -762,8 +762,10 @@ fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_field
                 insert_values.push(format!("{}", encrypt_value(string_value.clone())));
                 update_fields_values.push(format!("{} = {}", &wrapped_name.clone(), &encrypt_value(string_value)));
             }else{
-                insert_values.push(format!("'{}'", string_value.clone()));
-                update_fields_values.push(format!("{} = '{}'", &wrapped_name.clone(), &string_value));
+                // 处理单引号转义
+                let escaped_value = string_value.replace("'", "''");
+                insert_values.push(format!("'{}'", escaped_value.clone()));
+                update_fields_values.push(format!("{} = '{}'", &wrapped_name.clone(), &escaped_value));
             }
         }else{
             insert_values.push("null".to_string());
