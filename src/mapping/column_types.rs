@@ -315,6 +315,12 @@ impl From<i32> for Varchar {
     }
 }
 
+impl From<Bigint> for Varchar {
+    fn from(s: Bigint) -> Self {
+        Varchar::with_value(Some(s.value.map_or(String::default(), |v| v.to_string())))
+    }
+}
+
 impl From<&str> for Varchar {
     fn from(s: &str) -> Self {
         Varchar::with_value(Some(s.to_string()))
