@@ -275,6 +275,12 @@ impl Varchar {
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
+
+    pub fn not_like(&self, pattern: String) -> Condition
+    {
+        Condition::new(format!("{} NOT LIKE '{}'", self.qualified_name(), pattern))
+    }
+
     pub fn desc(&self) -> SelectField
     {
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
@@ -2098,6 +2104,14 @@ impl crate::mapping::column_types::Decimal {
     pub fn target(&mut self, target:&str) -> Self {
         self.target = Some(target.to_string());
         self.clone()
+    }
+
+    pub fn is_not_null(&self) -> Condition {
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
+    pub fn is_null(&self) -> Condition {
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
     }
 }
 
