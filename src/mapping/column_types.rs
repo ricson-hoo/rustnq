@@ -1,6 +1,6 @@
 use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
 use crate::query::builder::{Condition, Field, QueryBuilder, SelectField};
-use chrono::{DateTime, Local, NaiveDate, NaiveTime};
+use chrono::{Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
 use std::fmt;
 use std::str::FromStr;
@@ -2303,6 +2303,38 @@ impl From<Date> for Varchar {
     }
 }
 
+impl From<&Datetime> for Varchar {
+    fn from(i: &Datetime) -> Self {
+        //Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
+        Varchar{
+            table: i.table.clone(),
+            name: i.name.clone(),
+            alias: i.alias.clone(),
+            target: i.target.clone(),
+            value: i.value().clone().map(|v| v.to_string()),
+            sub_query: i.sub_query.clone(),
+            holding: i.holding.clone(),
+            is_encrypted: i.is_encrypted,
+        }
+    }
+}
+
+impl From<Datetime> for Varchar {
+    fn from(i: Datetime) -> Self {
+        //Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
+        Varchar{
+            table: i.table.clone(),
+            name: i.name.clone(),
+            alias: i.alias.clone(),
+            target: i.target.clone(),
+            value: i.value().clone().map(|v| v.to_string()),
+            sub_query: i.sub_query.clone(),
+            holding: i.holding.clone(),
+            is_encrypted: i.is_encrypted,
+        }
+    }
+}
+
 impl From<Timestamp> for Date {
     fn from(i: Timestamp) -> Self {
         //Varchar::with_name_value(i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
@@ -2453,11 +2485,11 @@ impl crate::mapping::column_types::Datetime {
         Datetime {table:Some(table), name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
-    pub fn with_qualified_name_value(table:String, name: String, value: Option<DateTime<Local>>) -> Self {
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<chrono::DateTime<Local>>) -> Self {
         Datetime {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
-    pub fn value(&self) -> Option<DateTime<Local>> {
+    pub fn value(&self) -> Option<chrono::DateTime<Local>> {
         self.value.clone()
     }
 
@@ -2542,11 +2574,11 @@ impl crate::mapping::column_types::Timestamp {
         Timestamp {table:Some(table), name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
-    pub fn with_qualified_name_value(table:String, name: String, value: Option<DateTime<Local>>) -> Self {
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<chrono::DateTime<Local>>) -> Self {
         Timestamp {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
-    pub fn value(&self) -> Option<DateTime<Local>> {
+    pub fn value(&self) -> Option<chrono::DateTime<Local>> {
         self.value.clone()
     }
 
