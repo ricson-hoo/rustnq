@@ -107,6 +107,7 @@ impl Condition {
                 c == '/' || c== '*' ||
                 c == '%' || c== '+' ||
                 c == '（' || c == '）' ||
+                c == '，' || c == '。' ||
             c.is_digit(10) ||  // 允许数字
                 (c >= '\u{4E00}' && c <= '\u{9FA5}') // 允许中文字符（CJK 统一汉字范围）
         });
@@ -1292,6 +1293,75 @@ impl QueryBuilder {
         }else {
             Err(Error::Configuration("未知错误".into()))
         }
+    }
+
+    ///paging query with parallel count and data fetch
+    pub async fn fetch_paging_parallel<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
+
+        let pool = POOL.get().unwrap();
+        let mut count_query_builder = self.clone();
+        count_query_builder.select_fields = vec![SelectField::Untyped("count(*)".to_string())];
+        count_query_builder.limit = None;
+        count_query_builder.order_by = vec![];
+
+        let mut data_query_builder = self.clone();
+        if data_query_builder.limit.is_none() {
+            data_query_builder.limit = Some(Limit::new(0,20));
+        }else if let(Some(ref limit)) = data_query_builder.limit{
+            if limit.limit < 1 {
+                data_query_builder.limit = Some(Limit::new(limit.offset.clone(),1));
+            }
+        }
+
+        let count_query_build_result = count_query_builder.build();
+        let data_query_build_result = data_query_builder.build();
+
+        let count_query_string = match count_query_build_result {
+            Ok(q) => q,
+            Err(e) => return Err(Error::Configuration(e.message.into())),
+        };
+
+        let data_query_string = match data_query_build_result {
+            Ok(q) => q,
+            Err(e) => return Err(Error::Configuration(e.message.into())),
+        };
+
+        println!("count query string # {}", count_query_string);
+        println!("query string # {}", data_query_string);
+
+        let count_future = sqlx::query(&count_query_string)
+            .try_map(|row:MySqlRow| {
+                self.convert_to_number(row)
+            })
+            .fetch_one(pool);
+
+        let data_future = sqlx::query(&data_query_string)
+            .try_map(|row:MySqlRow| {
+                self.convert_to_json_value(row)
+            })
+            .fetch_all(pool);
+
+        let (count_result, data_rows) = tokio::try_join!(count_future, data_future)?;
+
+        let count = count_result;
+
+        let mut result = Vec::new();
+        for json in data_rows {
+            let item_parsed_result = serde_json::from_value::<T>(json.clone());
+            match item_parsed_result {
+                Ok(item_parsed) => {
+                    result.push(item_parsed);
+                }
+                Err(err) => {
+                    println!("error={:?}", err);
+                    return Err(Error::Configuration(err.into()))
+                }
+            }
+        }
+
+        let limit = data_query_builder.limit.clone().unwrap().limit;
+        let current_page = data_query_builder.limit.clone().unwrap().offset/limit.clone()+1;
+        Ok(PagingData::new(result,Some(current_page), Some(limit), Some(count)))
     }
 
     ///paging query
