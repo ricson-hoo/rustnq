@@ -2230,6 +2230,11 @@ impl crate::mapping::column_types::Date {
     pub fn desc(&self) -> SelectField{
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
     pub fn add(&mut self, value: i32, unit: DateSubUnit) -> Self {
         self.name = format!("DATE_ADD ({}, INTERVAL {} {})", self.name, value, unit);
         self.table = None;
@@ -2510,6 +2515,10 @@ impl crate::mapping::column_types::Datetime {
 
     pub fn desc(&self) -> SelectField{
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
 
     pub fn gt<T: ToString>(&self, value: T) -> Condition
