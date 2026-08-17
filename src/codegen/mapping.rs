@@ -196,7 +196,38 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
 
     writeln!(buf_writer,"}}").expect("Failed to write table mapping code");
 
+    // 查询表索引，生成索引常量（如 IDX_XXX: &'static str）
+    let index_constants: Vec<String> = match utils::get_table_indexes(conn, &table.name).await {
+        Ok(indexes) => {
+            let mut constants: Vec<String> = vec![];
+            for index in indexes {
+                if index.index_name.eq_ignore_ascii_case("PRIMARY") {
+                    continue;
+                }
+                let const_name = format!("IDX_{}", utils::to_screaming_snake_case(&index.index_name));
+                let comment = if index.non_unique {
+                    format!("索引 ({})", index.columns.join(", "))
+                } else {
+                    format!("唯一索引 ({})", index.columns.join(", "))
+                };
+                constants.push(format!("    /// {}\n    pub const {}: &'static str = \"{}\";", comment, const_name, index.index_name));
+            }
+            constants
+        }
+        Err(error) => {
+            println!("get indexes of table {} error: {:#?}", table.name, error);
+            vec![]
+        }
+    };
+
     writeln!(buf_writer,"impl {} {{", struct_name).expect("Failed to write table mapping code");
+
+    for index_constant in &index_constants {
+        writeln!(buf_writer,"{}",index_constant).expect("Failed to write table mapping code");
+    }
+    if !index_constants.is_empty() {
+        writeln!(buf_writer,"").expect("Failed to write table mapping code");
+    }
 
     writeln!(buf_writer,"    pub fn new(alias:Option<&str>) ->Self {{").expect("Failed to write table mapping code");
     //writeln!(buf_writer,"        self._alias = alias;").expect("Failed to write table mapping code");
