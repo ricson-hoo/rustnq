@@ -141,7 +141,8 @@ pub enum Operation{
 pub(crate) struct TargetTable{
     pub name:String,
     pub columns:Vec<SqlColumn>,
-    pub primary_key:Vec<SqlColumn>
+    pub primary_key:Vec<SqlColumn>,
+    pub force_index: Option<String>
 }
 
 impl TargetTable {
@@ -150,6 +151,7 @@ impl TargetTable {
             name: table.name(),
             columns: table.all_columns(),
             primary_key: table.primary_key(),
+            force_index: None
         }
     }
 }
@@ -1129,6 +1131,14 @@ impl QueryBuilder {
         self
     }
 
+    /// 强制使用指定索引
+    pub fn force_index(mut self, index: &str) -> QueryBuilder {
+        if let Some(ref mut target) = self.target_table {
+            target.force_index = Some(index.to_string());
+        }
+        self
+    }
+
     pub fn left_join<A>(mut self, table:& A) -> QueryBuilder where A : Table{
         self.pending_join = Some(TableJoin::new(TargetTable::new(table),LEFT,None));
         self
@@ -2029,7 +2039,13 @@ impl QueryBuilder {
                 }
 
                 if self.target_table.is_some() {
-                    queryString = format!("{} from {}",queryString, self.target_table.clone().unwrap().name);
+                    let target = self.target_table.clone().unwrap();
+                    let table_str = if let Some(idx) = &target.force_index {
+                        format!("{} FORCE INDEX ({})", target.name, idx)
+                    } else {
+                        target.name.clone()
+                    };
+                    queryString = format!("{} from {}",queryString, table_str);
                 }else {
                     return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"please provide table name to select from".to_string()));
                 }
