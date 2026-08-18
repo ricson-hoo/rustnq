@@ -340,8 +340,17 @@ impl From<i32> for Varchar {
 }
 
 impl From<Bigint> for Varchar {
-    fn from(s: Bigint) -> Self {
-        Varchar::with_value(Some(s.value.map_or(String::default(), |v| v.to_string())))
+    fn from(v: Bigint) -> Self {
+        Varchar{
+            table: v.table,
+            name: v.name,
+            alias: v.alias,
+            target: v.target,
+            value: if let Some(v_value) = v.value.clone() {Some(v_value.to_string())} else {None},
+            sub_query: v.sub_query,
+            holding: v.holding,
+            is_encrypted: v.is_encrypted,
+        }
     }
 }
 

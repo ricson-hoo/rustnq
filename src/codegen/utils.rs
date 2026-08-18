@@ -1,4 +1,5 @@
 use std::fs;
+use std::collections::HashMap;
 
 use sqlx::{AnyConnection, AnyPool, Column, Row};
 use sqlx::any::AnyRow;
@@ -9,6 +10,22 @@ use crate::utils::stringUtils;
 #[derive(Debug)]
 pub struct TableRow {
     pub name: String,
+}
+
+/// SHOW INDEX 返回的每一行，代表"一个索引的一列"
+#[derive(Debug)]
+pub struct TableIndexColumnRow {
+    pub index_name: String,
+    pub column_name: String,
+    pub non_unique: bool,
+}
+
+/// 分组后的表索引信息
+#[derive(Debug)]
+pub struct TableIndexRow {
+    pub index_name: String,
+    pub columns: Vec<String>,
+    pub non_unique: bool,
 }
 
 #[derive(Debug)]
@@ -47,6 +64,22 @@ impl From<&MySqlRow> for TableRow {
         }
         TableRow {
             name: str.to_string()
+        }
+    }
+}
+
+impl From<&MySqlRow> for TableIndexColumnRow {
+    fn from(row: &MySqlRow) -> Self {
+        let index_name = row.try_get::<String,_>("Key_name").unwrap_or_else(|error|{
+            panic!("failed to get Key_name: {}",error);
+        });
+        let column_name = row.try_get::<String,_>("Column_name").unwrap_or_default();
+        // Non_unique: 0 表示唯一索引，1 表示非唯一
+        let non_unique = row.try_get::<i64,_>("Non_unique").unwrap_or(1) != 0;
+        TableIndexColumnRow {
+            index_name,
+            column_name,
+            non_unique,
         }
     }
 }
@@ -162,6 +195,48 @@ pub(crate) async fn get_table_full_fields(conn: &sqlx::pool::Pool<sqlx_mysql::My
         row.into()
     }).collect();
     Ok(fields)
+}
+
+//get table indexes via show index statement, 按索引名分组
+pub(crate) async fn get_table_indexes(conn: &sqlx::pool::Pool<sqlx_mysql::MySql>, table_name: &str) -> Result<Vec<TableIndexRow>, sqlx::Error> {
+    let query = format!("SHOW INDEX FROM `{}`;",table_name);
+    let select_query = sqlx::query(&query);
+    let rows = select_query.fetch_all(conn).await?;
+    // MySQL 中唯一索引的所有列 Non_unique 均为 0，非唯一索引的所有列均为 1，按行取即可
+    let mut index_map: HashMap<String, (Vec<String>, bool)> = HashMap::new();
+    for row in rows.iter() {
+        let index_column: TableIndexColumnRow = row.into();
+        let entry = index_map.entry(index_column.index_name.clone()).or_insert((vec![], !index_column.non_unique));
+        entry.0.push(index_column.column_name);
+        if index_column.non_unique {
+            entry.1 = true;
+        }
+    }
+    let mut indexes: Vec<TableIndexRow> = index_map.into_iter().map(|(index_name, (columns, non_unique))| {
+        TableIndexRow {
+            index_name,
+            columns,
+            non_unique,
+        }
+    }).collect();
+    indexes.sort_by(|a, b| a.index_name.cmp(&b.index_name));
+    Ok(indexes)
+}
+
+// 索引名 -> 常量名: 仅改大写，保留下划线
+pub(crate) fn to_screaming_snake_case(name: &str) -> String {
+    let mut result = String::new();
+    let mut first = true;
+    for c in name.chars() {
+        if c.is_uppercase() && !first {
+            result.push('_');
+        }
+        if c.is_alphanumeric() || c == '_' {
+            result.push(c.to_uppercase().next().unwrap());
+        }
+        first = false;
+    }
+    result
 }
 
 pub(crate) fn reserved_field_names() -> Vec<String> {
