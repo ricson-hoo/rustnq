@@ -219,6 +219,11 @@ impl Varchar {
         Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
     }
 
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
 
     pub fn gt<T: ToString>(&self, value: T) -> Condition
     {
@@ -312,6 +317,19 @@ impl Varchar {
             _ => "".to_string()
         };
         Condition::new(format!("{} != {}", self.qualified_name(), output))
+    }
+}
+
+impl ToString for Varchar {
+    fn to_string(&self) -> String {
+        match self.holding {
+            Holding::Name | Holding::NameValue => self.qualified_name(),
+            Holding::Value => self.value.clone().unwrap_or_default(),
+            Holding::SubQuery => self.sub_query
+                .clone()
+                .and_then(|query| query.build().ok())
+                .unwrap_or_default(),
+        }
     }
 }
 
@@ -2624,6 +2642,26 @@ impl crate::mapping::column_types::Timestamp {
             timestamp_begin_str,
             timestamp_end_str
         ))
+    }
+
+    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn gt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn le<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
     }
 
     pub fn desc(&self) -> SelectField{

@@ -124,6 +124,41 @@ pub fn date_sub<T: Into<SelectField>>(value: i32, unit: DateSubUnit) -> Date{
     Date::with_name(format!("DATE_SUB (CURDATE(), INTERVAL {} {})", value, unit))
 }
 
+/// 本季度第一天
+pub fn quarter_start() -> Varchar {
+    Varchar::with_name("MAKEDATE(YEAR(CURDATE()), 1) + INTERVAL (QUARTER(CURDATE())-1) QUARTER".to_string())
+}
+
+/// 下季度第一天
+pub fn quarter_end() -> Varchar {
+    Varchar::with_name("MAKEDATE(YEAR(CURDATE()), 1) + INTERVAL QUARTER(CURDATE()) QUARTER".to_string())
+}
+
+/// 本月第一天
+pub fn month_start() -> Varchar {
+    Varchar::with_name("DATE_FORMAT(CURDATE(), '%Y-%m-01')".to_string())
+}
+
+/// 下月第一天
+pub fn month_end() -> Varchar {
+    Varchar::with_name("DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 1 MONTH".to_string())
+}
+
+/// 本周第一天
+pub fn week_start() -> Varchar {
+    Varchar::with_name("DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)".to_string())
+}
+
+/// 下周日
+pub fn week_end() -> Varchar {
+    Varchar::with_name("DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) + INTERVAL 7 DAY".to_string())
+}
+
+/// 明日
+pub fn tomorrow() -> Varchar {
+    Varchar::with_name("CURDATE() + INTERVAL 1 DAY".to_string())
+}
+
 pub fn group_concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
     let fields_str = fields.into_iter().map(|field| field.into().to_string()).collect::<Vec<String>>().join(",");
     Varchar::with_name(format!("group_concat({})",fields_str))
