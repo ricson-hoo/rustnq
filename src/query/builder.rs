@@ -1305,14 +1305,35 @@ impl QueryBuilder {
         }
     }
 
+    ///构建 count 查询语句
+    ///- 无 group by：直接 `select count(*)`
+    ///- 有 group by：用子查询包裹统计分组数，避免 `count(*)` 只返回第一个分组的行数
+    fn build_count_query(&self) -> Result<String, Error> {
+        let mut count_query_builder = self.clone();
+        count_query_builder.limit = None;
+        count_query_builder.order_by = vec![];
+        if self.group_by.is_empty() {
+            count_query_builder.select_fields = vec![SelectField::Untyped("count(*)".to_string())];
+        } else {
+            // 子查询不需要具体列，select 常量 1 减少开销；where/join/group by/having 保留
+            count_query_builder.select_fields = vec![SelectField::Untyped("1".to_string())];
+        }
+        match count_query_builder.build() {
+            Ok(query_string) => {
+                if self.group_by.is_empty() {
+                    Ok(query_string)
+                } else {
+                    Ok(format!("select count(*) from ({}) as t", query_string))
+                }
+            }
+            Err(e) => Err(Error::Configuration(e.message.into())),
+        }
+    }
+
     ///paging query with parallel count and data fetch
     pub async fn fetch_paging_parallel<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
 
         let pool = POOL.get().unwrap();
-        let mut count_query_builder = self.clone();
-        count_query_builder.select_fields = vec![SelectField::Untyped("count(*)".to_string())];
-        count_query_builder.limit = None;
-        count_query_builder.order_by = vec![];
 
         let mut data_query_builder = self.clone();
         if data_query_builder.limit.is_none() {
@@ -1323,13 +1344,11 @@ impl QueryBuilder {
             }
         }
 
-        let count_query_build_result = count_query_builder.build();
-        let data_query_build_result = data_query_builder.build();
-
-        let count_query_string = match count_query_build_result {
+        let count_query_string = match self.build_count_query() {
             Ok(q) => q,
-            Err(e) => return Err(Error::Configuration(e.message.into())),
+            Err(e) => return Err(e),
         };
+        let data_query_build_result = data_query_builder.build();
 
         let data_query_string = match data_query_build_result {
             Ok(q) => q,
@@ -1378,28 +1397,20 @@ impl QueryBuilder {
     pub async fn fetch_paging<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
 
         let pool = POOL.get().unwrap();
-        let mut count_query_builder = self.clone();
-        count_query_builder.select_fields = vec![SelectField::Untyped("count(*)".to_string())];
-        count_query_builder.limit = None;
-        count_query_builder.order_by = vec![];
-        let count_query_build_result = count_query_builder.build();
 
         let mut count = 0;
 
-        if let Ok(query_string) = count_query_build_result {
-            println!("count query string # {}", query_string);
-            count = sqlx::query(&query_string)
-                .try_map(|row:MySqlRow| {
-                    self.convert_to_number(row)
-                })
-                .fetch_one(pool)
-                .await?;
-
-
-        }else if let Err(e) = count_query_build_result {
-           return  Err(Error::Configuration(e.message.into()))
-        }else {
-            return Err(Error::Configuration("未知错误".into()))
+        match self.build_count_query() {
+            Ok(query_string) => {
+                println!("count query string # {}", query_string);
+                count = sqlx::query(&query_string)
+                    .try_map(|row:MySqlRow| {
+                        self.convert_to_number(row)
+                    })
+                    .fetch_one(pool)
+                    .await?;
+            }
+            Err(e) => return Err(e),
         }
 
         let mut query_builder = self.clone();

@@ -223,7 +223,7 @@ pub(crate) async fn get_table_indexes(conn: &sqlx::pool::Pool<sqlx_mysql::MySql>
     Ok(indexes)
 }
 
-// 索引名 -> 常量名: snake_case -> SCREAMING_SNAKE_CASE
+// 索引名 -> 常量名: 仅改大写，保留下划线
 pub(crate) fn to_screaming_snake_case(name: &str) -> String {
     let mut result = String::new();
     let mut first = true;
@@ -231,7 +231,7 @@ pub(crate) fn to_screaming_snake_case(name: &str) -> String {
         if c.is_uppercase() && !first {
             result.push('_');
         }
-        if c.is_alphanumeric() {
+        if c.is_alphanumeric() || c == '_' {
             result.push(c.to_uppercase().next().unwrap());
         }
         first = false;
