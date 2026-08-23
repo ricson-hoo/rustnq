@@ -5,12 +5,8 @@ use std::println;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::io::{Write, BufWriter};
-use anyhow::bail;
-use sqlx::pool::PoolConnection;
-use sqlx::{AnyConnection, AnyPool, Error};
-use sqlx_mysql::MySql;
 use crate::codegen::utils;
-use crate::codegen::utils::{format_name, TableRow};
+use crate::codegen::utils::{format_name, TableIntrospector, TableRow};
 use crate::utils::stringUtils;
 use serde::{Serialize, Deserialize};
 use crate::mapping::description::{RustDataType, SqlColumn};
@@ -73,7 +69,7 @@ impl EntityGenerateConfig{
 
 
 //generate entities according to db & table definitions
-pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, config:EntityGenerateConfig){/*entity_out_dir:&str, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>*/
+pub async fn generate_entities(conn: &impl TableIntrospector, db_name:&str, config:EntityGenerateConfig) {/*entity_out_dir:&str, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>*/
     let entity_out_dir = config.output_dir.clone();
     let boolean_columns = config.boolean_columns.clone();
     let mut trait_for_enum_types = config.trait_for_enum_types.clone();
@@ -83,7 +79,7 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     let entity_out_path = std::path::Path::new(&entity_out_dir);
     utils::prepare_directory(entity_out_path);
 
-    let tables = utils::get_tables(conn).await;
+    let tables = conn.get_tables().await;
     //println!("{:#?}",tables);
 
     //collect what has been generated
@@ -155,10 +151,10 @@ pub async fn generate_entities(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     entity_enum_mod_out_file_buf_writer.flush().expect("Failed to flush buffer");
 }
 
-async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path,
-                         boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, field_naming_convention: NamingConvention) -> GeneratedStructInfo{
+async fn generate_entity(conn: &impl TableIntrospector, table: TableRow, output_path:&Path,
+                         boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, field_naming_convention: NamingConvention) -> GeneratedStructInfo {
     let struct_name = stringUtils::begin_with_upper_case(&format_name(&table.name, NamingConvention::CamelCase));
-    let fields_result = utils::get_table_fields(conn, &table.name).await;
+    let fields_result = conn.get_table_fields(&table.name).await;
     let file_name_without_ext = format_name(&table.name, NamingConvention::CamelCase);
     let out_file = output_path.join(format!("{}.rs", &file_name_without_ext));
 
@@ -275,8 +271,8 @@ async fn generate_entity(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Tab
     }
 }
 
-pub async fn generate_page_list(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table_name: &str, field_naming_convention: NamingConvention) -> Option<HashMap<String, HashMap::<String, String>>> {
-    let fields_result = utils::get_table_full_fields(conn, table_name).await;
+pub async fn generate_page_list(conn: &impl TableIntrospector, table_name: &str, field_naming_convention: NamingConvention) -> Option<HashMap<String, HashMap::<String, String>>> {
+    let fields_result = conn.get_table_full_fields(table_name).await;
 
     match fields_result {
         Ok(fields) => {
@@ -502,8 +498,33 @@ impl SqlColumn {
 }
 
 
+// PostgreSQL 标量数组元素 -> Option<Vec<T>>；元素类型解析复用 SqlColumn 的 scalar 映射
+fn resolve_array_type_from_element(table_name: &str, column_name: &str, column_definition: &str, elem_definition: &str) -> StructFieldType {
+    match elem_definition.parse::<SqlColumn>() {
+        Ok(elem_type) => {
+            let prop = elem_type.properties();
+            let scalar_qualified = prop.rust_type.resolve_qualified_type_name(None, None);
+            let inner = scalar_qualified.trim_start_matches("Option<").trim_end_matches(">");
+            StructFieldType {
+                qualified_name: format!("Option<Vec<{}>>", inner),
+                is_primitive_type: prop.import.is_empty(),
+                import: prop.import,
+                enum_file_name_without_ext: "".to_string(),
+            }
+        }
+        Err(_) => {
+            panic!("{}.{} {} is not supported", table_name, column_name, column_definition);
+        }
+    }
+}
+
 //convert mysql data field type to rust type
 fn resolve_type_from_column_definition(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, generated_code_dir: &Path) -> StructFieldType {
+    // PostgreSQL 标量数组列（如 int[]、text[]、boolean[]）：生成 Option<Vec<T>>。
+    // 注：PG 自定义枚举数组会被归一化为 set('a','b')，走下方 Set 分支自动生成枚举，不会命中这里。
+    if let Some(elem_definition) = column_definition.strip_suffix("[]") {
+        return resolve_array_type_from_element(table_name, column_name, column_definition, elem_definition);
+    }
     let definition_array: Vec<&str> = column_definition.split('(').collect();
     let data_type = definition_array[0];//.replace(" ", "_");
     let col_len = if definition_array.len() > 1 {
@@ -539,6 +560,9 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
                         let prop = mysql_data_type_prop.clone();
                         field_type_qualified_name = mysql_data_type_prop.rust_type.resolve_qualified_type_name(mysql_data_type_prop.container_type, Some(enum_name));
                         //println!("{:#?},{:#?},{:#?},{}",data_type.clone(),mysql_data_type.clone(),prop,field_type_qualified_name.clone());
+                    }
+                    SqlColumn::Boolean(_) => {
+                        field_type_qualified_name = mysql_data_type_prop.rust_type.resolve_qualified_type_name(None, None)
                     }
                     _ => {}
                 }

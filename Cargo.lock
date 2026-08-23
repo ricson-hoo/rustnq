@@ -1099,6 +1099,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "sqlx-mysql",
+ "sqlx-postgres",
  "tokio",
  "url",
  "uuid",

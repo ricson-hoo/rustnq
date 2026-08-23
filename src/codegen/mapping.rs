@@ -3,11 +3,9 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::println;
 use std::path::{Path};
-use sqlx::{AnyConnection, AnyPool, Pool};
-use sqlx_mysql::MySql;
 use crate::codegen::entity::{NamingConvention, GeneratedStructInfo};
 use crate::codegen::utils;
-use crate::codegen::utils::{format_name, prepare_directory, TableRow};
+use crate::codegen::utils::{format_name, prepare_directory, TableIntrospector, TableRow};
 use crate::mapping::description::{Column, TableFieldConstructInfo, MysqlColumnDefinition, SqlColumn};
 use crate::utils::stringUtils;
 use std::any::Any;
@@ -60,7 +58,7 @@ impl MappingGenerateConfig{
 }
 
 //generate table mappings to db & table definitions
-pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_name:&str, config: MappingGenerateConfig){ ///*mappings_out_dir:&str, name_of_crate_holds_enums: String, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>*/
+pub async fn generate_mappings(conn: &impl TableIntrospector, db_name:&str, config: MappingGenerateConfig) { ///*mappings_out_dir:&str, name_of_crate_holds_enums: String, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>*/
     let mappings_out_dir = config.output_dir.clone();
     let crate_and_root_path_of_entity = config.crate_and_root_path_of_entity.clone();
     let boolean_columns = config.boolean_columns.clone();
@@ -71,7 +69,7 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
     let mappings_out_path = std::path::Path::new(&mappings_out_dir);
     prepare_directory(mappings_out_path);
 
-    let tables = utils::get_tables(conn).await;
+    let tables = conn.get_tables().await;
     //println!("{:#?}",tables);
 
     //collect what has been generated
@@ -114,11 +112,11 @@ pub async fn generate_mappings(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, db_n
 
 }
 
-async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: TableRow, output_path:&Path, crate_and_root_path_of_entity: String,
+async fn generate_mapping(conn: &impl TableIntrospector, table: TableRow, output_path:&Path, crate_and_root_path_of_entity: String,
                           boolean_columns: &HashMap<String, Vec<String>>, entity_field_naming_convention: NamingConvention/*, trait_for_enum_types: &HashMap<String, String>*/,
-                          encrypted_columns: Vec<&'static str>) -> GeneratedStructInfo{
+                          encrypted_columns: Vec<&'static str>) -> GeneratedStructInfo {
     let struct_name = format!("{}Table",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&table.name)));
-    let fields_result = utils::get_table_fields(conn, &table.name).await;
+    let fields_result = conn.get_table_fields(&table.name).await;
     let out_file_name_without_ext = format!("{}Table",stringUtils::to_camel_case(&table.name));
     let out_file = output_path.join(format!("{}.rs", out_file_name_without_ext));
 
@@ -145,6 +143,11 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     match fields_result {
         Ok(fields) => {
             for field in fields {
+                // PostgreSQL 标量数组列（int[]/text[] 等）：mapping 层暂不支持，跳过该列（实体层仍会生成 Option<Vec<T>>）
+                if field.data_type.ends_with("[]") {
+                    println!("skip mapping for PG array column {}.{} (type: {})", table.name, field.name, field.data_type);
+                    continue;
+                }
                 let column_name = if utils::reserved_field_names().contains(&field.name) { format!("{}_", field.name) } else { field.name.clone() };
                 let field_definition: String = field.data_type;
                 let mysql_cloumn_definition = MysqlColumnDefinition{
@@ -197,7 +200,7 @@ async fn generate_mapping(conn: & sqlx::pool::Pool<sqlx_mysql::MySql>, table: Ta
     writeln!(buf_writer,"}}").expect("Failed to write table mapping code");
 
     // 查询表索引，生成索引常量（如 IDX_XXX: &'static str）
-    let index_constants: Vec<String> = match utils::get_table_indexes(conn, &table.name).await {
+    let index_constants: Vec<String> = match conn.get_table_indexes(&table.name).await {
         Ok(indexes) => {
             let mut constants: Vec<String> = vec![];
             for index in indexes {

@@ -136,6 +136,7 @@ impl FromStr for SqlColumn {
             "Longtext" => Ok(SqlColumn::Longtext(None)),
             "Enum" => Ok(SqlColumn::Enum(None)),
             "Set" => Ok(SqlColumn::Set(None)),
+            "Boolean" => Ok(SqlColumn::Boolean(None)),
             "Tinyint" => Ok(SqlColumn::Tinyint(None)),
             "Smallint" => Ok(SqlColumn::Smallint(None)),
             "Int" => Ok(SqlColumn::Int(None)),
