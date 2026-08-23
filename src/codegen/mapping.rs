@@ -155,7 +155,8 @@ async fn generate_mapping(conn: &impl TableIntrospector, table: TableRow, output
                     name_unmodified : field.name,
                     column_definition:field_definition,
                     default_value:"".to_string(), //all empty for now
-                    is_primary_key: field.is_primary_key
+                    is_primary_key: field.is_primary_key,
+                    enum_type_name: field.enum_type_name
                 };
                 let columnConstructInfo:TableFieldConstructInfo = get_construct_info_from_column_definition(&table.name,mysql_cloumn_definition, crate_and_root_path_of_entity.clone(),entity_field_naming_convention,boolean_columns,encrypted_columns.clone()).expect(&format!("Failed to get construct info from table {}",table.name));
 
@@ -389,7 +390,8 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                     name_and_value_from_entity_default_value = format!("Year::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Enum(_) => {
-                    let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
+                    // enum_type_name：MySQL 为"表名_列名"，PostgreSQL 为全局类型名；统一命名，无需方言分支
+                    let short_enum_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&mysql_col_definition.enum_type_name));
                     let mut enumType = format!("{}",&short_enum_name);
                     if !crate_and_root_path_of_entity.is_empty(){
                         enumType = format!("{}::enums::{}",crate_and_root_path_of_entity, enumType);
@@ -406,7 +408,8 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                     import_statements.push(enumType);
                 },
                 SqlColumn::Set(_) => {
-                    let short_enum_name = format!("{}{}",stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&column_name)));
+                    // enum_type_name：MySQL 为"表名_列名"，PostgreSQL 为全局类型名；统一命名，无需方言分支
+                    let short_enum_name = stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(&mysql_col_definition.enum_type_name));
                     let mut enumType = format!("{}",&short_enum_name);
                     if !crate_and_root_path_of_entity.is_empty(){
                         enumType = format!("{}::enums::{}",crate_and_root_path_of_entity, enumType);

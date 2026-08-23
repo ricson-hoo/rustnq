@@ -34,7 +34,9 @@ pub struct TableFieldRow {
     pub(crate) name: String,
     pub(crate) data_type: String,//varchar(32),enum('a','b'),set('a','b'),tinyint(1)
     pub(crate) nullable:bool,
-    pub(crate) is_primary_key:bool
+    pub(crate) is_primary_key:bool,
+    // enum/set 列的枚举命名来源：MySQL 为"表名_列名"（如 order_status），PostgreSQL 为全局 enum 类型名（如 product_status）；非 enum/set 列恒为空
+    pub(crate) enum_type_name: String,
 }
 
 #[derive(Debug)]
@@ -43,7 +45,9 @@ pub struct TableFullFieldRow {
     pub(crate) comment: String,
     pub(crate) data_type: String,//varchar(32),enum('a','b'),set('a','b'),tinyint(1)
     pub(crate) nullable:bool,
-    pub(crate) is_primary_key:bool
+    pub(crate) is_primary_key:bool,
+    // enum/set 列的枚举命名来源：MySQL 为"表名_列名"（如 order_status），PostgreSQL 为全局 enum 类型名（如 product_status）；非 enum/set 列恒为空
+    pub(crate) enum_type_name: String,
 }
 
 /// MySQL: `SHOW TABLES` 返回的列名是动态的（Tables_in_<db>）；PostgreSQL: information_schema 侧统一别名成 Tables_in_*
@@ -92,7 +96,7 @@ fn get_str_field_mysql(row: &MySqlRow, column_name: &str) -> String {
     }
 }
 
-fn parse_field_row_mysql(row: &MySqlRow) -> TableFieldRow {
+fn parse_field_row_mysql(row: &MySqlRow, table_name: &str) -> TableFieldRow {
     let name_value = row.try_get::<String,_>("Field").unwrap_or_else(|error|{
         panic!("failed to get name: {}",error);
     });
@@ -100,22 +104,34 @@ fn parse_field_row_mysql(row: &MySqlRow) -> TableFieldRow {
     let nullable_value = get_str_field_mysql(row, "Null");
     let primary_value = get_str_field_mysql(row, "Key");
 
+    // MySQL 的 enum/set 是列内联定义，无全局类型名；枚举命名来源 = 表名_列名（下游无需方言分支）
+    let enum_type_name = {
+        let t = type_value.to_lowercase();
+        if t.starts_with("enum(") || t.starts_with("set(") {
+            format!("{}_{}", table_name, name_value)
+        } else {
+            String::new()
+        }
+    };
+
     TableFieldRow {
         name: name_value,
         data_type: type_value,
         nullable: "Yes" == nullable_value || "YES" == nullable_value,
         is_primary_key: "Pri" == primary_value || "PRI" == primary_value,
+        enum_type_name,
     }
 }
 
-fn parse_full_field_row_mysql(row: &MySqlRow) -> TableFullFieldRow {
-    let field_row = parse_field_row_mysql(row);
+fn parse_full_field_row_mysql(row: &MySqlRow, table_name: &str) -> TableFullFieldRow {
+    let field_row = parse_field_row_mysql(row, table_name);
     TableFullFieldRow {
         name: field_row.name,
         comment: get_str_field_mysql(row, "Comment"),
         data_type: field_row.data_type,
         nullable: field_row.nullable,
         is_primary_key: field_row.is_primary_key,
+        enum_type_name: field_row.enum_type_name,
     }
 }
 
@@ -155,6 +171,7 @@ fn parse_field_row_pg(row: &PgRow) -> TableFieldRow {
         data_type: get_str_field_pg(row, "Type"),
         nullable: "Yes" == nullable_value || "YES" == nullable_value,
         is_primary_key: "Pri" == primary_value || "PRI" == primary_value,
+        enum_type_name: get_str_field_pg(row, "Enum_type_name"),
     }
 }
 
@@ -166,6 +183,7 @@ fn parse_full_field_row_pg(row: &PgRow) -> TableFullFieldRow {
         data_type: field_row.data_type,
         nullable: field_row.nullable,
         is_primary_key: field_row.is_primary_key,
+        enum_type_name: get_str_field_pg(row, "Enum_type_name"),
     }
 }
 
@@ -185,9 +203,16 @@ ORDER BY table_name
 ///   - 自定义枚举数组 -> set('a','b')         （与 MySQL SET 行为一致，实体层生成 Set<T> 并自动生成枚举）
 ///   - 标量数组       -> int[]/text[]/...     （实体层生成 Option<Vec<T>>）
 ///   - 标量列         -> varchar(32)/int/bigint/boolean/...
+/// 额外保留 Enum_type_name：PG 全局 enum 类型名（如 product_status；非 enum 列返回空串），
+/// 与 MySQL 侧（enum/set 列填"表名_列名"）对齐到同一字段语义——枚举命名来源，下游无需方言分支。
 const PG_TABLE_FIELDS_SQL: &str = r#"
 SELECT
     a.attname AS "Field",
+    CASE
+        WHEN t.typtype = 'e' THEN t.typname
+        WHEN et.typtype = 'e' THEN et.typname
+        ELSE ''
+    END AS "Enum_type_name",
     CASE
         WHEN t.typtype = 'e' THEN
             'enum(' || (SELECT string_agg(quote_literal(e.enumlabel), ',' ORDER BY e.enumsortorder)
@@ -311,13 +336,13 @@ impl TableIntrospector for Pool<MySql> {
     async fn get_table_fields(&self, table_name: &str) -> Result<Vec<TableFieldRow>, sqlx::Error> {
         let query = format!("DESCRIBE `{}`;", table_name);
         let rows = sqlx::query(&query).fetch_all(self).await?;
-        Ok(rows.iter().map(parse_field_row_mysql).collect())
+        Ok(rows.iter().map(|row| parse_field_row_mysql(row, table_name)).collect())
     }
 
     async fn get_table_full_fields(&self, table_name: &str) -> Result<Vec<TableFullFieldRow>, sqlx::Error> {
         let query = format!("SHOW FULL COLUMNS FROM `{}`;", table_name);
         let rows = sqlx::query(&query).fetch_all(self).await?;
-        Ok(rows.iter().map(parse_full_field_row_mysql).collect())
+        Ok(rows.iter().map(|row| parse_full_field_row_mysql(row, table_name)).collect())
     }
 
     async fn get_table_indexes(&self, table_name: &str) -> Result<Vec<TableIndexRow>, sqlx::Error> {

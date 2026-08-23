@@ -84,6 +84,8 @@ pub async fn generate_entities(conn: &impl TableIntrospector, db_name:&str, conf
 
     //collect what has been generated
     let mut generated_entities:Vec<GeneratedStructInfo> = Vec::new();
+    // PostgreSQL 全局 enum 类型可能被多张表引用，避免 enums/mod.rs 中重复 pub mod / pub use
+    let mut written_enum_files: HashSet<String> = HashSet::new();
 
     match tables {
         Ok(tables) => {
@@ -130,8 +132,10 @@ pub async fn generate_entities(conn: &impl TableIntrospector, db_name:&str, conf
         writeln!(entity_mod_out_file_buf_writer,"pub use {}::{};",&generated_entity_info.file_name_without_ext,stringUtils::begin_with_upper_case(&generated_entity_info.struct_name)).expect("Failed to write entity/mod.rs");
         if !generated_entity_info.enum_file_names_without_ext.is_empty(){
             for enum_file_name in generated_entity_info.enum_file_names_without_ext{
-                writeln!(entity_enum_mod_out_file_buf_writer,"pub mod {};",enum_file_name).expect("Failed to write entity/enum/mod.rs");
-                writeln!(entity_enum_mod_out_file_buf_writer,"pub use {}::{};",enum_file_name,stringUtils::begin_with_upper_case(&enum_file_name)).expect("Failed to write entity/mod.rs");
+                if written_enum_files.insert(enum_file_name.clone()) {
+                    writeln!(entity_enum_mod_out_file_buf_writer,"pub mod {};",enum_file_name).expect("Failed to write entity/enum/mod.rs");
+                    writeln!(entity_enum_mod_out_file_buf_writer,"pub use {}::{};",enum_file_name,stringUtils::begin_with_upper_case(&enum_file_name)).expect("Failed to write entity/mod.rs");
+                }
             }
         }
     }
@@ -186,7 +190,7 @@ async fn generate_entity(conn: &impl TableIntrospector, table: TableRow, output_
                 let nullable = it.nullable;
                 let is_primary_key = it.is_primary_key;
                 println!("field_name : {}.{}, field_definition:{}",&table.name.clone(), &field_name.clone(), &field_definition.clone());
-                let field_type = resolve_type_from_column_definition(&table.name, &field_name, &field_definition, boolean_columns, trait_for_enum_types, output_path);
+                let field_type = resolve_type_from_column_definition(&table.name, &field_name, &field_definition, &it.enum_type_name, boolean_columns, trait_for_enum_types, output_path);
                 if !field_type.enum_file_name_without_ext.is_empty() {
                     enum_file_names_without_ext.push(field_type.enum_file_name_without_ext);
                 }
@@ -519,7 +523,7 @@ fn resolve_array_type_from_element(table_name: &str, column_name: &str, column_d
 }
 
 //convert mysql data field type to rust type
-fn resolve_type_from_column_definition(table_name: &str, column_name: &str, column_definition: &str,boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, generated_code_dir: &Path) -> StructFieldType {
+fn resolve_type_from_column_definition(table_name: &str, column_name: &str, column_definition: &str, enum_type_name: &str, boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, generated_code_dir: &Path) -> StructFieldType {
     // PostgreSQL 标量数组列（如 int[]、text[]、boolean[]）：生成 Option<Vec<T>>。
     // 注：PG 自定义枚举数组会被归一化为 set('a','b')，走下方 Set 分支自动生成枚举，不会命中这里。
     if let Some(elem_definition) = column_definition.strip_suffix("[]") {
@@ -554,7 +558,7 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
                     }
                     SqlColumn::Enum(_) | SqlColumn::Set(_) => {
                         is_primitive_type = false;
-                        let (enum_name, enum_file_name_no_ext) = &generate_and_get_enum_name(&table_name, &column_name, &column_definition, trait_for_enum_types, generated_code_dir);
+                        let (enum_name, enum_file_name_no_ext) = &generate_and_get_enum_name(&table_name, &column_name, enum_type_name, &column_definition, trait_for_enum_types, generated_code_dir);
                         mysql_data_type_prop.import = vec![format!("crate::entity::enums::{}",enum_name)];
                         enum_file_name_without_ext = enum_file_name_no_ext.to_string();
                         let prop = mysql_data_type_prop.clone();
@@ -583,8 +587,10 @@ fn resolve_type_from_column_definition(table_name: &str, column_name: &str, colu
     }
 }
 
-fn get_enum_name(table_name: &str, column_name: &str) -> String {
-    format!("{}{}", stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(table_name)), stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(column_name)))
+fn get_enum_name(enum_type_name: &str) -> String {
+    // enum_type_name：MySQL 为"表名_列名"（列内联定义），PostgreSQL 为全局 enum 类型名（如 product_status）
+    // 统一按"下划线分词转驼峰首字母大写"命名，无需区分方言
+    stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(enum_type_name))
 }
 
 fn get_qualified_enum_key(enum_value: &str, unsupported_char_in_enum_key: &HashSet<&str>) -> String {
@@ -605,10 +611,11 @@ fn get_qualified_enum_key(enum_value: &str, unsupported_char_in_enum_key: &HashS
     qualified_key
 }
 
-fn generate_and_get_enum_name(table_name: &str, column_name: &str, column_definition: &str, trait_for_enum_types: &HashMap<String, String>, generated_code_dir:&Path) -> (String,String) {
-    let enum_name = get_enum_name(table_name, column_name);
+fn generate_and_get_enum_name(table_name: &str, column_name: &str, enum_type_name: &str, column_definition: &str, trait_for_enum_types: &HashMap<String, String>, generated_code_dir:&Path) -> (String,String) {
+    let enum_name = get_enum_name(enum_type_name);
     let enum_dir = generated_code_dir.join("enums");
-    let enum_file_name_without_ext = format!("{}{}",stringUtils::to_camel_case(table_name),stringUtils::begin_with_upper_case(&stringUtils::to_camel_case(column_name)));
+    // MySQL 传"表名_列名"、PG 传全局类型名，统一以此命名文件/模块（PG 多表引用同一类型时文件/模块不重复）
+    let enum_file_name_without_ext = stringUtils::to_camel_case(enum_type_name);
     generate_enum(&enum_name, column_definition, table_name, column_name, &enum_dir, &enum_file_name_without_ext, trait_for_enum_types);
     (enum_name,enum_file_name_without_ext)
     //format!("{}.{}", get_package_from_directory(generated_enum_path), enum_class_name)

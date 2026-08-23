@@ -197,6 +197,8 @@ pub struct MysqlColumnDefinition{
     pub column_definition: String,
     pub default_value: String,
     pub is_primary_key: bool,
+    // enum/set 列的枚举命名来源：MySQL 为"表名_列名"（如 order_status），PostgreSQL 为全局 enum 类型名（如 product_status）；非 enum/set 列恒为空
+    pub enum_type_name: String,
 }
 
 pub struct TableFieldConstructInfo {
