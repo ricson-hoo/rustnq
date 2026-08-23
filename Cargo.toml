@@ -3,10 +3,16 @@ name = "rustnq"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# 编译期选择数据库后端：默认 MySQL（保持向后兼容），PostgreSQL 项目用 default-features = false, features = ["postgres"]
+default = ["mysql"]
+mysql = ["dep:sqlx-mysql", "sqlx/mysql"]
+postgres = ["dep:sqlx-postgres", "sqlx/postgres"]
+
 [dependencies]
-sqlx = { version = "0.8.6",features = ["json","chrono","rust_decimal","postgres"]}
-sqlx-mysql = {version = "0.8.6", features = ["json","chrono","rust_decimal"]}
-sqlx-postgres = {version = "0.8.6", features = ["json","chrono","rust_decimal"]}
+sqlx = { version = "0.8.6",features = ["json","chrono","rust_decimal"]}
+sqlx-mysql = {version = "0.8.6", features = ["json","chrono","rust_decimal"], optional = true}
+sqlx-postgres = {version = "0.8.6", features = ["json","chrono","rust_decimal"], optional = true}
 anyhow = "1.0.89"
 serde = "1.0.210"
 chrono = { version = "^0", features = ["serde"] }

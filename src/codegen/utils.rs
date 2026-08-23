@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 use sqlx::{Column, Row};
 use sqlx::pool::Pool;
+#[cfg(feature = "mysql")]
 use sqlx_mysql::{MySql, MySqlRow};
+#[cfg(feature = "postgres")]
 use sqlx_postgres::{PgRow, Postgres};
 use crate::codegen::entity::NamingConvention;
 use crate::utils::stringUtils;
@@ -51,6 +53,7 @@ pub struct TableFullFieldRow {
 }
 
 /// MySQL: `SHOW TABLES` 返回的列名是动态的（Tables_in_<db>）；PostgreSQL: information_schema 侧统一别名成 Tables_in_*
+#[cfg(feature = "mysql")]
 fn parse_table_row_mysql(row: &MySqlRow) -> TableRow {
     let mut str = "".to_string();
     for column in row.columns() {
@@ -71,6 +74,7 @@ fn parse_table_row_mysql(row: &MySqlRow) -> TableRow {
     }
 }
 
+#[cfg(feature = "mysql")]
 fn parse_index_column_row_mysql(row: &MySqlRow) -> TableIndexColumnRow {
     let index_name = row.try_get::<String,_>("Key_name").unwrap_or_else(|error|{
         panic!("failed to get Key_name: {}",error);
@@ -86,6 +90,7 @@ fn parse_index_column_row_mysql(row: &MySqlRow) -> TableIndexColumnRow {
 }
 
 /// MySQL 的 varchar 列在特定字符集下可能以 BLOB 返回，先按 String 读，失败再按字节读
+#[cfg(feature = "mysql")]
 fn get_str_field_mysql(row: &MySqlRow, column_name: &str) -> String {
     match row.try_get::<String, _>(column_name) {
         Ok(value) => value,
@@ -96,6 +101,7 @@ fn get_str_field_mysql(row: &MySqlRow, column_name: &str) -> String {
     }
 }
 
+#[cfg(feature = "mysql")]
 fn parse_field_row_mysql(row: &MySqlRow, table_name: &str) -> TableFieldRow {
     let name_value = row.try_get::<String,_>("Field").unwrap_or_else(|error|{
         panic!("failed to get name: {}",error);
@@ -123,6 +129,7 @@ fn parse_field_row_mysql(row: &MySqlRow, table_name: &str) -> TableFieldRow {
     }
 }
 
+#[cfg(feature = "mysql")]
 fn parse_full_field_row_mysql(row: &MySqlRow, table_name: &str) -> TableFullFieldRow {
     let field_row = parse_field_row_mysql(row, table_name);
     TableFullFieldRow {
@@ -136,11 +143,13 @@ fn parse_full_field_row_mysql(row: &MySqlRow, table_name: &str) -> TableFullFiel
 }
 
 /// PostgreSQL 侧全部按 String 解码（information_schema 返回文本类型），无需 BLOB fallback
+#[cfg(feature = "postgres")]
 fn parse_table_row_pg(row: &PgRow) -> TableRow {
     let name = row.try_get::<String, _>("Tables_in_postgres").unwrap_or_default();
     TableRow { name }
 }
 
+#[cfg(feature = "postgres")]
 fn parse_index_column_row_pg(row: &PgRow) -> TableIndexColumnRow {
     let index_name = row.try_get::<String,_>("Key_name").unwrap_or_else(|error|{
         panic!("failed to get Key_name: {}",error);
@@ -155,10 +164,12 @@ fn parse_index_column_row_pg(row: &PgRow) -> TableIndexColumnRow {
     }
 }
 
+#[cfg(feature = "postgres")]
 fn get_str_field_pg(row: &PgRow, column_name: &str) -> String {
     row.try_get::<String, _>(column_name).unwrap_or_default()
 }
 
+#[cfg(feature = "postgres")]
 fn parse_field_row_pg(row: &PgRow) -> TableFieldRow {
     let name_value = row.try_get::<String,_>("Field").unwrap_or_else(|error|{
         panic!("failed to get name: {}",error);
@@ -175,6 +186,7 @@ fn parse_field_row_pg(row: &PgRow) -> TableFieldRow {
     }
 }
 
+#[cfg(feature = "postgres")]
 fn parse_full_field_row_pg(row: &PgRow) -> TableFullFieldRow {
     let field_row = parse_field_row_pg(row);
     TableFullFieldRow {
@@ -189,6 +201,7 @@ fn parse_full_field_row_pg(row: &PgRow) -> TableFullFieldRow {
 
 /// PostgreSQL: 表列表。列名对齐 MySQL `SHOW TABLES` 的 "Tables_in_*" 动态列名，复用同一解析。
 /// 注意：表按连接当前的 search_path（current_schema()）读取。
+#[cfg(feature = "postgres")]
 const PG_TABLES_SQL: &str = r#"
 SELECT table_name AS "Tables_in_postgres"
 FROM information_schema.tables
@@ -205,6 +218,7 @@ ORDER BY table_name
 ///   - 标量列         -> varchar(32)/int/bigint/boolean/...
 /// 额外保留 Enum_type_name：PG 全局 enum 类型名（如 product_status；非 enum 列返回空串），
 /// 与 MySQL 侧（enum/set 列填"表名_列名"）对齐到同一字段语义——枚举命名来源，下游无需方言分支。
+#[cfg(feature = "postgres")]
 const PG_TABLE_FIELDS_SQL: &str = r#"
 SELECT
     a.attname AS "Field",
@@ -292,6 +306,7 @@ ORDER BY a.attnum
 ///   - 主键索引用 "PRIMARY" 命名，与 MySQL 一致，下游跳过逻辑可直接复用
 ///   - Non_unique: 0 唯一 / 1 非唯一，与 MySQL 一致
 ///   - unnest(ix.indkey::int2[]) WITH ORDINALITY 保证多列索引的列顺序
+#[cfg(feature = "postgres")]
 const PG_TABLE_INDEXES_SQL: &str = r#"
 SELECT
     CASE WHEN ix.indisprimary THEN 'PRIMARY' ELSE i.relname END AS "Key_name",
@@ -310,6 +325,7 @@ ORDER BY i.relname, ord
 "#;
 
 /// 把表名嵌入 PostgreSQL 查询（SQL 中固定使用 $1 占位），并转义单引号
+#[cfg(feature = "postgres")]
 fn pg_table_literal(table_name: &str) -> String {
     format!("'{}'", table_name.replace('\'', "''"))
 }
@@ -327,6 +343,7 @@ pub trait TableIntrospector {
     async fn get_table_indexes(&self, table_name: &str) -> Result<Vec<TableIndexRow>, sqlx::Error>;
 }
 
+#[cfg(feature = "mysql")]
 impl TableIntrospector for Pool<MySql> {
     async fn get_tables(&self) -> Result<Vec<TableRow>, sqlx::Error> {
         let rows = sqlx::query("SHOW TABLES").fetch_all(self).await?;
@@ -353,6 +370,7 @@ impl TableIntrospector for Pool<MySql> {
     }
 }
 
+#[cfg(feature = "postgres")]
 impl TableIntrospector for Pool<Postgres> {
     async fn get_tables(&self) -> Result<Vec<TableRow>, sqlx::Error> {
         let rows = sqlx::query(PG_TABLES_SQL).fetch_all(self).await?;

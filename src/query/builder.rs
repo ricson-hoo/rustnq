@@ -3,10 +3,10 @@ use std::{fmt, fmt::write, format, result};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
-use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value};
+use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
 use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint};
-use sqlx_mysql::{MySqlQueryResult, MySqlRow, MySqlTypeInfo};
-use sqlx_mysql::{MySqlPool, MySqlPoolOptions};
+use crate::query::db::{Db, DbQueryResult, DbRow};
+use crate::query::dialect::{DbDialect, ValueKind};
 use url::Url;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
@@ -53,8 +53,34 @@ impl QueryBuildError{
     }
 }
 
+/// 通用文本读取：优先按 String 解码。
+/// PostgreSQL 的 uuid / 自定义 enum 等类型无法直接按 String 解码（sqlx 的
+/// String::compatible 不含这些类型），此时退化为按 wire 协议文本读取。
+#[cfg(feature = "postgres")]
+fn try_get_text(row: &DbRow, i: usize) -> Result<Option<String>, Error> {
+    match row.try_get::<Option<String>, _>(i) {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            let raw = row.try_get_raw(i)?;
+            if raw.is_null() {
+                Ok(None)
+            } else {
+                match raw.as_str() {
+                    Ok(s) => Ok(Some(s.to_string())),
+                    Err(e) => Err(Error::Decode(e)),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "mysql")]
+fn try_get_text(row: &DbRow, i: usize) -> Result<Option<String>, Error> {
+    row.try_get::<Option<String>, _>(i)
+}
+
 pub trait RowMappable{
-    fn from_row(row: &MySqlRow) -> Self;
+    fn from_row(row: &DbRow) -> Self;
 }
 
 #[derive(Debug,Clone)]
@@ -721,39 +747,8 @@ pub struct QueryBuilder {
 
 /// 包装字段名，处理SQL关键字
 fn wrap_field_name(field_name: &str) -> String {
-    // SQL 关键字列表
-    let sql_keywords = [
-        "order", "group", "table", "select", "insert", "update", "delete", "where",
-        "from", "as", "and", "or", "not", "null", "is", "in", "like", "between",
-        "join", "left", "right", "inner", "outer", "on", "by", "having", "distinct",
-        "limit", "offset", "set", "values", "into", "create", "alter", "drop",
-        "index", "primary", "key", "foreign", "references", "constraint", "default",
-        "auto_increment", "desc", "asc", "union", "all", "case", "when", "then",
-        "else", "end", "exists", "any", "some", "user", "database", "schema",
-        "view", "procedure", "function", "trigger", "event", "temporary", "if",
-        "elseif", "begin", "end", "declare", "set", "call", "execute", "show",
-        "describe", "explain", "use", "grant", "revoke", "privileges", "flush",
-        "lock", "unlock", "commit", "rollback", "savepoint", "transaction",
-        "character", "collate", "engine", "row_format", "comment", "partition",
-        "check", "cascade", "restrict", "no", "action", "match", "full", "natural",
-        "cross", "using", "current_date", "current_time", "current_timestamp",
-        "interval", "year", "month", "day", "hour", "minute", "second", "microsecond",
-        "date", "time", "timestamp", "datetime", "year", "char", "varchar", "text",
-        "tinytext", "mediumtext", "longtext", "blob", "tinyblob", "mediumblob",
-        "longblob", "enum", "set", "decimal", "numeric", "float", "double", "real",
-        "bit", "bool", "boolean", "serial", "bigserial", "smallserial", "money",
-        "uuid", "json", "jsonb", "xml", "array", "range", "multirange", "domain"
-    ];
-
-    // 转换为小写比较
-    let lower_name = field_name.to_lowercase();
-
-    // 使用迭代器进行查找
-    if sql_keywords.iter().any(|&kw| kw == lower_name) {
-        format!("`{}`", field_name)
-    } else {
-        field_name.to_string()
-    }
+    // 按当前方言包裹标识符：MySQL 反引号 / PostgreSQL 双引号（保留字）或裸名
+    DbDialect::current().wrap_identifier(field_name)
 }
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>, is_encrypted:bool){
     let wrapped_name = wrap_field_name(&name);
@@ -852,7 +847,12 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
             SqlColumn::Boolean(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-                        add_non_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { if value {Some("1".to_string())} else {Some("0".to_string())}} else {None},insert_fields,insert_values,update_fields_values);
+                        // MySQL 的 TINYINT(1) 用 1/0；PostgreSQL 的 bool 用 true/false（bool 列不接受 int 字面量）
+                        #[cfg(feature = "mysql")]
+                        let bool_literal = if let Some(value) = col.value() { if value {Some("1".to_string())} else {Some("0".to_string())} } else { None };
+                        #[cfg(feature = "postgres")]
+                        let bool_literal = if let Some(value) = col.value() { if value {Some("true".to_string())} else {Some("false".to_string())} } else { None };
+                        add_non_text_upsert_fields_values(col.name(), bool_literal, insert_fields, insert_values, update_fields_values);
                     }
                 }
             }
@@ -1253,13 +1253,34 @@ impl QueryBuilder {
     }
 
     ///execute insert/update/delete and return the affected rows number
-    pub async fn execute(&self) -> Result<MySqlQueryResult,Error> {
+    pub async fn execute(&self) -> Result<DbQueryResult,Error> {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
-            let result = sqlx::query(&query_string).execute(pool).await? as MySqlQueryResult; // Pass the reference to sqlx::query()
+            let result = sqlx::query::<Db>(&query_string).execute(pool).await?; // Pass the reference to sqlx::query()
             Ok(result)
+        }else if let Err(e) = build_result {
+            Err(Error::Configuration(e.message.into()))
+        }else {
+            Err(Error::Configuration("未知错误".into()))
+        }
+    }
+
+    /// 执行 insert/upsert 并取回指定列（跨库取自动主键）。
+    /// PostgreSQL 原生支持 RETURNING；MySQL 8.0.19+ 同样支持。
+    pub async fn execute_returning(&self, returning_fields: Vec<String>) -> Result<Option<DbRow>,Error> {
+        let pool = POOL.get().unwrap();
+        let build_result = self.build();
+        if let Ok(query_string) = build_result {
+            let returning_sql = returning_fields.iter()
+                .map(|field| wrap_field_name(field))
+                .collect::<Vec<String>>()
+                .join(", ");
+            // 去掉末尾分号再追加 RETURNING
+            let query_string = format!("{} RETURNING {}", query_string.trim_end_matches(';'), returning_sql);
+            println!("query string # {}", query_string);
+            sqlx::query::<Db>(&query_string).fetch_optional(pool).await
         }else if let Err(e) = build_result {
             Err(Error::Configuration(e.message.into()))
         }else {
@@ -1274,8 +1295,8 @@ impl QueryBuilder {
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
 
-            let jsons = sqlx::query(&query_string)
-                .try_map(|row:MySqlRow| {
+            let jsons = sqlx::query::<Db>(&query_string)
+                .try_map(|row: DbRow| {
                     self.convert_to_json_value(row)
                 })
                 .fetch_all(pool)
@@ -1358,14 +1379,14 @@ impl QueryBuilder {
         println!("count query string # {}", count_query_string);
         println!("query string # {}", data_query_string);
 
-        let count_future = sqlx::query(&count_query_string)
-            .try_map(|row:MySqlRow| {
+        let count_future = sqlx::query::<Db>(&count_query_string)
+            .try_map(|row: DbRow| {
                 self.convert_to_number(row)
             })
             .fetch_one(pool);
 
-        let data_future = sqlx::query(&data_query_string)
-            .try_map(|row:MySqlRow| {
+        let data_future = sqlx::query::<Db>(&data_query_string)
+            .try_map(|row: DbRow| {
                 self.convert_to_json_value(row)
             })
             .fetch_all(pool);
@@ -1403,8 +1424,8 @@ impl QueryBuilder {
         match self.build_count_query() {
             Ok(query_string) => {
                 println!("count query string # {}", query_string);
-                count = sqlx::query(&query_string)
-                    .try_map(|row:MySqlRow| {
+                count = sqlx::query::<Db>(&query_string)
+                    .try_map(|row: DbRow| {
                         self.convert_to_number(row)
                     })
                     .fetch_one(pool)
@@ -1426,8 +1447,8 @@ impl QueryBuilder {
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
 
-            let jsons = sqlx::query(&query_string)
-                .try_map(|row:MySqlRow| {
+            let jsons = sqlx::query::<Db>(&query_string)
+                .try_map(|row: DbRow| {
                     self.convert_to_json_value(row)
                 })
                 .fetch_all(pool)
@@ -1465,8 +1486,8 @@ impl QueryBuilder {
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
 
-            let query_result = sqlx::query(&query_string)
-                .try_map(|row:MySqlRow| {
+            let query_result = sqlx::query::<Db>(&query_string)
+                .try_map(|row: DbRow| {
                     self.convert_to_json_value(row)
                 })
                 .fetch_one(pool)
@@ -1545,8 +1566,8 @@ impl QueryBuilder {
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
 
-            let value = sqlx::query(&query_string)
-                .try_map(|row:MySqlRow| {
+            let value = sqlx::query::<Db>(&query_string)
+                .try_map(|row: DbRow| {
                     self.convert_to_number(row)
                 })
                 .fetch_one(pool)
@@ -1559,8 +1580,8 @@ impl QueryBuilder {
         }
     }
 
-    ///将mysql数据行转为JsonValue
-    fn convert_to_json_value(&self, row:MySqlRow)-> Result<JsonValue, Error>{
+    ///将数据库数据行转为JsonValue（MySQL / PostgreSQL 通用）
+    fn convert_to_json_value(&self, row:DbRow)-> Result<JsonValue, Error>{
         // println!("row of product {:#?}", row);
         let mut json_obj = json!({});
         let columns = row.columns();
@@ -1579,18 +1600,11 @@ impl QueryBuilder {
                 }
             }
             let camel_case_column_name = to_camel_case(&column_name);
-            let mut type_name = column.type_info().name();
-            let type_detail = format!("{:?}", column.type_info());
-            if type_detail.contains("ColumnFlags(SET)"){
-                type_name = "SET";
-            }
-            if type_detail.contains("ColumnFlags(MULTIPLE_KEY | SET)"){
-                type_name = "SET";
-            }
-            //println!("type_name of {} {} {}",column_name, type_name, type_detail);
-            match type_name {
-                "VARCHAR" => {
-                    let value_result: Result<Option<String>, _> = row.try_get(i);
+            let type_name = column.type_info().name();
+            //println!("type_name of {} {} {:?}",column_name, type_name, DbDialect::current().value_kind(type_name));
+            match DbDialect::current().value_kind(type_name) {
+                ValueKind::Str => {
+                    let value_result = try_get_text(&row, i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
                             if obj_name.is_some() {
@@ -1613,7 +1627,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "INT" => {
+                ValueKind::Int => {
                     //println!("decoding INT {}",column_name);
                     let value_result: Result<Option<i64>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
@@ -1638,34 +1652,13 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "BIGINT" => {
+                ValueKind::UInt => {
                     //println!("decoding INT {}",column_name);
-                    let value_result: Result<Option<i64>, Error> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
-                            }else {
-                                json_obj[column_name] = value.clone().into();
-                                json_obj[camel_case_column_name] = value.into();
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
-                    }
-                }
-                "BIGINT UNSIGNED" => {
-                    //println!("decoding INT {}",column_name);
+                    // PostgreSQL 无 unsigned 整数（pg_value_kind 不会返回 UInt），该分支仅作编译期占位
+                    #[cfg(feature = "mysql")]
                     let value_result: Result<Option<u64>, Error> = row.try_get(i);
+                    #[cfg(feature = "postgres")]
+                    let value_result: Result<Option<i64>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
                             if obj_name.is_some() {
@@ -1688,7 +1681,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "DECIMAL" => {
+                ValueKind::Decimal => {
                     let value_result: Result<Option<rust_decimal::Decimal>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1723,17 +1716,28 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "BOOLEAN" => {   //max_size为1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(1) }
+                ValueKind::Bool => {   //max_size为1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(1) }
                     //println!("decoding BOOLEAN {}",column_name);
+                    // MySQL 的 TINYINT(1) 以 i8 读取；PostgreSQL 的 bool 以 bool 读取
+                    #[cfg(feature = "mysql")]
                     let value_result: Result<Option<i8>, Error> = row.try_get(i);
+                    #[cfg(feature = "postgres")]
+                    let value_result: Result<Option<bool>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
+                            // 归一化为 JSON bool：MySQL 读 i8（>0 为 true），PG 直接读 bool
+                            let bool_value: bool = {
+                                #[cfg(feature = "mysql")]
+                                { value > 0 }
+                                #[cfg(feature = "postgres")]
+                                { value }
+                            };
                             if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = if value>0 {serde_json::Value::Bool(true)} else {serde_json::Value::Bool(false)};
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = if value>0 {serde_json::Value::Bool(true)} else {serde_json::Value::Bool(false)};
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Bool(bool_value);
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Bool(bool_value);
                             }else {
-                                json_obj[column_name] = if value > 0 { serde_json::Value::Bool(true) } else { serde_json::Value::Bool(false) };
-                                json_obj[camel_case_column_name] = if value > 0 { serde_json::Value::Bool(true) } else { serde_json::Value::Bool(false) };
+                                json_obj[column_name] = serde_json::Value::Bool(bool_value);
+                                json_obj[camel_case_column_name] = serde_json::Value::Bool(bool_value);
                             }
                         }else {
                             if obj_name.is_some() {
@@ -1748,9 +1752,13 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "TINYINT" => {//max_size>1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(4) }
+                ValueKind::TinyInt => {//max_size>1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(4) }
                     //println!("decoding TINYINT {}",column_name);
+                    // PostgreSQL 无 TINYINT（pg_value_kind 不会返回 TinyInt），该分支仅作编译期占位
+                    #[cfg(feature = "mysql")]
                     let value_result: Result<Option<i8>, Error> = row.try_get(i);
+                    #[cfg(feature = "postgres")]
+                    let value_result: Result<Option<i64>, Error> = row.try_get(i);
 
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1774,7 +1782,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "ENUM" => {
+                ValueKind::Enum => {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1798,7 +1806,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "SET" => {
+                ValueKind::Set => {
                     let value_result: Result<Option<String>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1828,7 +1836,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "DATETIME" => {
+                ValueKind::DateTime => {
                     // Handle DATETIME type
                     let value_result: Result<Option<chrono::NaiveDateTime>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
@@ -1855,7 +1863,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "TIMESTAMP" => {
+                ValueKind::Timestamp => {
                     let value_result: Result<Option<DateTime<Utc>>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1880,7 +1888,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "DATE" => {
+                ValueKind::Date => {
                     let value_result: Result<Option<chrono::NaiveDate>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1906,7 +1914,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "TIME" => {
+                ValueKind::Time => {
                     // Handle TIME type
                     let value_result: Result<Option<chrono::NaiveTime>, _> = row.try_get(i);
                     if let Ok(value) = value_result {
@@ -1933,32 +1941,7 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
-                "CHAR" | "TEXT" | "LONGTEXT" => {
-                    // Handle CHAR type
-                    let value_result: Result<Option<String>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
-                            }else {
-                                json_obj[column_name] = serde_json::Value::String(value.clone());
-                                json_obj[camel_case_column_name] = serde_json::Value::String(value);
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
-                    }
-                }
-                "VARBINARY" => {
+                ValueKind::Bytes => {
                     let value_result: Result<Option<Vec<u8>>, _>= row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -1988,14 +1971,54 @@ impl QueryBuilder {
                         }
                     }
                 }
-                &_ => {
-                    //println!("type_name of {} {} {}",column_name, type_name, type_detail);
-                    if obj_name.is_some() {
-                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                    }else {
-                        json_obj[column_name] = serde_json::Value::Null;
-                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                ValueKind::Float => {
+                    // PostgreSQL float4/float8、MySQL FLOAT/DOUBLE
+                    let value_result: Result<Option<f64>, _> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                            }else {
+                                json_obj[column_name] = value.clone().into();
+                                json_obj[camel_case_column_name] = value.into();
+                            }
+                        }else {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                _ => {
+                    // 其他类型（如 PostgreSQL 自定义 enum）尝试按字符串读取，失败输出 null
+                    let value_result = try_get_text(&row, i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
+                            }else {
+                                json_obj[column_name] = serde_json::Value::String(value.clone());
+                                json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                            }
+                        }else {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
                     }
                 }
             }
@@ -2004,14 +2027,14 @@ impl QueryBuilder {
         }
         Ok(json_obj)
     }
-    fn convert_to_number(&self,row:MySqlRow) -> Result<i64, Error>{
+    fn convert_to_number(&self,row:DbRow) -> Result<i64, Error>{
         let mut count_res :i64 = 0;
         let colum = row.columns().get(0);
         if let Some(colum) = colum{
             let column_name = colum.name();
             let type_name = colum.type_info().name();
-            match type_name {
-                "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => {
+            match DbDialect::current().value_kind(type_name) {
+                ValueKind::TinyInt | ValueKind::Int | ValueKind::UInt | ValueKind::Decimal | ValueKind::Float => {
                     let value_result:Result<Option<i64>, _> = row.try_get(0);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -2019,7 +2042,7 @@ impl QueryBuilder {
                         }
                     }
                 }
-                &_ => {
+                _ => {
                     //println!("type_name of {} {}",column_name, type_name);
                 }
             }
@@ -2052,7 +2075,12 @@ impl QueryBuilder {
                 if self.target_table.is_some() {
                     let target = self.target_table.clone().unwrap();
                     let table_str = if let Some(idx) = &target.force_index {
-                        format!("{} FORCE INDEX ({})", target.name, idx)
+                        if DbDialect::current().is_postgres() {
+                            // PostgreSQL 不支持 FORCE INDEX 提示，忽略
+                            target.name.clone()
+                        } else {
+                            format!("{} FORCE INDEX ({})", target.name, idx)
+                        }
                     } else {
                         target.name.clone()
                     };
@@ -2064,7 +2092,12 @@ impl QueryBuilder {
                     // Traverse joins and generate JOIN statements for each TableJoin
                     for (i, join) in self.joins.iter().enumerate() {
                         // Generate JOIN statements based on joinotype
-                        queryString.push_str(&format!(" {} {} ON {} ", join.join_type.to_string(), join.target_table.name, join.clone().condition.unwrap().query));
+                        let join_keyword = if DbDialect::current().is_postgres() && matches!(join.join_type, JoinType::STRAIGHT) {
+                            "INNER JOIN".to_string()
+                        } else {
+                            join.join_type.to_string()
+                        };
+                        queryString.push_str(&format!(" {} {} ON {} ", join_keyword, join.target_table.name, join.clone().condition.unwrap().query));
                     }
                 }
                 if self.conditions.len() > 0 {
@@ -2086,7 +2119,8 @@ impl QueryBuilder {
                             .join(", "));
                 }
                 if self.limit.is_some() {
-                    queryString = format!("{} limit {}, {}",queryString,self.clone().limit.unwrap().offset,self.clone().limit.unwrap().limit);
+                    let limit = self.clone().limit.unwrap();
+                    queryString = format!("{} {}", queryString, DbDialect::current().limit_clause(limit.offset, limit.limit));
                 }
             },
             Operation::Insert => {
@@ -2182,7 +2216,13 @@ impl QueryBuilder {
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values, &mut vec![]);
                 construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut update_fields_values,target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
                 //decrypt?
-                queryString = format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", &target_table.name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", "));
+                let conflict_columns: Vec<String> = target_table.primary_key.iter()
+                    .map(|pk| wrap_field_name(&pk.get_col_name()))
+                    .collect();
+                queryString = match DbDialect::current() {
+                    DbDialect::MySql => format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", &target_table.name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", ")),
+                    DbDialect::Postgres => format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", &target_table.name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", ")),
+                };
             },
             Operation::Delete => {
                 if self.target_table.is_none() {

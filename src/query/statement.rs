@@ -6,11 +6,13 @@ use crate::mapping::column_types::{Bigint, Date, Int};
 use crate::query::builder::{Condition, InnerTable, QueryBuilder, SelectField, TargetTable};
 use serde::Serialize;
 use sqlx::Error;
+use sqlx::Row;
 use tokio::sync::RwLock;
 use crate::configuration::{get_processors, PROCESSORS};
 use crate::mapping::column_types::Varchar;
 use crate::query::builder::construct_upsert_primary_key_value;
 use crate::utils::date_sub_unit::DateSubUnit;
+use crate::query::dialect::DbDialect;
 use std::any::Any;
 
 pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
@@ -92,15 +94,15 @@ pub fn max<T: Into<SelectField>>(field:T) -> Varchar{
 }
 
 pub fn timestamp_diff<T: Into<SelectField>>(date: T, unit: DateSubUnit) -> Int{
-    Int::with_name(format!("TIMESTAMPDIFF ({}, {}, CURDATE())", unit, date.into().to_string()))
+    Int::with_name(DbDialect::current().timestamp_diff(&unit.to_string(), &date.into().to_string()))
 }
 
 pub fn curdate() -> Varchar{
-    Varchar::with_name("CURDATE()".to_string())
+    Varchar::with_name(DbDialect::current().curdate().to_string())
 }
 
 pub fn year<T: Into<SelectField>>(field:T) -> Varchar{
-    Varchar::with_name(format!("YEAR({})", field.into().to_string()))
+    Varchar::with_name(DbDialect::current().year(&field.into().to_string()))
 }
 
 pub fn extract_year<T: Into<SelectField>>(field:T) -> Varchar{
@@ -108,60 +110,60 @@ pub fn extract_year<T: Into<SelectField>>(field:T) -> Varchar{
 }
 
 pub fn year_diff<T: Into<SelectField>>(field:T, another_year:i32) -> Int{
-    Int::with_name(format!("ABS({} - YEAR({}))", another_year, field.into().to_string()))
+    Int::with_name(DbDialect::current().year_diff(another_year, &field.into().to_string()))
 }
 
 pub fn date<T: Into<SelectField>>(field:T) -> Varchar{
-    Varchar::with_name(format!("DATE({})", field.into().to_string()))
+    Varchar::with_name(DbDialect::current().date(&field.into().to_string()))
 }
 
 pub fn month<T: Into<SelectField>>(field:T) -> Int{
-    Int::with_name(format!("MONTH({})", field.into().to_string()))
+    Int::with_name(DbDialect::current().month(&field.into().to_string()))
 }
 
 ///DATE_SUB(date, INTERVAL value unit)
 pub fn date_sub<T: Into<SelectField>>(value: i32, unit: DateSubUnit) -> Date{
-    Date::with_name(format!("DATE_SUB (CURDATE(), INTERVAL {} {})", value, unit))
+    Date::with_name(DbDialect::current().date_sub(value, &unit.to_string()))
 }
 
 /// 本季度第一天
 pub fn quarter_start() -> Varchar {
-    Varchar::with_name("MAKEDATE(YEAR(CURDATE()), 1) + INTERVAL (QUARTER(CURDATE())-1) QUARTER".to_string())
+    Varchar::with_name(DbDialect::current().quarter_start())
 }
 
 /// 下季度第一天
 pub fn quarter_end() -> Varchar {
-    Varchar::with_name("MAKEDATE(YEAR(CURDATE()), 1) + INTERVAL QUARTER(CURDATE()) QUARTER".to_string())
+    Varchar::with_name(DbDialect::current().quarter_end())
 }
 
 /// 本月第一天
 pub fn month_start() -> Varchar {
-    Varchar::with_name("DATE_FORMAT(CURDATE(), '%Y-%m-01')".to_string())
+    Varchar::with_name(DbDialect::current().month_start())
 }
 
 /// 下月第一天
 pub fn month_end() -> Varchar {
-    Varchar::with_name("DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 1 MONTH".to_string())
+    Varchar::with_name(DbDialect::current().month_end())
 }
 
 /// 本周第一天
 pub fn week_start() -> Varchar {
-    Varchar::with_name("DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)".to_string())
+    Varchar::with_name(DbDialect::current().week_start())
 }
 
 /// 下周日
 pub fn week_end() -> Varchar {
-    Varchar::with_name("DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) + INTERVAL 7 DAY".to_string())
+    Varchar::with_name(DbDialect::current().week_end())
 }
 
 /// 明日
 pub fn tomorrow() -> Varchar {
-    Varchar::with_name("CURDATE() + INTERVAL 1 DAY".to_string())
+    Varchar::with_name(DbDialect::current().tomorrow())
 }
 
 pub fn group_concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
     let fields_str = fields.into_iter().map(|field| field.into().to_string()).collect::<Vec<String>>().join(",");
-    Varchar::with_name(format!("group_concat({})",fields_str))
+    Varchar::with_name(DbDialect::current().group_concat(&fields_str))
 }
 
 pub fn concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
@@ -202,57 +204,78 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
     }
 
     //
-    let upsert_result = QueryBuilder::upsert_table_with_value(table_with_value).execute().await;
-    match upsert_result {
-        Ok(query_result) => {
-            let mut condition= Condition::new("1 = 1".to_string());
-            if query_result.rows_affected() > 0 {
-                if table_with_value.primary_key().len()>1{
+    let mut condition= Condition::new("1 = 1".to_string());
+    if table_with_value.primary_key().len()>1 || text_primary_key_value.is_some(){
+        // 复合主键 / 字符串(uuid)主键：upsert 后按主键条件回查
+        let upsert_result = QueryBuilder::upsert_table_with_value(table_with_value).execute().await;
+        match upsert_result {
+            Ok(query_result) => {
+                if query_result.rows_affected() > 0 {
+                    if text_primary_key_value.is_some(){
+                        condition = condition.and(Condition::new(format!("{} = '{}'",&text_primary_key_name.unwrap(),&text_primary_key_value.unwrap_or_default())))
+                    }else{
+                        let mut primary_key_as_conditions = vec![];
+                        construct_upsert_primary_key_value(&table_with_value.primary_key(), &mut vec![], &mut vec![], &mut primary_key_as_conditions);
+                        for cond in primary_key_as_conditions {
+                            condition = condition.and(Condition::new(cond))
+                        }
+                    }
+                }else {
+                    return Err(sqlx::Error::RowNotFound)?;
+                }
+            }
+            Err(error) => {
+                return Err(error)
+            }
+        }
+    }else {
+        // 数字主键：用 RETURNING 取回自增主键（MySQL 8.0.19+ / PostgreSQL 均支持）
+        let primary_key = primary_key_vec.get(0).unwrap().clone();
+        let primary_key_name = primary_key.get_col_name();
+        match QueryBuilder::upsert_table_with_value(table_with_value).execute_returning(vec![primary_key_name.clone()]).await {
+            Ok(Some(row)) => {
+                let id: Result<Option<i64>, _> = row.try_get(0);
+                if let Ok(Some(id)) = id {
+                    if id > 0 {
+                        condition = condition.and(Condition::new(format!("{} = {}", primary_key_name, id)));
+                    }else{
+                        // RETURNING 未取到有效主键：按主键条件回查
+                        let mut primary_key_as_conditions = vec![];
+                        construct_upsert_primary_key_value(&table_with_value.primary_key(), &mut vec![], &mut vec![], &mut primary_key_as_conditions);
+                        for cond in primary_key_as_conditions {
+                            condition = condition.and(Condition::new(cond))
+                        }
+                    }
+                }else{
                     let mut primary_key_as_conditions = vec![];
                     construct_upsert_primary_key_value(&table_with_value.primary_key(), &mut vec![], &mut vec![], &mut primary_key_as_conditions);
                     for cond in primary_key_as_conditions {
                         condition = condition.and(Condition::new(cond))
                     }
-                }else{
-                    if(text_primary_key_value.is_some()){
-                        condition = condition.and(Condition::new(format!("{} = '{}'",&text_primary_key_name.unwrap(),&text_primary_key_value.unwrap_or_default())))
-                    }else{ //primary key is not a string
-                        let primary_key = primary_key_vec.get(0).unwrap().clone();
-                        let primary_key_name = primary_key.get_col_name();
-                        let last_insert_id = query_result.last_insert_id();
-                        if last_insert_id>0 {
-                            condition = condition.and(Condition::new(format!("{} = {}",primary_key_name, last_insert_id)));
-                        }else{ //updated a row?
-                            let mut primary_key_as_conditions = vec![];
-                            construct_upsert_primary_key_value(&table_with_value.primary_key(), &mut vec![], &mut vec![], &mut primary_key_as_conditions);
-                            for cond in primary_key_as_conditions {
-                                condition = condition.and(Condition::new(cond))
-                            }
-                        }
-                    }
                 }
-                let result = QueryBuilder::select_all_fields().from(table_with_value).where_(condition).fetch_one().await;
-                match result {
-                    Ok(row) => {
-                        match row {
-                            Some(row) => {
-                                return Ok(row)
-                            }
-                            None => {
-                                return Err(sqlx::Error::RowNotFound)
-                            }
-                        }
-                    },
-                    Err(error) => {
-                        Err(error)
-                    }
-                }
-            }else {
-                Err(sqlx::Error::RowNotFound)
+            }
+            Ok(None) => {
+                return Err(sqlx::Error::RowNotFound)?;
+            }
+            Err(error) => {
+                return Err(error)
             }
         }
+    }
+    let result = QueryBuilder::select_all_fields().from(table_with_value).where_(condition).fetch_one().await;
+    match result {
+        Ok(row) => {
+            match row {
+                Some(row) => {
+                    return Ok(row)
+                }
+                None => {
+                    return Err(sqlx::Error::RowNotFound)
+                }
+            }
+        },
         Err(error) => {
-            return Err(error)
+            Err(error)
         }
     }
 }
