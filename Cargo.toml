@@ -10,9 +10,9 @@ mysql = ["dep:sqlx-mysql", "sqlx/mysql"]
 postgres = ["dep:sqlx-postgres", "sqlx/postgres"]
 
 [dependencies]
-sqlx = { version = "0.8.6",features = ["json","chrono","rust_decimal"]}
-sqlx-mysql = {version = "0.8.6", features = ["json","chrono","rust_decimal"], optional = true}
-sqlx-postgres = {version = "0.8.6", features = ["json","chrono","rust_decimal"], optional = true}
+sqlx = { version = "0.8.6",features = ["json","chrono","rust_decimal","uuid"]}
+sqlx-mysql = {version = "0.8.6", features = ["json","chrono","rust_decimal","uuid"], optional = true}
+sqlx-postgres = {version = "0.8.6", features = ["json","chrono","rust_decimal","uuid"], optional = true}
 anyhow = "1.0.89"
 serde = "1.0.210"
 chrono = { version = "^0", features = ["serde"] }

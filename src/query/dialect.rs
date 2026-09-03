@@ -354,6 +354,7 @@ pub enum ValueKind {
     Date,
     Time,
     Bytes,
+    Uuid,
     Other,
 }
 
@@ -383,9 +384,10 @@ fn mysql_value_kind(type_name: &str) -> ValueKind {
 }
 
 fn pg_value_kind(type_name: &str) -> ValueKind {
-    match type_name {
-        "varchar" | "char" | "bpchar" | "text" | "citext" | "name" | "json" | "jsonb"
-        | "uuid" => ValueKind::Str,
+    let type_name = type_name.to_lowercase();
+    match type_name.as_str() {
+        "varchar" | "char" | "bpchar" | "text" | "citext" | "name" | "json" | "jsonb" => ValueKind::Str,
+        "uuid" => ValueKind::Uuid,
         "int2" | "int4" | "int8" | "smallint" | "integer" | "bigint" | "serial" | "bigserial"
         | "smallserial" => ValueKind::Int,
         "numeric" | "decimal" => ValueKind::Decimal,

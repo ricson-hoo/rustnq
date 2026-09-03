@@ -14,6 +14,7 @@ use serde_json::{json, Number};
 use serde_json::Value as JsonValue;
 use std::future::Future;
 use chrono::{DateTime, NaiveTime, Utc};
+use uuid::Uuid;
 use rust_decimal::prelude::ToPrimitive;
 use sqlx::Executor;
 use sqlx::Database;
@@ -1625,6 +1626,31 @@ impl QueryBuilder {
                             }else {
                                 json_obj[column_name] = serde_json::Value::String(value.clone());
                                 json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                            }
+                        }else {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+                    }
+                }
+                ValueKind::Uuid => {
+                    let value_result: Result<Option<Uuid>, Error> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            let s = value.to_string();
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(s.clone());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(s);
+                            }else {
+                                json_obj[column_name] = serde_json::Value::String(s.clone());
+                                json_obj[camel_case_column_name] = serde_json::Value::String(s);
                             }
                         }else {
                             if obj_name.is_some() {
