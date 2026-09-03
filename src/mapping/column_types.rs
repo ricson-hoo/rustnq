@@ -544,14 +544,9 @@ fn encrypt_value(value:String) -> String {
 }
 
 fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,self_is_encrypted: bool, input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>) -> Condition {
-    let mut self_name = self_name.clone();
-    if self_table.is_some() {
-        self_name = format!("{}.{}",self_table.unwrap(),self_name);
-    }
-    let mut input_name = input_name.clone();
-    if input_table.is_some() {
-        input_name = format!("{}.{}",input_table.unwrap(),input_name);
-    }
+    let dialect = crate::query::dialect::DbDialect::current();
+    let self_name = dialect.wrap_qualified_name(self_table.as_deref(), &self_name);
+    let input_name = dialect.wrap_qualified_name(input_table.as_deref(), &input_name);
     let output = match input_holding {
         Holding::Name => format!(" = {}",input_name),
         Holding::Value => match input_value {
