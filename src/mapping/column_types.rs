@@ -138,7 +138,8 @@ impl <T:Clone+Into<String>> Column for Enum<T>{
     }
 
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -520,7 +521,8 @@ impl Column for Varchar {
         }
     }*/
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -627,7 +629,8 @@ impl Column for Char {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -709,7 +712,8 @@ impl Column for Tinytext {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -791,7 +795,8 @@ impl Column for crate::mapping::column_types::Text {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -893,7 +898,8 @@ impl Column for crate::mapping::column_types::Mediumtext {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1004,7 +1010,8 @@ impl Column for crate::mapping::column_types::Longtext {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1167,7 +1174,8 @@ impl Column for Int {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1273,7 +1281,8 @@ impl Column for crate::mapping::column_types::Year {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1370,7 +1379,8 @@ impl <T:Clone+Into<String>> Column for Set<T> {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1486,7 +1496,8 @@ impl Column for crate::mapping::column_types::Boolean {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1579,7 +1590,8 @@ impl Column for Tinyint {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1678,7 +1690,8 @@ impl Column for crate::mapping::column_types::Smallint {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1751,7 +1764,8 @@ impl Column for Bigint {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1855,7 +1869,8 @@ impl Column for crate::mapping::column_types::BigintUnsigned {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -1929,7 +1944,8 @@ impl Column for crate::mapping::column_types::Numeric {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2003,7 +2019,8 @@ impl Column for crate::mapping::column_types::Float {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2077,7 +2094,8 @@ impl Column for crate::mapping::column_types::Double {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2159,7 +2177,8 @@ impl Column for crate::mapping::column_types::Decimal {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2400,7 +2419,8 @@ impl Column for crate::mapping::column_types::Date {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2483,7 +2503,8 @@ impl Column for crate::mapping::column_types::Time {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2577,7 +2598,8 @@ impl Column for crate::mapping::column_types::Datetime {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2711,7 +2733,8 @@ impl Column for crate::mapping::column_types::Timestamp {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2798,7 +2821,8 @@ impl Column for crate::mapping::column_types::Json {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
 
@@ -2871,6 +2895,7 @@ impl Column for crate::mapping::column_types::Blob {
         self.is_encrypted
     }
     fn qualified_name(&self) -> String {
-        if self.table.is_some() {format!("{}.{}",self.table.clone().unwrap(),self.name.clone())} else {self.name.clone()}
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }

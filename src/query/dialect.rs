@@ -40,23 +40,74 @@ impl DbDialect {
     /// 标识符（字段名/表名）包裹：
     /// - MySQL：保留字用反引号
     /// - PostgreSQL：保留字用双引号（普通小写名直接用裸名，避免双引号导致的大小写敏感）
+    ///
+    /// 只包裹“普通标识符”（字母、数字、下划线组成）：
+    /// `max(price)`、`count(*)` 这类表达式保持原样，避免被包裹后变成非法 SQL。
+    /// 支持 `schema.table` / `表.字段` 形式，会逐段包裹。
     pub fn wrap_identifier(&self, name: &str) -> String {
+        if !is_plain_identifier(name) {
+            return name.to_string();
+        }
+        if name.contains('.') {
+            return name
+                .split('.')
+                .map(|part| self.wrap_identifier(part))
+                .collect::<Vec<String>>()
+                .join(".");
+        }
         #[cfg(feature = "postgres")]
         {
             if PG_RESERVED_KEYWORDS.contains(&name.to_lowercase().as_str()) {
-                format!("\"{}\"", name)
-            } else {
-                name.to_string()
+                return format!("\"{}\"", name);
             }
+            return name.to_string();
         }
         #[cfg(feature = "mysql")]
         {
             if MYSQL_KEYWORDS.contains(&name.to_lowercase().as_str()) {
-                format!("`{}`", name)
+                return format!("`{}`", name);
+            }
+            return name.to_string();
+        }
+        #[allow(unreachable_code)]
+        name.to_string()
+    }
+
+    /// 列引用（可能为 `表.字段`）包裹
+    pub fn wrap_qualified_name(&self, table: Option<&str>, name: &str) -> String {
+        match table {
+            Some(table) if !table.is_empty() => format!(
+                "{}.{}",
+                self.wrap_identifier(table),
+                self.wrap_identifier(name)
+            ),
+            _ => self.wrap_identifier(name),
+        }
+    }
+
+    /// 表引用包裹，支持以下写法（表名/别名分别是关键字时也会被包裹）：
+    /// - `user`
+    /// - `user AS u` / `user u`
+    /// - `user FORCE INDEX (idx_user)`（MySQL 提示语法，除表名外原样保留）
+    pub fn wrap_table_reference(&self, name: &str) -> String {
+        let mut tokens: Vec<String> = name.split_whitespace().map(|s| s.to_string()).collect();
+        if tokens.is_empty() {
+            return name.to_string();
+        }
+        tokens[0] = self.wrap_identifier(&tokens[0]);
+        if tokens.len() >= 2 {
+            // 形如 `table AS alias` 或 `table alias`
+            let alias_index = if tokens[1].eq_ignore_ascii_case("as") {
+                2
             } else {
-                name.to_string()
+                1
+            };
+            if tokens.len() > alias_index && is_plain_identifier(&tokens[alias_index]) {
+                let alias = tokens[alias_index].clone();
+                tokens[alias_index] = self.wrap_identifier(&alias);
             }
         }
+        tokens.join(" ")
     }
 
     /// LIMIT 子句
@@ -374,8 +425,25 @@ const MYSQL_KEYWORDS: &[&str] = &[
     "uuid", "json", "jsonb", "xml", "array", "range", "multirange", "domain",
 ];
 
-/// PostgreSQL 保留字（常用子集）
+/// 是否为“普通标识符”：仅由字母、数字、下划线（以及非首位的 `$`）组成。
+///
+/// 只有普通标识符才需要（也才允许）被引号包裹；
+/// `max(price)`、`count(*)`、`a + b` 这类表达式必须原样保留。
+fn is_plain_identifier(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().enumerate().all(|(index, c)| {
+            c == '_'
+                || c.is_ascii_alphabetic()
+                || (index > 0 && (c.is_ascii_digit() || c == '$'))
+        })
+}
+
+/// PostgreSQL 关键字全集（保留字 + 可作为函数/类型名的关键字 + 非保留关键字）。
+///
+/// 非保留关键字在多数位置可以不加引号，但加引号总是安全的，
+/// 因此这里一并列入，避免出现遗漏关键字导致的语法错误（如 `user` 表）。
 const PG_RESERVED_KEYWORDS: &[&str] = &[
+    // ---- 保留字 ----
     "all", "analyse", "analyze", "and", "any", "array", "as", "asc", "asymmetric",
     "authorization", "binary", "both", "case", "cast", "check", "collate", "collation",
     "column", "concurrently", "constraint", "create", "cross", "current_catalog",
@@ -389,4 +457,52 @@ const PG_RESERVED_KEYWORDS: &[&str] = &[
     "right", "select", "session_user", "similar", "some", "symmetric", "table", "then",
     "to", "trailing", "true", "union", "unique", "user", "using", "variadic", "verbose",
     "when", "where", "window", "with",
+    // ---- 可作为函数或类型名的关键字 ----
+    "between", "bigint", "bit", "boolean", "char", "character", "coalesce", "dec",
+    "decimal", "exists", "extract", "float", "greatest", "grouping", "inout", "int",
+    "integer", "interval", "least", "national", "nchar", "none", "nullif", "numeric",
+    "out", "overlay", "position", "precision", "real", "row", "setof", "smallint",
+    "substring", "time", "timestamp", "treat", "trim", "values", "varchar", "xmlattributes",
+    "xmlconcat", "xmlelement", "xmlexists", "xmlforest", "xmlnamespaces", "xmlparse",
+    "xmlpi", "xmlroot", "xmlserialize", "xmltable",
+    // ---- 非保留关键字（加引号同样安全）----
+    "abort", "absolute", "access", "action", "add", "admin", "after", "aggregate", "also",
+    "alter", "always", "assertion", "assignment", "at", "attach", "attribute", "backward",
+    "before", "begin", "by", "cache", "call", "called", "cascade", "cascaded", "chain",
+    "characteristics", "checkpoint", "class", "close", "cluster", "comment", "comments",
+    "commit", "committed", "compression", "configuration", "conflict", "connection",
+    "constraints", "content", "continue", "conversion", "copy", "cost", "csv", "cube",
+    "current", "cursor", "cycle", "data", "database", "day", "deallocate", "declare",
+    "defaults", "deferred", "definer", "delete", "delimiter", "delimiters", "depends",
+    "detach", "dictionary", "disable", "discard", "document", "domain", "double", "drop",
+    "each", "enable", "encoding", "encrypted", "enum", "escape", "event", "exclude",
+    "excluding", "exclusive", "execute", "explain", "expression", "extension", "external",
+    "family", "filter", "finalize", "first", "following", "force", "format", "forward",
+    "function", "functions", "generated", "global", "granted", "groups", "handler",
+    "header", "hold", "hour", "identity", "if", "immediate", "immutable", "implicit",
+    "import", "include", "including", "increment", "index", "indexes", "inherit",
+    "inherits", "inline", "input", "insensitive", "insert", "instead", "invoker",
+    "isolation", "key", "keys", "label", "language", "large", "last", "leakproof",
+    "level", "listen", "load", "local", "location", "lock", "locked", "logged", "mapping",
+    "match", "materialized", "maxvalue", "method", "minute", "minvalue", "mode", "month",
+    "move", "name", "names", "new", "next", "nfc", "nfd", "nfkc", "nfkd", "no", "nothing",
+    "notify", "nowait", "nulls", "object", "of", "off", "oids", "old", "operator",
+    "option", "options", "ordinality", "others", "over", "override", "owned", "owner",
+    "parallel", "parser", "partial", "partition", "passing", "password", "plans", "policy",
+    "preceding", "prepare", "prepared", "preserve", "prior", "privileges", "procedural",
+    "procedure", "procedures", "program", "publication", "quote", "range", "read",
+    "reassign", "recheck", "recursive", "ref", "referencing", "refresh", "reindex",
+    "relative", "release", "rename", "repeatable", "replace", "replica", "reset",
+    "restart", "restrict", "return", "returns", "revoke", "role", "rollback", "rollup",
+    "routine", "routines", "rows", "rule", "savepoint", "schema", "schemas", "scroll",
+    "search", "second", "security", "sequence", "sequences", "serializable", "server",
+    "session", "set", "sets", "share", "show", "simple", "skip", "snapshot", "sql",
+    "stable", "standalone", "start", "statement", "statistics", "stdin", "stdout",
+    "storage", "stored", "strict", "strip", "subscription", "support", "sysid", "system",
+    "tables", "tablespace", "temp", "template", "temporary", "text", "ties",
+    "transaction", "transform", "trigger", "truncate", "trusted", "type", "types",
+    "unbounded", "uncommitted", "unencrypted", "unknown", "unlisten", "unlogged",
+    "until", "update", "vacuum", "valid", "validate", "validator", "value", "varying",
+    "view", "views", "volatile", "whenever", "whitespace", "work", "wrapper", "write",
+    "xml", "year", "yes", "zone",
 ];

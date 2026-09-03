@@ -672,10 +672,12 @@ fn decrypt_field(field:Field) -> String {
 
 impl ToString for Field {
     fn to_string(&self) -> String {
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        let dialect = DbDialect::current();
         let mut qualified_field = if self.table.is_empty() {
-            self.name.clone()
+            dialect.wrap_identifier(&self.name)
         }else {
-            format!("{}.{}", self.table, self.name)
+            dialect.wrap_qualified_name(Some(&self.table), &self.name)
         };
         let mut alias = self.as_.clone();
         if self.is_encrypted {
@@ -693,12 +695,12 @@ impl ToString for Field {
                 target = target.replace(".","__");
             }
             if alias.is_some() {
-                qualified_field = format!("{} AS {}__{}", qualified_field, &target, alias.unwrap());
+                qualified_field = format!("{} AS {}__{}", qualified_field, &target, dialect.wrap_identifier(&alias.unwrap()));
             }else{
-                qualified_field = format!("{} AS {}__{}", qualified_field, &target, self.name);
+                qualified_field = format!("{} AS {}__{}", qualified_field, &target, dialect.wrap_identifier(&self.name));
             }
         }else if alias.is_some() {
-            qualified_field = format!("{} AS {}", qualified_field, alias.unwrap());
+            qualified_field = format!("{} AS {}", qualified_field, dialect.wrap_identifier(&alias.unwrap()));
         }
 
         qualified_field
@@ -2111,15 +2113,17 @@ impl QueryBuilder {
 
                 if self.target_table.is_some() {
                     let target = self.target_table.clone().unwrap();
+                    // 表名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+                    let table_name = DbDialect::current().wrap_table_reference(&target.name);
                     let table_str = if let Some(idx) = &target.force_index {
                         if DbDialect::current().is_postgres() {
                             // PostgreSQL 不支持 FORCE INDEX 提示，忽略
-                            target.name.clone()
+                            table_name
                         } else {
-                            format!("{} FORCE INDEX ({})", target.name, idx)
+                            format!("{} FORCE INDEX ({})", table_name, idx)
                         }
                     } else {
-                        target.name.clone()
+                        table_name
                     };
                     queryString = format!("{} from {}",queryString, table_str);
                 }else {
@@ -2134,7 +2138,8 @@ impl QueryBuilder {
                         } else {
                             join.join_type.to_string()
                         };
-                        queryString.push_str(&format!(" {} {} ON {} ", join_keyword, join.target_table.name, join.clone().condition.unwrap().query));
+                        let join_table_name = DbDialect::current().wrap_table_reference(&join.target_table.name);
+                        queryString.push_str(&format!(" {} {} ON {} ", join_keyword, join_table_name, join.clone().condition.unwrap().query));
                     }
                 }
                 if self.conditions.len() > 0 {
@@ -2174,7 +2179,8 @@ impl QueryBuilder {
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values,&mut vec![]);
                 construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut vec![], target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
                 //decrypt?
-                queryString = format!("INSERT INTO {} ({}) VALUES ({})", &target_table.name, insert_fields.join(", "), insert_values.join(", "));
+                let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
+                queryString = format!("INSERT INTO {} ({}) VALUES ({})", table_name, insert_fields.join(", "), insert_values.join(", "));
             },
             Operation::Update_By_PrimaryKey => {
                 if self.target_table.is_none() {
@@ -2201,7 +2207,8 @@ impl QueryBuilder {
                     return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for update operation".to_string()));
                 }
                 //decrypt?
-                queryString = format!("update {} set {} where {}", self.target_table.clone().unwrap().name, update_fields_values.join(", "), primary_key_conditions.iter()
+                let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
+                queryString = format!("update {} set {} where {}", table_name, update_fields_values.join(", "), primary_key_conditions.iter()
                     .map(|condition| condition.clone())
                     .collect::<Vec<String>>()
                     .join(" AND "));
@@ -2232,8 +2239,9 @@ impl QueryBuilder {
                     .collect::<Vec<String>>()
                     .join(" AND ");
                 
+                let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
                 queryString = format!("update {} set {} where {}", 
-                    self.target_table.clone().unwrap().name, 
+                    table_name, 
                     update_fields_values.join(", "), 
                     where_conditions);
             },
@@ -2256,9 +2264,10 @@ impl QueryBuilder {
                 let conflict_columns: Vec<String> = target_table.primary_key.iter()
                     .map(|pk| wrap_field_name(&pk.get_col_name()))
                     .collect();
+                let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
                 queryString = match DbDialect::current() {
-                    DbDialect::MySql => format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", &target_table.name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", ")),
-                    DbDialect::Postgres => format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", &target_table.name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", ")),
+                    DbDialect::MySql => format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", table_name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", ")),
+                    DbDialect::Postgres => format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", ")),
                 };
             },
             Operation::Delete => {
@@ -2268,7 +2277,8 @@ impl QueryBuilder {
                 if self.conditions.len() <= 0 {
                     return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide filters for  delete operation".to_string()));
                 }
-                queryString = format!("delete from {} where {}", self.target_table.clone().unwrap().name, self.conditions.iter()
+                let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
+                queryString = format!("delete from {} where {}", table_name, self.conditions.iter()
                     .map(|condition| condition.query.clone())
                     .collect::<Vec<String>>()
                     .join(" AND "));
