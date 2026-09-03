@@ -1600,9 +1600,19 @@ impl QueryBuilder {
                 }
             }
             let camel_case_column_name = to_camel_case(&column_name);
-            let type_name = column.type_info().name();
+            let mut type_name = column.type_info().name();
+            let type_detail = format!("{:?}", column.type_info());
+            // mysql的set返回的是varchar
+            if type_detail.contains("ColumnFlags(SET)") || type_detail.contains("ColumnFlags(MULTIPLE_KEY | SET)") {
+                type_name = "SET";
+            }
             //println!("type_name of {} {} {:?}",column_name, type_name, DbDialect::current().value_kind(type_name));
-            match DbDialect::current().value_kind(type_name) {
+            let value_kind = if type_name == "SET" {
+                ValueKind::Set
+            } else {
+                DbDialect::current().value_kind(type_name)
+            };
+            match value_kind {
                 ValueKind::Str => {
                     let value_result = try_get_text(&row, i);
                     if let Ok(value) = value_result {
@@ -1834,6 +1844,33 @@ impl QueryBuilder {
                         }
                     } else if let Err(err) = value_result {
                         eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                    }
+                }
+                ValueKind::Json => {
+                    let value_result: Result<Option<serde_json::Value>, _> = row.try_get(i);
+                    match value_result {
+                        Ok(Some(json_value)) => {
+                            let str_value = json_value.to_string();
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(str_value.clone());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(str_value);
+                            } else {
+                                json_obj[column_name] = serde_json::Value::String(str_value.clone());
+                                json_obj[camel_case_column_name] = serde_json::Value::String(str_value);
+                            }
+                        }
+                        Ok(None) => {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            } else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("解析json出错 '{}': {}", column_name, e);
+                        }
                     }
                 }
                 ValueKind::DateTime => {

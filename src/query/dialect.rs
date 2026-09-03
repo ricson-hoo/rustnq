@@ -297,6 +297,7 @@ pub enum ValueKind {
     Bool,
     Enum,
     Set,
+    Json,
     DateTime,
     Timestamp,
     Date,
@@ -307,9 +308,10 @@ pub enum ValueKind {
 
 fn mysql_value_kind(type_name: &str) -> ValueKind {
     match type_name {
-        "VARCHAR" | "CHAR" | "TEXT" | "LONGTEXT" | "TINYTEXT" | "MEDIUMTEXT" | "JSON" => {
+        "VARCHAR" | "CHAR" | "TEXT" | "LONGTEXT" | "TINYTEXT" | "MEDIUMTEXT" => {
             ValueKind::Str
         }
+        "JSON" => ValueKind::Json,
         "INT" | "MEDIUMINT" | "SMALLINT" | "INTEGER" | "BIGINT" => ValueKind::Int,
         "BIGINT UNSIGNED" | "INT UNSIGNED" => ValueKind::UInt,
         "TINYINT" => ValueKind::TinyInt,
