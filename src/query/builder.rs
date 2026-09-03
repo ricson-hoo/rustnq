@@ -1636,7 +1636,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Int => {
@@ -1661,7 +1661,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::UInt => {
@@ -1690,7 +1690,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Decimal => {
@@ -1725,7 +1725,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Bool => {   //max_size为1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(1) }
@@ -1761,7 +1761,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::TinyInt => {//max_size>1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(4) }
@@ -1791,7 +1791,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Enum => {
@@ -1815,7 +1815,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Set => {
@@ -1845,7 +1845,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Json => {
@@ -1899,7 +1899,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Timestamp => {
@@ -1924,7 +1924,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Date => {
@@ -1950,7 +1950,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Time => {
@@ -1977,7 +1977,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 ValueKind::Bytes => {
@@ -2032,7 +2032,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
                 _ => {
@@ -2057,7 +2057,7 @@ impl QueryBuilder {
                             }
                         }
                     } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}': {}", column_name, err);
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
             }
