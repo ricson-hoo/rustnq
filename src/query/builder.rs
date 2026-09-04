@@ -1665,8 +1665,55 @@ impl QueryBuilder {
                         eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
                     }
                 }
+                ValueKind::SmallInt => {
+                    let value_result: Result<Option<i16>, Error> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                            }else {
+                                json_obj[column_name] = value.clone().into();
+                                json_obj[camel_case_column_name] = value.into();
+                            }
+                        }else {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+                    }
+                }
                 ValueKind::Int => {
-                    //println!("decoding INT {}",column_name);
+                    let value_result: Result<Option<i32>, Error> = row.try_get(i);
+                    if let Ok(value) = value_result {
+                        if let Some(value) = value {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                            }else {
+                                json_obj[column_name] = value.clone().into();
+                                json_obj[camel_case_column_name] = value.into();
+                            }
+                        }else {
+                            if obj_name.is_some() {
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                            }else {
+                                json_obj[column_name] = serde_json::Value::Null;
+                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                            }
+                        }
+                    } else if let Err(err) = value_result {
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+                    }
+                }
+                ValueKind::BigInt => {
                     let value_result: Result<Option<i64>, Error> = row.try_get(i);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {
@@ -2099,7 +2146,7 @@ impl QueryBuilder {
             let column_name = colum.name();
             let type_name = colum.type_info().name();
             match DbDialect::current().value_kind(type_name) {
-                ValueKind::TinyInt | ValueKind::Int | ValueKind::UInt | ValueKind::Decimal | ValueKind::Float => {
+                ValueKind::TinyInt | ValueKind::SmallInt | ValueKind::Int | ValueKind::BigInt | ValueKind::UInt | ValueKind::Decimal | ValueKind::Float => {
                     let value_result:Result<Option<i64>, _> = row.try_get(0);
                     if let Ok(value) = value_result {
                         if let Some(value) = value {

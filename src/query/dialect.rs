@@ -340,7 +340,9 @@ impl DbDialect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueKind {
     Str,
+    SmallInt,
     Int,
+    BigInt,
     UInt,
     TinyInt,
     Decimal,
@@ -364,7 +366,9 @@ fn mysql_value_kind(type_name: &str) -> ValueKind {
             ValueKind::Str
         }
         "JSON" => ValueKind::Json,
-        "INT" | "MEDIUMINT" | "SMALLINT" | "INTEGER" | "BIGINT" => ValueKind::Int,
+        "SMALLINT" => ValueKind::SmallInt,
+        "INT" | "MEDIUMINT" | "INTEGER" => ValueKind::Int,
+        "BIGINT" => ValueKind::BigInt,
         "BIGINT UNSIGNED" | "INT UNSIGNED" => ValueKind::UInt,
         "TINYINT" => ValueKind::TinyInt,
         "DECIMAL" | "NUMERIC" => ValueKind::Decimal,
@@ -388,8 +392,9 @@ fn pg_value_kind(type_name: &str) -> ValueKind {
     match type_name.as_str() {
         "varchar" | "char" | "bpchar" | "text" | "citext" | "name" | "json" | "jsonb" => ValueKind::Str,
         "uuid" => ValueKind::Uuid,
-        "int2" | "int4" | "int8" | "smallint" | "integer" | "bigint" | "serial" | "bigserial"
-        | "smallserial" => ValueKind::Int,
+        "int2" | "smallint" | "smallserial" => ValueKind::SmallInt,
+        "int4" | "integer" | "serial" => ValueKind::Int,
+        "int8" | "bigint" | "bigserial" => ValueKind::BigInt,
         "numeric" | "decimal" => ValueKind::Decimal,
         "float4" | "float8" | "real" | "double precision" | "money" => ValueKind::Float,
         "bool" | "boolean" => ValueKind::Bool,
