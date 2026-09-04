@@ -1,5 +1,6 @@
 use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
 use crate::query::builder::{Condition, Field, QueryBuilder, SelectField};
+use crate::query::dialect::DbDialect;
 use chrono::{Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
 use std::fmt;
@@ -1443,10 +1444,17 @@ impl crate::mapping::column_types::Boolean {
     where
         T: Into<Boolean>,
     {
-        let tinyint = input.into();
-        let output = match tinyint.holding {
-            Holding::Name => {tinyint.qualified_name()}
-            Holding::Value => {format!("{}", if tinyint.value.unwrap_or_default() {"1"} else {"0"})}
+        let boolean = input.into();
+        let output = match boolean.holding {
+            Holding::Name => {boolean.qualified_name()}
+            Holding::Value => {
+                let b = boolean.value.unwrap_or_default();
+                if DbDialect::current().is_postgres() {
+                    if b {"TRUE"} else {"FALSE"}.to_string()
+                } else {
+                    if b {"1"} else {"0"}.to_string()
+                }
+            }
             _=> "".to_string()
         };
         Condition::new(format!("{} = {}", self.qualified_name(), output))
