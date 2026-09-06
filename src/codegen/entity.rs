@@ -36,16 +36,18 @@ pub struct EntityGenerateConfig{
     pub output_dir:String,
     pub naming_convention: NamingConvention,
     pub boolean_columns: HashMap<String, Vec<String>>,
-    pub trait_for_enum_types: HashMap<String, String>
+    pub trait_for_enum_types: HashMap<String, String>,
+    pub partial_eq_tables: HashSet<String>,
 }
 
 impl EntityGenerateConfig{
-    pub fn new(output_dir:String, field_naming_convention: NamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>) ->Self{
+    pub fn new(output_dir:String, field_naming_convention: NamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>, partial_eq_tables: HashSet<String>) ->Self{
         EntityGenerateConfig{
             output_dir,
             naming_convention: field_naming_convention,
             boolean_columns,
-            trait_for_enum_types
+            trait_for_enum_types,
+            partial_eq_tables,
         }
     }
     pub fn default()->Self{
@@ -53,7 +55,8 @@ impl EntityGenerateConfig{
             output_dir : "target/generated/entity".to_string(),
             naming_convention: NamingConvention::SnakeCase,
             boolean_columns:HashMap::new(),
-            trait_for_enum_types:HashMap::new()
+            trait_for_enum_types:HashMap::new(),
+            partial_eq_tables: HashSet::new(),
         }
     }
 
@@ -62,7 +65,8 @@ impl EntityGenerateConfig{
             output_dir : "target/generated/entity".to_string(),
             naming_convention,
             boolean_columns:HashMap::new(),
-            trait_for_enum_types:HashMap::new()
+            trait_for_enum_types:HashMap::new(),
+            partial_eq_tables: HashSet::new(),
         }
     }
 }
@@ -90,7 +94,7 @@ pub async fn generate_entities(conn: &impl TableIntrospector, db_name:&str, conf
     match tables {
         Ok(tables) => {
             for table in tables {
-                let generated_entity_info = generate_entity(conn, table, entity_out_path, &boolean_columns, &trait_for_enum_types, naming_convention).await;
+                let generated_entity_info = generate_entity(conn, table, entity_out_path, &boolean_columns, &trait_for_enum_types, &config.partial_eq_tables, naming_convention).await;
                 generated_entities.push(generated_entity_info);
             }
             println!("entities generated successfully");
@@ -156,7 +160,7 @@ pub async fn generate_entities(conn: &impl TableIntrospector, db_name:&str, conf
 }
 
 async fn generate_entity(conn: &impl TableIntrospector, table: TableRow, output_path:&Path,
-                         boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, field_naming_convention: NamingConvention) -> GeneratedStructInfo {
+                         boolean_columns: &HashMap<String, Vec<String>>, trait_for_enum_types: &HashMap<String, String>, partial_eq_tables: &HashSet<String>, field_naming_convention: NamingConvention) -> GeneratedStructInfo {
     let struct_name = stringUtils::begin_with_upper_case(&format_name(&table.name, NamingConvention::CamelCase));
     let fields_result = conn.get_table_fields(&table.name).await;
     let file_name_without_ext = format_name(&table.name, NamingConvention::CamelCase);
@@ -242,7 +246,12 @@ async fn generate_entity(conn: &impl TableIntrospector, table: TableRow, output_
         writeln!(buf_writer,"use {};",import).expect("Failed to write entity code");
     }
 
-    writeln!(buf_writer,"\n#[derive(Serialize,Deserialize,Clone,Debug)]").expect("Failed to write entity code");
+    let mut derives = vec!["Serialize","Deserialize","Clone","Debug"];
+    if partial_eq_tables.contains(&table.name) {
+        derives.push("PartialEq");
+    }
+    let derive_str = derives.join(",");
+    writeln!(buf_writer,"\n#[derive({})]", derive_str).expect("Failed to write entity code");
     writeln!(buf_writer,"#[allow(non_snake_case)]").expect("Failed to write entity code");
     writeln!(buf_writer,"pub struct {}<D = ()> {{", struct_name).expect("Failed to write entity code");
 

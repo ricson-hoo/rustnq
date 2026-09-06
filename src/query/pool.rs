@@ -6,9 +6,13 @@ use crate::query::db::{DbPool, DbPoolOptions};
 /// 全局连接池（由 Cargo feature 决定 MySQL / PostgreSQL）
 pub static POOL: tokio::sync::OnceCell<DbPool> = tokio::sync::OnceCell::const_new();
 
-pub async fn init_pool(url: Url, timezone: Option<i8>) {
+pub async fn init_pool(url: Url, timezone: Option<i8>, max_connections: u32) {
     let pool = DbPoolOptions::new()
+        .max_connections(max_connections)
         .acquire_timeout(std::time::Duration::from_secs(20))
+        .idle_timeout(std::time::Duration::from_secs(300))
+        .max_lifetime(std::time::Duration::from_secs(1800))
+        .test_before_acquire(true)
         .after_connect(move |conn, _| {
             Box::pin(async move {
                 if let Some(timezone) = timezone {

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text};
 use crate::query::db::{Db, DbQueryResult, DbRow};
 use crate::query::dialect::{DbDialect, ValueKind};
 use url::Url;
@@ -657,6 +657,18 @@ impl <T:Clone+Into<String>> From<Set<T>> for SelectField{
 
 impl <T:Clone+Into<String>> From<&Set<T>> for SelectField{
     fn from(value: &Set<T>) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<Text> for SelectField{
+    fn from(value: Text) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<&Text> for SelectField{
+    fn from(value: &Text) -> SelectField {
         SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
