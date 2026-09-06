@@ -119,6 +119,26 @@ impl<T:Clone+Into<String>> Enum<T>{
             .join(" , ")))
     }
 
+
+    pub fn like(&self, pattern: String) -> Condition
+    {
+        let dialect = crate::query::dialect::DbDialect::current();
+        if dialect.is_postgres() {
+            Condition::new(format!("{}::text LIKE '{}'", self.qualified_name(), pattern))
+        } else {
+            Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
+        }
+    }
+
+    pub fn not_like(&self, pattern: String) -> Condition
+    {
+        let dialect = crate::query::dialect::DbDialect::current();
+        if dialect.is_postgres() {
+            Condition::new(format!("{}::text NOT LIKE '{}'", self.qualified_name(), pattern))
+        } else {
+            Condition::new(format!("{} NOT LIKE '{}'", self.qualified_name(), pattern))
+        }
+    }
 }
 
 impl <T:Clone+Into<String>> Column for Enum<T>{
