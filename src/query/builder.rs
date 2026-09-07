@@ -1904,33 +1904,51 @@ impl QueryBuilder {
                     }
                 }
                 ValueKind::Set => {
+                    // PostgreSQL 数组类型（如 sign_symptom_applicable[]）按 Vec<String> 解码
+                    // MySQL SET 类型按逗号分隔的字符串解码
+                    #[cfg(feature = "postgres")]
+                    let value_result: Result<Option<Vec<String>>, _> = row.try_get(i);
+                    #[cfg(not(feature = "postgres"))]
                     let value_result: Result<Option<String>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            let mut values:Vec<serde_json::Value> = vec![];
-                            if !value.is_empty() {
-                                values = value.split(',')
-                                    .map(|s| serde_json::Value::String(s.trim().to_string()))  // Optional: trim whitespace and convert to String
-                                    .collect::<Vec<_>>();
-                            }
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Array(values.clone());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Array(values);
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Array(values.clone());
-                                json_obj[camel_case_column_name] = serde_json::Value::Array(values);
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+
+                    #[cfg(feature = "postgres")]
+                    let values: Vec<serde_json::Value> = match value_result {
+                        Ok(Some(vec_values)) => {
+                            vec_values.into_iter()
+                                .map(serde_json::Value::String)
+                                .collect()
+                        }
+                        Ok(None) => vec![],
+                        Err(_) => {
+                            // 如果不是原生 PostgreSQL 数组（如自定义类型），回退到字符串方式
+                            let str_result: Result<Option<String>, _> = row.try_get(i);
+                            match str_result {
+                                Ok(Some(s)) if !s.is_empty() => {
+                                    s.split(',')
+                                        .map(|s| serde_json::Value::String(s.trim().to_string()))
+                                        .collect()
+                                }
+                                _ => vec![],
                             }
                         }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+                    };
+
+                    #[cfg(not(feature = "postgres"))]
+                    let values: Vec<serde_json::Value> = match value_result {
+                        Ok(Some(value)) if !value.is_empty() => {
+                            value.split(',')
+                                .map(|s| serde_json::Value::String(s.trim().to_string()))
+                                .collect()
+                        }
+                        _ => vec![],
+                    };
+
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Array(values.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Array(values);
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Array(values.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::Array(values);
                     }
                 }
                 ValueKind::Json => {

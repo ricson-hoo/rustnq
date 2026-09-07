@@ -389,6 +389,10 @@ fn mysql_value_kind(type_name: &str) -> ValueKind {
 
 fn pg_value_kind(type_name: &str) -> ValueKind {
     let type_name = type_name.to_lowercase();
+    // PostgreSQL 数组类型名以 [] 结尾（如 sign_symptom_applicable[]），按数组处理
+    if type_name.ends_with("[]") {
+        return ValueKind::Set;
+    }
     match type_name.as_str() {
         "varchar" | "char" | "bpchar" | "text" | "citext" | "name" | "json" | "jsonb" => ValueKind::Str,
         "uuid" => ValueKind::Uuid,
