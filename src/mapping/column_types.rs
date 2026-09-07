@@ -139,6 +139,10 @@ impl<T:Clone+Into<String>> Enum<T>{
             Condition::new(format!("{} NOT LIKE '{}'", self.qualified_name(), pattern))
         }
     }
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
 }
 
 impl <T:Clone+Into<String>> Column for Enum<T>{
@@ -311,6 +315,11 @@ impl Varchar {
     pub fn desc(&self) -> SelectField
     {
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn asc(&self) -> SelectField
+    {
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
     pub fn is_null(&self) -> Condition
     {
