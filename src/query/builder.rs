@@ -305,7 +305,11 @@ impl ToString for FieldValue {
                 let escaped = s.replace("'", "''");
                 format!("'{}'", escaped)
             }
-            FieldValue::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+            FieldValue::Bool(b) => {
+                if DbDialect::current().is_postgres() {
+                    if *b { "TRUE".to_string() } else { "FALSE".to_string() }
+                } else if *b { "1".to_string() } else { "0".to_string() }
+            }
             FieldValue::I32(i) => i.to_string(),
             FieldValue::F64(f) => {
                 f.to_string()
@@ -764,6 +768,28 @@ pub struct QueryBuilder {
 fn wrap_field_name(field_name: &str) -> String {
     // 按当前方言包裹标识符：MySQL 反引号 / PostgreSQL 双引号（保留字）或裸名
     DbDialect::current().wrap_identifier(field_name)
+}
+
+/// 渲染 `UPDATE ... SET` 的赋值片段。
+///
+/// MySQL 允许 SET 目标列写成 `表.列`（原语法如此，保持兼容）；
+/// PostgreSQL 不允许 SET 目标列带表名限定（HINT: SET target columns cannot be
+/// qualified with the relation name），因此 PG 下只输出裸列名（保留字仍会按方言加引号）。
+fn render_update_set_clause(update_values: &[(SelectField, FieldValue)]) -> Vec<String> {
+    update_values
+        .iter()
+        .map(|(field, value)| {
+            let column_ref = match field {
+                SelectField::Field(f)
+                    if DbDialect::current().is_postgres() && !f.table.is_empty() =>
+                {
+                    DbDialect::current().wrap_identifier(&f.name)
+                }
+                _ => field.to_string(),
+            };
+            format!("{} = {}", column_ref, value.to_string())
+        })
+        .collect()
 }
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>, is_encrypted:bool){
     let wrapped_name = wrap_field_name(&name);
@@ -2300,10 +2326,7 @@ impl QueryBuilder {
                 if self.update_values.is_empty() {
                     construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
                 }else{
-                    update_fields_values = self.update_values
-                        .iter()
-                        .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
-                        .collect();
+                    update_fields_values = render_update_set_clause(&self.update_values);
                 }
                 construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
                 if primary_key_conditions.is_empty() {
@@ -2330,10 +2353,7 @@ impl QueryBuilder {
                 if self.update_values.is_empty() {
                     construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
                 }else{
-                    update_fields_values = self.update_values
-                                        .iter()
-                                        .map(|(field, value)| format!("{} = {}", field.clone().to_string(), value.clone().to_string()))
-                                        .collect();
+                    update_fields_values = render_update_set_clause(&self.update_values);
                 }
                 
                 // 修复：使用传入的条件而不是主键条件
