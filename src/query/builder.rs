@@ -1932,43 +1932,65 @@ impl QueryBuilder {
                     }
                 }
                 ValueKind::Set => {
-                    // PostgreSQL 数组类型（如 sign_symptom_applicable[]）按 Vec<String> 解码
-                    // MySQL SET 类型按逗号分隔的字符串解码
                     #[cfg(feature = "postgres")]
-                    let value_result: Result<Option<Vec<String>>, _> = row.try_get(i);
-                    #[cfg(not(feature = "postgres"))]
-                    let value_result: Result<Option<String>, _> = row.try_get(i);
-
-                    #[cfg(feature = "postgres")]
-                    let values: Vec<serde_json::Value> = match value_result {
-                        Ok(Some(vec_values)) => {
-                            vec_values.into_iter()
-                                .map(serde_json::Value::String)
-                                .collect()
-                        }
-                        Ok(None) => vec![],
-                        Err(_) => {
-                            // 如果不是原生 PostgreSQL 数组（如自定义类型），回退到字符串方式
-                            let str_result: Result<Option<String>, _> = row.try_get(i);
-                            match str_result {
-                                Ok(Some(s)) if !s.is_empty() => {
-                                    s.split(',')
-                                        .map(|s| serde_json::Value::String(s.trim().to_string()))
-                                        .collect()
+                    let values: Vec<serde_json::Value> = {
+                        let raw = row.try_get_raw(i);
+                        match raw {
+                            Ok(raw_val) if !raw_val.is_null() => {
+                                let bytes = raw_val.as_bytes()
+                                    .unwrap_or_else(|_| raw_val.as_str().unwrap_or("").as_bytes());
+                                if bytes.is_empty() {
+                                    vec![]
+                                } else if bytes[0] == b'{' {
+                                    let s = String::from_utf8_lossy(bytes);
+                                    let s = s.trim();
+                                    let inner = &s[1..s.len()-1];
+                                    if inner.is_empty() { vec![] }
+                                    else {
+                                        inner.split(',')
+                                            .map(|v| serde_json::Value::String(v.trim().to_string()))
+                                            .collect()
+                                    }
+                                } else {
+                                    (|| {
+                                        let mut pos = 0usize;
+                                        if bytes.len() < 12 { return vec![]; }
+                                        let ndim = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]);
+                                        pos += 4;
+                                        pos += 8;
+                                        if ndim == 0 { return vec![]; }
+                                        if bytes.len() < pos + 4 { return vec![]; }
+                                        let dim = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]) as usize;
+                                        pos += 8;
+                                        let mut result = Vec::with_capacity(dim);
+                                        for _ in 0..dim {
+                                            if bytes.len() < pos + 4 { break; }
+                                            let len = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]) as usize;
+                                            pos += 4;
+                                            if bytes.len() < pos + len { break; }
+                                            let s = String::from_utf8_lossy(&bytes[pos..pos+len]).to_string();
+                                            result.push(serde_json::Value::String(s));
+                                            pos += len;
+                                        }
+                                        result
+                                    })()
                                 }
-                                _ => vec![],
                             }
+                            _ => vec![],
                         }
                     };
 
                     #[cfg(not(feature = "postgres"))]
-                    let values: Vec<serde_json::Value> = match value_result {
-                        Ok(Some(value)) if !value.is_empty() => {
-                            value.split(',')
-                                .map(|s| serde_json::Value::String(s.trim().to_string()))
-                                .collect()
+                    let values: Vec<serde_json::Value> = {
+                        let value_result: Result<Option<String>, _> = row.try_get(i);
+                        match value_result {
+                            Ok(Some(value)) if !value.is_empty() => {
+                                value.split(',')
+                                    .map(|s| serde_json::Value::String(s.trim().to_string()))
+                                    .collect()
+                            }
+                            _ => vec![],
                         }
-                        _ => vec![],
                     };
 
                     if obj_name.is_some() {
