@@ -883,14 +883,7 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
             SqlColumn::Set(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
-            let val = col.value_as_string().map(|v| {
-                if DbDialect::current().is_postgres() {
-                    format!("{{{}}}", v)
-                } else {
-                    v
-                }
-            });
-            add_text_upsert_fields_values(col.name(),val,insert_fields,insert_values,update_fields_values,col.is_encrypted());
+                        add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }

@@ -1,5 +1,5 @@
 use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
-use crate::query::builder::{Condition, Field, QueryBuilder, SelectField};
+use crate::query::builder::{Condition, Field, FieldValue, QueryBuilder, SelectField};
 use crate::query::dialect::DbDialect;
 use chrono::{Local, NaiveDate, NaiveTime};
 use serde::{Serialize,Deserialize};
@@ -1159,6 +1159,14 @@ impl Int {
     pub fn desc(&self) -> SelectField{
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
+
+    pub fn plus(&self, value: i32) -> FieldValue {
+        FieldValue::Raw(format!("{} + {}", self.qualified_name(), value))
+    }
+
+    pub fn minus(&self, value: i32) -> FieldValue {
+        FieldValue::Raw(format!("{} - {}", self.qualified_name(), value))
+    }
 }
 
 // 为 Int 实现 From<i32>
@@ -1488,6 +1496,14 @@ impl crate::mapping::column_types::Boolean {
         };
         Condition::new(format!("{} = {}", self.qualified_name(), output))
     }
+
+    pub fn desc(&self) -> SelectField {
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn asc(&self) -> SelectField {
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
 }
 
 impl From<bool> for Boolean {
@@ -1702,6 +1718,37 @@ impl crate::mapping::column_types::Smallint {
     pub fn target(&mut self, target:&str) -> Self {
         self.target = Some(target.to_string());
         self.clone()
+    }
+
+    pub fn equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<Smallint>,
+    {
+        let smallint = input.into();
+        let output = match smallint.holding {
+            Holding::Name => {smallint.qualified_name()}
+            Holding::Value => {format!("{}", smallint.value.unwrap_or_default())}
+            _=> "".to_string()
+        };
+        Condition::new(format!("{} = {}", self.qualified_name(), output))
+    }
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+}
+
+impl From<i16> for Smallint {
+    fn from(v: i16) -> Self {
+        Smallint::with_value(Some(v))
+    }
+}
+
+impl From<i32> for Smallint {
+    fn from(v: i32) -> Self {
+        Smallint::with_value(Some(v as i16))
     }
 }
 
@@ -2735,6 +2782,11 @@ impl crate::mapping::column_types::Timestamp {
     pub fn is_not_null(&self) -> Condition
     {
         Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
 
     pub fn desc(&self) -> SelectField{
