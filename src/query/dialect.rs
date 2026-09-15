@@ -394,7 +394,8 @@ fn pg_value_kind(type_name: &str) -> ValueKind {
         return ValueKind::Set;
     }
     match type_name.as_str() {
-        "varchar" | "char" | "bpchar" | "text" | "citext" | "name" | "json" | "jsonb" => ValueKind::Str,
+        "varchar" | "char" | "bpchar" | "text" | "citext" | "name" => ValueKind::Str,
+        "json" | "jsonb" => ValueKind::Json,
         "uuid" => ValueKind::Uuid,
         "int2" | "smallint" | "smallserial" => ValueKind::SmallInt,
         "int4" | "integer" | "serial" => ValueKind::Int,
