@@ -439,7 +439,11 @@ impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
                 str_set.push(String::from(a_enum))
             }
         }
-        let string_value: String = str_set.join(",");
+        let string_value: String = if DbDialect::current().is_postgres() {
+            format!("{{{}}}", str_set.join(","))
+        } else {
+            str_set.join(",")
+        };
         /*Varchar::with_name_value(set.name(),Some(string_value))*/
         Varchar{
             table: set.table,
