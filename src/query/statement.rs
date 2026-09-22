@@ -229,7 +229,7 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
             }
         }
     }else {
-        // 数字主键：用 RETURNING 取回自增主键（MySQL 8.0.19+ / PostgreSQL 均支持）
+        // 数字主键：PostgreSQL 用 RETURNING 取回；MySQL 用 LAST_INSERT_ID() + SELECT 回查
         let primary_key = primary_key_vec.get(0).unwrap().clone();
         let primary_key_name = primary_key.get_col_name();
         match QueryBuilder::upsert_table_with_value(table_with_value).execute_returning(vec![primary_key_name.clone()]).await {

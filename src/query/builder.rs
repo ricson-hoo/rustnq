@@ -1109,6 +1109,64 @@ pub fn construct_upsert_primary_key_value(columns:&Vec<SqlColumn>, insert_fields
     }
 }
 
+/// 从主键列提取 WHERE 条件（仅当值已设置时；不自动生成 UUID，避免与 build() 时
+/// 生成的值不一致）。
+fn build_primary_key_where_conditions(columns: &[SqlColumn]) -> Vec<String> {
+    let dialect = DbDialect::current();
+    let mut conditions = Vec::new();
+    for pk_def in columns {
+        // 每种 SqlColumn 变体作为独立 match 分支，避免 or-pattern 类型不兼容
+        match pk_def {
+            SqlColumn::Varchar(col_def) => {
+                if let Some(col) = col_def {
+                    if let Some(ref v) = col.value() {
+                        if !v.is_empty() {
+                            let name = dialect.wrap_identifier(&col.name());
+                            conditions.push(format!("{} = '{}'", name, v));
+                        }
+                    }
+                }
+            }
+            SqlColumn::Char(col_def) => {
+                if let Some(col) = col_def {
+                    if let Some(ref v) = col.value() {
+                        if !v.is_empty() {
+                            let name = dialect.wrap_identifier(&col.name());
+                            conditions.push(format!("{} = '{}'", name, v));
+                        }
+                    }
+                }
+            }
+            SqlColumn::Int(col_def) => {
+                if let Some(col) = col_def {
+                    if let Some(v) = col.value() {
+                        let name = dialect.wrap_identifier(&col.name());
+                        conditions.push(format!("{} = {}", name, v));
+                    }
+                }
+            }
+            SqlColumn::Bigint(col_def) => {
+                if let Some(col) = col_def {
+                    if let Some(v) = col.value() {
+                        let name = dialect.wrap_identifier(&col.name());
+                        conditions.push(format!("{} = {}", name, v));
+                    }
+                }
+            }
+            SqlColumn::BigintUnsigned(col_def) => {
+                if let Some(col) = col_def {
+                    if let Some(v) = col.value() {
+                        let name = dialect.wrap_identifier(&col.name());
+                        conditions.push(format!("{} = {}", name, v));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    conditions
+}
+
 impl QueryBuilder {
 
     pub fn select_all_fields() -> QueryBuilder {
@@ -1312,19 +1370,68 @@ impl QueryBuilder {
     }
 
     /// 执行 insert/upsert 并取回指定列（跨库取自动主键）。
-    /// PostgreSQL 原生支持 RETURNING；MySQL 8.0.19+ 同样支持。
+    /// PostgreSQL 原生支持 RETURNING；MySQL 不支持 RETURNING，改为执行后 SELECT 回查。
     pub async fn execute_returning(&self, returning_fields: Vec<String>) -> Result<Option<DbRow>,Error> {
         let pool = POOL.get().unwrap();
         let build_result = self.build();
         if let Ok(query_string) = build_result {
-            let returning_sql = returning_fields.iter()
-                .map(|field| wrap_field_name(field))
-                .collect::<Vec<String>>()
-                .join(", ");
-            // 去掉末尾分号再追加 RETURNING
-            let query_string = format!("{} RETURNING {}", query_string.trim_end_matches(';'), returning_sql);
-            println!("query string # {}", query_string);
-            sqlx::query::<Db>(&query_string).fetch_optional(pool).await
+            let dialect = DbDialect::current();
+            #[cfg(feature = "postgres")]
+            if dialect.is_postgres() {
+                let returning_sql = returning_fields.iter()
+                    .map(|field| wrap_field_name(field))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                let query_string = format!("{} RETURNING {}", query_string.trim_end_matches(';'), returning_sql);
+                println!("query string # {}", query_string);
+                return sqlx::query::<Db>(&query_string).fetch_optional(pool).await;
+            }
+            #[cfg(feature = "mysql")]
+            if dialect.is_mysql() {
+                // MySQL 不支持 RETURNING 子句；先执行 INSERT/UPSERT，再回查所需列：
+                // 1) 自增主键：通过 LAST_INSERT_ID() 回查
+                // 2) UUID / 字符串主键：通过 builder 中已设的主键值构造 WHERE 条件回查
+                let query_string = query_string.trim_end_matches(';').to_string();
+                println!("query string # {}", query_string);
+                let result = sqlx::query::<Db>(&query_string).execute(pool).await?;
+                let last_id = result.last_insert_id();
+
+                if let Some(ref target) = self.target_table {
+                    let fields = returning_fields.iter()
+                        .map(|f| wrap_field_name(f))
+                        .collect::<Vec<String>>()
+                        .join(", ");
+                    let table_name = DbDialect::current().wrap_table_reference(&target.name);
+
+                    if last_id > 0 && !returning_fields.is_empty() {
+                        // 自增主键回查
+                        if let Some(pk_col) = target.primary_key.first() {
+                            let pk_name = DbDialect::current().wrap_identifier(&pk_col.get_col_name());
+                            let select_sql = format!(
+                                "SELECT {} FROM {} WHERE {} = {}",
+                                fields, table_name, pk_name, last_id
+                            );
+                            println!("returning fallback query # {}", select_sql);
+                            return sqlx::query::<Db>(&select_sql).fetch_optional(pool).await;
+                        }
+                    }
+
+                    // last_id == 0（非自增主键，如 UUID）：尝试用 builder 中已有的主键值回查
+                    if !returning_fields.is_empty() {
+                        let pk_conditions = build_primary_key_where_conditions(&target.primary_key);
+                        if !pk_conditions.is_empty() {
+                            let select_sql = format!(
+                                "SELECT {} FROM {} WHERE {}",
+                                fields, table_name, pk_conditions.join(" AND ")
+                            );
+                            println!("returning fallback query # {}", select_sql);
+                            return sqlx::query::<Db>(&select_sql).fetch_optional(pool).await;
+                        }
+                    }
+                }
+                return Ok(None);
+            }
+            Ok(None)
         }else if let Err(e) = build_result {
             Err(Error::Configuration(e.message.into()))
         }else {
