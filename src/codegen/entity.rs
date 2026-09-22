@@ -701,7 +701,7 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
         enum_display_code_lines.push(format!("            {}::{} => write!(f,\"{}\"),",enum_name, enum_item, enum_item));
     }
 
-    enum_from_string_code_lines.push("            &_ => todo!(),".to_string());
+    enum_from_string_code_lines.push(format!("            &_ => panic!(\"unknown {}: '{{}}'\", s),", enum_name));
     enum_code_lines.push("}\n".to_string());
 
     enum_to_string_code_lines.push("        }".to_string());

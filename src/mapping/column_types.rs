@@ -2702,6 +2702,22 @@ impl crate::mapping::column_types::Datetime {
     {
         Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
     }
+
+    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn le<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+    }
+
     pub fn holding(&self) -> Holding {
         self.holding.clone()
     }
