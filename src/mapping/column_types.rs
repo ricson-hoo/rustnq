@@ -2054,6 +2054,30 @@ impl crate::mapping::column_types::Numeric {
         self.target = Some(target.to_string());
         self.clone()
     }
+
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn plus(&self, value: f64) -> FieldValue {
+        FieldValue::Raw(format!("{} + {}", self.qualified_name(), value))
+    }
+
+    pub fn minus(&self, value: f64) -> FieldValue {
+        FieldValue::Raw(format!("{} - {}", self.qualified_name(), value))
+    }
 }
 
 impl Column for crate::mapping::column_types::Numeric {

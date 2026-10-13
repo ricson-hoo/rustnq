@@ -292,6 +292,10 @@ pub fn delete_one_where<A>(table:& A, condition: Condition) -> QueryBuilder wher
     QueryBuilder::delete_one_where(table, condition)
 }
 
+pub fn delete_all_where<A>(table:& A, condition: Condition) -> QueryBuilder where A : Table{
+    QueryBuilder::delete_all_where(table, condition)
+}
+
 /*pub fn insert_into<'a,A>(table:&'a A) -> QueryBuilder<'a> where A : Table{
 
 }

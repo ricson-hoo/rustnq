@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text, Numeric};
 use crate::query::db::{Db, DbQueryResult, DbRow};
 use crate::query::dialect::{DbDialect, ValueKind};
 use url::Url;
@@ -680,6 +680,59 @@ impl From<&Text> for SelectField{
     }
 }
 
+impl From<Numeric> for SelectField{
+    fn from(value: Numeric) -> SelectField {
+        match value.holding() {
+            Holding::Name=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+            },
+            Holding::Value => {
+                if value.alias().is_some() {
+                    SelectField::Untyped(format!("{} as {}",value.value().unwrap_or_default(), value.alias().unwrap()))
+                }else {
+                    SelectField::Untyped(format!("{}",value.value().unwrap_or_default()))
+                }
+            },
+            Holding::NameValue=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+            },
+            Holding::SubQuery=> {
+                if let Some(sub_query) = value.sub_query(){
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
+                }else{
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), target:None, as_:Some(value.name())})
+                }
+            }
+        }
+    }
+}
+
+impl From<&Numeric> for SelectField{
+    fn from(value: &Numeric) -> SelectField {
+        match value.holding() {
+            Holding::Name=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+            },
+            Holding::Value => {
+                if value.alias().is_some() {
+                    SelectField::Untyped(format!("{} as {}",value.value().unwrap_or_default(), value.alias().unwrap()))
+                }else {
+                    SelectField::Untyped(format!("{}",value.value().unwrap_or_default()))
+                }
+            },
+            Holding::NameValue=> {
+                SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+            },
+            Holding::SubQuery=> {
+                if let Some(sub_query) = value.sub_query(){
+                    SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
+                }else{
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::Untyped("".to_string())]), target:None, as_:Some(value.name())})
+                }
+            }
+        }
+    }
+}
 fn encrypt_value(value:String)->String{
     let encryptor = get_encryptor();
     encryptor.encrypt(value)
@@ -1754,7 +1807,8 @@ impl QueryBuilder {
             let mut type_name = column.type_info().name();
             let type_detail = format!("{:?}", column.type_info());
             // mysql的set返回的是varchar
-            if type_detail.contains("ColumnFlags(SET)") || type_detail.contains("ColumnFlags(MULTIPLE_KEY | SET)") {
+            let is_set_flag = type_detail.split([' ', '|', '(', ')']).any(|tok| tok == "SET");
+            if type_name == "SET" || is_set_flag {
                 type_name = "SET";
             }
             //println!("type_name of {} {} {:?}",column_name, type_name, DbDialect::current().value_kind(type_name));
@@ -2522,7 +2576,13 @@ impl QueryBuilder {
                 let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
                 queryString = match DbDialect::current() {
                     DbDialect::MySql => format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", table_name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", ")),
-                    DbDialect::Postgres => format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", ")),
+                    DbDialect::Postgres => {
+                        if update_fields_values.is_empty() {
+                            format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO NOTHING;", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "))
+                        } else {
+                            format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", "))
+                        }
+                    },
                 };
             },
             Operation::Delete => {
