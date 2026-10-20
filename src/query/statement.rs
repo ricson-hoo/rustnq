@@ -229,7 +229,7 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
             }
         }
     }else {
-        // 数字主键：用 RETURNING 取回自增主键（MySQL 8.0.19+ / PostgreSQL 均支持）
+        // 数字主键：PostgreSQL 用 RETURNING 取回；MySQL 用 LAST_INSERT_ID() + SELECT 回查
         let primary_key = primary_key_vec.get(0).unwrap().clone();
         let primary_key_name = primary_key.get_col_name();
         match QueryBuilder::upsert_table_with_value(table_with_value).execute_returning(vec![primary_key_name.clone()]).await {
@@ -290,6 +290,10 @@ pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
 
 pub fn delete_one_where<A>(table:& A, condition: Condition) -> QueryBuilder where A : Table{
     QueryBuilder::delete_one_where(table, condition)
+}
+
+pub fn delete_all_where<A>(table:& A, condition: Condition) -> QueryBuilder where A : Table{
+    QueryBuilder::delete_all_where(table, condition)
 }
 
 /*pub fn insert_into<'a,A>(table:&'a A) -> QueryBuilder<'a> where A : Table{

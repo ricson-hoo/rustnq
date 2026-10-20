@@ -216,19 +216,19 @@ async fn generate_entity(conn: &impl TableIntrospector, table: TableRow, output_
                 }else {
 
                     if field_type_qualified_name.clone().contains("DateTime<Local>"){
-                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_datetime_local\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(default, deserialize_with = \"crate::serde::deserialize_datetime_local\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime_local\")]".to_string()); //note:this is a temp solution
                     }else if field_type_qualified_name.clone().contains("NaiveDateTime"){
-                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_datetime\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(default, deserialize_with = \"crate::serde::deserialize_datetime\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime\")]".to_string()); //note:this is a temp solution
                     }else if field_type_qualified_name.clone().contains("NaiveDate"){
-                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_date\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(default, deserialize_with = \"crate::serde::deserialize_date\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_date\")]".to_string()); //note:this is a temp solution
                     }else if field_type_qualified_name.clone().contains("NaiveTime"){
-                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_time\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(default, deserialize_with = \"crate::serde::deserialize_time\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_time\")]".to_string()); //note:this is a temp solution
                     }/*else if field_type_qualified_name.clone().contains("bool"){
-                        struct_fields.push("#[serde(deserialize_with = \"crate::serde::deserialize_bool\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(default, deserialize_with = \"crate::serde::deserialize_bool\")]".to_string()); //note:this is a temp solution
                         //struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_time\")]".to_string()); //note:this is a temp solution
                     }*/
                     let mut struct_field_definition = format!("pub {}:{},", format_name(&it.name, field_naming_convention), field_type_qualified_name);
@@ -266,6 +266,11 @@ async fn generate_entity(conn: &impl TableIntrospector, table: TableRow, output_
     //associated new fn
     writeln!(buf_writer,"impl {} {{", struct_name).expect("Failed to write entity impl code");
     writeln!(buf_writer,"    pub fn new() -> {} {{", struct_name).expect("Failed to write entity impl code");
+    writeln!(buf_writer,"        {}::new_associated()", struct_name).expect("Failed to write entity impl code");
+    writeln!(buf_writer,"    }}").expect("Failed to write entity impl code");
+    writeln!(buf_writer,"}}").expect("Failed to write entity impl code");
+    writeln!(buf_writer,"impl<D> {}<D> {{", struct_name).expect("Failed to write entity impl code");
+    writeln!(buf_writer,"    pub fn new_associated() -> {}<D> {{", struct_name).expect("Failed to write entity impl code");
     writeln!(buf_writer,"        {} {{", struct_name).expect("Failed to write entity impl code");
     for field in struct_fields_init{
         writeln!(buf_writer,"            {}",field).expect("Failed to write field definition code");
@@ -701,7 +706,7 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
         enum_display_code_lines.push(format!("            {}::{} => write!(f,\"{}\"),",enum_name, enum_item, enum_item));
     }
 
-    enum_from_string_code_lines.push("            &_ => todo!(),".to_string());
+    enum_from_string_code_lines.push(format!("            &_ => panic!(\"unknown {}: '{{}}'\", s),", enum_name));
     enum_code_lines.push("}\n".to_string());
 
     enum_to_string_code_lines.push("        }".to_string());

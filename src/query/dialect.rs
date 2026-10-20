@@ -415,7 +415,7 @@ fn pg_value_kind(type_name: &str) -> ValueKind {
 
 /// MySQL 关键字（原 builder::wrap_field_name 列表，保持向后兼容）
 const MYSQL_KEYWORDS: &[&str] = &[
-    "order", "group", "table", "select", "insert", "update", "delete", "where",
+    "order", "group", "groups", "table", "select", "insert", "update", "delete", "where",
     "from", "as", "and", "or", "not", "null", "is", "in", "like", "between",
     "join", "left", "right", "inner", "outer", "on", "by", "having", "distinct",
     "limit", "offset", "set", "values", "into", "create", "alter", "drop",

@@ -1338,6 +1338,30 @@ pub struct Set<T:Clone+Into<String>>{
     is_encrypted:bool
 }
 
+
+/// CamelCase → snake_case
+fn camel_to_snake(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 && !result.ends_with('_') {
+                result.push('_');
+            }
+            result.extend(c.to_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+/// 从范型 T 提取 PG enum 类型名（如 TargetExam → target_exam）
+fn pg_enum_type_name<T>() -> String {
+    let full = std::any::type_name::<T>();
+    let last = full.rsplit("::").next().unwrap_or(full);
+    camel_to_snake(last)
+}
+
 impl<T:Clone+Into<String>> Set<T> {
     pub fn with_name(name: String) -> Self {
         Set {table:None,  name:name, value:None ,target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
@@ -1395,10 +1419,32 @@ impl<T:Clone+Into<String>> Set<T> {
     
     pub fn in_(&self, input_list: Vec<T>) -> Condition
     {
-        Condition::new(format!("{} in ({})", self.qualified_name(), input_list.into_iter()
+        let values = input_list.into_iter()
             .map(|input| format!("'{}'", input.into().to_string()))
             .collect::<Vec<String>>()
-            .join(" , ")))
+            .join(", ");
+        let dialect = crate::query::dialect::DbDialect::current();
+        if dialect.is_postgres() {
+            let pg_type = pg_enum_type_name::<T>();
+            Condition::new(format!("{} && ARRAY[{}]::{}[]", self.qualified_name(), values, pg_type))
+        } else {
+            Condition::new(format!("{} in ({})", self.qualified_name(), values))
+        }
+    }
+
+    pub fn any(&self, input_list: Vec<T>) -> Condition
+    {
+        let values = input_list.into_iter()
+            .map(|input| format!("'{}'", input.into().to_string()))
+            .collect::<Vec<String>>()
+            .join(", ");
+        let dialect = crate::query::dialect::DbDialect::current();
+        if dialect.is_postgres() {
+            let pg_type = pg_enum_type_name::<T>();
+            Condition::new(format!("{} && ARRAY[{}]::{}[]", self.qualified_name(), values, pg_type))
+        } else {
+            Condition::new(format!("{} in ({})", self.qualified_name(), values))
+        }
     }
 }
 
@@ -2010,6 +2056,30 @@ impl crate::mapping::column_types::Numeric {
     pub fn target(&mut self, target:&str) -> Self {
         self.target = Some(target.to_string());
         self.clone()
+    }
+
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn plus(&self, value: f64) -> FieldValue {
+        FieldValue::Raw(format!("{} + {}", self.qualified_name(), value))
+    }
+
+    pub fn minus(&self, value: f64) -> FieldValue {
+        FieldValue::Raw(format!("{} - {}", self.qualified_name(), value))
     }
 }
 
@@ -2659,6 +2729,22 @@ impl crate::mapping::column_types::Datetime {
     {
         Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
     }
+
+    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn le<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+    }
+
     pub fn holding(&self) -> Holding {
         self.holding.clone()
     }
