@@ -433,6 +433,9 @@ impl<T:Clone> From<Enum<T>> for Varchar where std::string::String: From<T> {
 impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
     fn from(set: Set<T>) -> Varchar {
         let mut str_set:Vec<String> = vec![];
+        // 区分未设置None和显式空集合(Some(vec![]))：
+        // None 仍然写入 NULL；显式空集合应写入空字符串 ''，
+        let has_value = set.value.is_some();
         let set_value = set.value.clone();
         if let Some(set_value) = set_value {
             for a_enum in set_value{
@@ -450,7 +453,7 @@ impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
             name: set.name,
             alias: set.alias,
             target: set.target,
-            value: if string_value.is_empty() {None} else {Some(string_value)},
+            value: if has_value {Some(string_value)} else {None},
             sub_query: set.sub_query,
             holding: set.holding,
             is_encrypted: set.is_encrypted,

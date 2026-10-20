@@ -1645,8 +1645,12 @@ impl QueryBuilder {
             let camel_case_column_name = to_camel_case(&column_name);
             let mut type_name = column.type_info().name();
             let type_detail = format!("{:?}", column.type_info());
-            // mysql的set返回的是varchar
-            if type_detail.contains("ColumnFlags(SET)") || type_detail.contains("ColumnFlags(MULTIPLE_KEY | SET)") {
+            let has_set_flag = type_detail
+                .split_once("ColumnFlags(")
+                .and_then(|(_, rest)| rest.split_once(')'))
+                .map(|(flags, _)| flags.split('|').any(|flag| flag.trim() == "SET"))
+                .unwrap_or(false);
+            if has_set_flag {
                 type_name = "SET";
             }
             //println!("type_name of {} {} {:?}",column_name, type_name, DbDialect::current().value_kind(type_name));
