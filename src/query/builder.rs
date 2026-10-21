@@ -2598,13 +2598,7 @@ impl QueryBuilder {
                 let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
                 queryString = match DbDialect::current() {
                     DbDialect::MySql => format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", table_name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", ")),
-                    DbDialect::Postgres => {
-                        if update_fields_values.is_empty() {
-                            format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO NOTHING;", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "))
-                        } else {
-                            format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", "))
-                        }
-                    },
+                    DbDialect::Postgres => format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", ")),
                 };
             },
             Operation::Delete => {
