@@ -249,6 +249,8 @@ async fn generate_entity(conn: &impl TableIntrospector, table: TableRow, output_
     let mut derives = vec!["Serialize","Deserialize","Clone","Debug"];
     if partial_eq_tables.contains(&table.name) {
         derives.push("PartialEq");
+        derives.push("Eq");
+        derives.push("Hash");
     }
     let derive_str = derives.join(",");
     writeln!(buf_writer,"\n#[derive({})]", derive_str).expect("Failed to write entity code");
@@ -406,6 +408,12 @@ impl SqlColumn {
             SqlColumn::Set(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::Vec,
                 is_conditional_type: true,
+                container_type: Some(RustDataType::Vec),
+                import:vec![]
+            },
+            SqlColumn::Array(_) => MysqlDataTypeProp {
+                rust_type: RustDataType::String,
+                is_conditional_type: false,
                 container_type: Some(RustDataType::Vec),
                 import:vec![]
             },
@@ -759,4 +767,3 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     drop(buf_writer);
 
 }
-

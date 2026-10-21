@@ -143,13 +143,22 @@ async fn generate_mapping(conn: &impl TableIntrospector, table: TableRow, output
     match fields_result {
         Ok(fields) => {
             for field in fields {
-                // PostgreSQL 标量数组列（int[]/text[] 等）：mapping 层暂不支持，跳过该列（实体层仍会生成 Option<Vec<T>>）
-                if field.data_type.ends_with("[]") {
-                    println!("skip mapping for PG array column {}.{} (type: {})", table.name, field.name, field.data_type);
-                    continue;
-                }
                 let column_name = if utils::reserved_field_names().contains(&field.name) { format!("{}_", field.name) } else { field.name.clone() };
                 let field_definition: String = field.data_type;
+
+                if field_definition.ends_with("[]") {
+                    let elem_def = field_definition.trim_end_matches("[]");
+                    let base_type = if let Some(pos) = elem_def.find('(') {
+                        &elem_def[..pos]
+                    } else {
+                        elem_def
+                    };
+                    if !matches!(base_type.trim(), "varchar" | "char" | "text" | "tinytext" | "mediumtext" | "longtext") {
+                        println!("skip mapping for non-string PG array column {}.{} (type: {})", table.name, field.name, field_definition);
+                        continue;
+                    }
+                }
+
                 let mysql_cloumn_definition = MysqlColumnDefinition{
                     name:column_name.clone(),
                     name_unmodified : field.name,
@@ -344,6 +353,12 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
     let mut import_statements : Vec<String> = vec![format!("{}::{}",&crate_and_root_path_of_entity, entity_struct_name)];
     let is_encrypted = encrypted_columns.contains(&&*column_name);
 
+    if col_definition.ends_with("[]") {
+        field_type = "Array".to_string();
+        sql_column_type = Some(SqlColumn::Array(None));
+        name_only_default_value = format!("Array::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+        name_and_value_from_entity_default_value = format!("Array::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
+    } else {
     match column_type_parse_result{
         Ok(column_type) => {
             sql_column_type = Some(column_type.clone());
@@ -508,11 +523,14 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                     name_only_default_value = format!("Json::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
                     name_and_value_from_entity_default_value = format!("Json::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
+                SqlColumn::Array(_) => {
+                },
             }
         },
         Err(_) => {
 
         }
+    }
     };
     //add current type to import statements
     import_statements.push(format!("rustnq::mapping::column_types::{}",if import_type.is_empty() {&field_type } else {&import_type}));

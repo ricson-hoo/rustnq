@@ -26,6 +26,7 @@ use crate::query::builder::JoinType::{INNER, LEFT};
 use crate::query::select;
 use crate::result::PagingData;
 use crate::mapping::column_types::Set;
+use crate::mapping::column_types::Array;
 use crate::query::builder::JoinType::STRAIGHT;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -358,6 +359,7 @@ impl From<&SqlColumn> for SelectField {
             SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Array(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
@@ -390,6 +392,7 @@ impl From<SqlColumn> for SelectField {
             SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Array(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::Untyped("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
@@ -668,6 +671,18 @@ impl <T:Clone+Into<String>> From<&Set<T>> for SelectField{
     }
 }
 
+impl From<Array> for SelectField{
+    fn from(value: Array) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<&Array> for SelectField{
+    fn from(value: &Array) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+    }
+}
+
 impl From<Text> for SelectField{
     fn from(value: Text) -> SelectField {
         SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
@@ -935,6 +950,13 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
                 }
             }
             SqlColumn::Set(column_def) => {
+                if let Some(col) = column_def {
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values,col.is_encrypted());
+                    }
+                }
+            }
+            SqlColumn::Array(column_def) => {
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
                         add_text_upsert_fields_values(col.name(),col.value_as_string(),insert_fields,insert_values,update_fields_values,col.is_encrypted());

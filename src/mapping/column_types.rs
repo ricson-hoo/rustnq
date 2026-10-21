@@ -458,6 +458,26 @@ impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
     }
 }
 
+impl From<Array> for Varchar {
+    fn from(arr: Array) -> Varchar {
+        let string_value = if crate::query::dialect::DbDialect::current().is_postgres() {
+            arr.value_as_string()
+        } else {
+            arr.value.clone().map(|v| v.join(","))
+        };
+        Varchar{
+            table: arr.table,
+            name: arr.name,
+            alias: arr.alias,
+            target: arr.target,
+            value: string_value,
+            sub_query: arr.sub_query,
+            holding: arr.holding,
+            is_encrypted: arr.is_encrypted,
+        }
+    }
+}
+
 impl From<&Int> for Varchar {
     fn from(i: &Int) -> Self {
         //Varchar::with_qualified_name_value(i.table(),i.name.clone(),i.value().map(|v| v.to_string())).optional_as(i.alias.clone())
@@ -638,6 +658,18 @@ impl Char {
     pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
+    }
+}
+
+impl From<&str> for Char {
+    fn from(s: &str) -> Self {
+        Char::with_value(Some(s.to_string()))
+    }
+}
+
+impl From<String> for Char {
+    fn from(s: String) -> Self {
+        Char::with_value(Some(s))
     }
 }
 
@@ -1133,6 +1165,15 @@ impl Int {
         };
         Condition::new(format!("{} = {}", self.qualified_name(), output))
     }
+
+    pub fn in_<T: ToString>(&self, input_list: Vec<T>) -> Condition
+    {
+        Condition::new(format!("{} in ({})", self.qualified_name(), input_list.into_iter()
+            .map(|input| input.to_string())
+            .collect::<Vec<String>>()
+            .join(", ")))
+    }
+
     pub fn is_null(&self) -> Condition
     {
         Condition::new(format!("{} IS NULL", self.qualified_name()))
@@ -1461,6 +1502,119 @@ impl <T:Clone+Into<String>> Column for Set<T> {
     fn is_encrypted(&self) -> bool {
         self.is_encrypted
     }
+    fn qualified_name(&self) -> String {
+        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
+    }
+}
+
+#[derive(Clone,Debug)]
+pub struct Array{
+    table: Option<String>,
+    value: Option<Vec<String>>,
+    name: String,
+    alias:Option<String>,
+    target:Option<String>,
+    sub_query: Option<QueryBuilder>,
+    holding: Holding,
+    is_encrypted:bool
+}
+
+impl Array {
+    pub fn with_name(name: String) -> Self {
+        Array {table:None,  name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_value(value: Option<Vec<String>>) -> Self {
+        Array {table:None,  value:value, name:"".to_string(), target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_name_value(name: String, value: Option<Vec<String>>) -> Self {
+        Array {table:None,  name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        Array {table:Some(table), name:name, value: None, target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<Vec<String>>) -> Self {
+        Array {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn value(&self) -> Option<Vec<String>> {
+        self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
+    }
+
+    pub fn as_(&mut self, alias:&str) -> Self {
+        self.alias = Some(alias.to_string());
+        self.clone()
+    }
+
+    pub fn target(&mut self, target:&str) -> Self {
+        self.target = Some(target.to_string());
+        self.clone()
+    }
+
+    pub fn holding(&self) -> Holding {
+        self.holding
+    }
+
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+
+    pub fn value_as_string(&self) -> Option<String> {
+        self.value.as_ref().map(|v| {
+            let elements = v.iter()
+                .map(|s| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{{{}}}", elements)
+        })
+    }
+
+    pub fn in_(&self, input_list: Vec<String>) -> Condition
+    {
+        let values = input_list.into_iter()
+            .map(|input| format!("'{}'", input))
+            .collect::<Vec<String>>()
+            .join(", ");
+        let dialect = crate::query::dialect::DbDialect::current();
+        if dialect.is_postgres() {
+            Condition::new(format!("{} && ARRAY[{}]", self.qualified_name(), values))
+        } else {
+            Condition::new(format!("{} in ({})", self.qualified_name(), values))
+        }
+    }
+
+    pub fn any(&self, input_list: Vec<String>) -> Condition
+    {
+        self.in_(input_list)
+    }
+}
+
+impl Column for Array {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+
     fn qualified_name(&self) -> String {
         // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
         crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
