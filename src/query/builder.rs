@@ -1442,7 +1442,7 @@ impl QueryBuilder {
     pub async fn execute(&self) -> Result<DbQueryResult,Error> {
         let (pool, is_readonly, encryptor) = self.resolve_pool();
         if is_readonly {
-            return Err(Error::Protocol("POOL_B is readonly; write operations are rejected. Use POOL for INSERT/UPDATE/DELETE.".into()));
+            return Err(Error::Protocol("readonly pool does not allow write operations.".into()));
         }
         let _enc_guard = set_build_encryptor(encryptor);
         let build_result = self.build();
@@ -1462,7 +1462,7 @@ impl QueryBuilder {
     pub async fn execute_returning(&self, returning_fields: Vec<String>) -> Result<Option<DbRow>,Error> {
         let (pool, is_readonly, encryptor) = self.resolve_pool();
         if is_readonly {
-            return Err(Error::Protocol("POOL_B is readonly; write operations are rejected. Use POOL for INSERT/UPDATE/DELETE.".into()));
+            return Err(Error::Protocol("readonly pool does not allow write operations.".into()));
         }
         let _enc_guard = set_build_encryptor(encryptor);
         let build_result = self.build();
