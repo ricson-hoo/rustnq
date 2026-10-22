@@ -79,7 +79,7 @@ async fn build_pool(url: &str, timezone: Option<i8>, max_connections: u32, reado
     builder.connect(url).await.expect("Failed to connect to database")
 }
 
-pub fn get_pool(url: &str) -> DbPool {
+pub fn get_db(url: &str) -> DbPool {
     POOLS.lock().unwrap()
         .iter()
         .find(|e| e.conf.url() == url)
@@ -87,7 +87,7 @@ pub fn get_pool(url: &str) -> DbPool {
         .expect("pool not registered")
 }
 
-pub fn default_pool() -> DbPool {
+pub fn default_db() -> DbPool {
     POOLS.lock().unwrap()
         .first()
         .map(|e| e.pool.clone())
