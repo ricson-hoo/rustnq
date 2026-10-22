@@ -6,7 +6,7 @@ use serde::{Serialize,Deserialize};
 use std::fmt;
 use std::str::FromStr;
 use crate::utils::date_sub_unit::DateSubUnit;
-use crate::configuration::{encryptor, get_encryptor};
+use crate::configuration::resolve_encryptor;
 use chrono::NaiveDateTime;
 
 pub trait And {
@@ -596,8 +596,7 @@ pub struct Char{
 }
 
 fn encrypt_value(value:String) -> String {
-    let encryptor = get_encryptor();
-    encryptor.encrypt(value)
+    resolve_encryptor().encrypt(value)
 }
 
 fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,self_is_encrypted: bool, input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>) -> Condition {

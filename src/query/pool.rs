@@ -1,43 +1,56 @@
 use sqlx::Executor;
-use url::Url;
-use std::sync::atomic::{AtomicBool, Ordering};
-
+use std::sync::Arc;
+use std::sync::Mutex;
+use crate::configuration::Encryptor;
 use crate::query::db::{DbPool, DbPoolOptions};
 
-/// 全局长连接池（读写）
-pub static POOL: tokio::sync::OnceCell<DbPool> = tokio::sync::OnceCell::const_new();
-
-/// 全局备连接池（只读 / fallback）
-pub static POOL_B: tokio::sync::OnceCell<DbPool> = tokio::sync::OnceCell::const_new();
-
-/// 标记 POOL_B 是否为只读模式。
-pub static IS_POOL_B_READONLY: AtomicBool = AtomicBool::new(false);
-
-pub async fn init_pool(url: Url, timezone: Option<i8>, max_connections: u32) {
-    let pool = build_pool(url.as_str(), timezone, max_connections, false).await;
-    POOL.set(pool).unwrap();
+pub trait DbConf: Send + Sync + std::fmt::Debug + 'static {
+    fn url(&self) -> &str;
+    fn timezone(&self) -> Option<i8>           { Some(8) }
+    fn max_connections(&self) -> u32          { 200 }
+    fn is_readonly(&self) -> bool             { false }
+    fn encryptor(&self) -> Option<Arc<dyn Encryptor>> { None }
 }
 
-/// 初始化备连接池（只读 / fallback）。
-///
-/// - `readonly`: 开启后每个连接执行 `SET SESSION transaction_read_only = ON`，
-///   从数据库会话层面阻止写操作。
-pub async fn init_pool_b(url: Url, timezone: Option<i8>, max_connections: u32, readonly: bool) {
-    if readonly {
-        IS_POOL_B_READONLY.store(true, Ordering::Release);
+struct PoolEntry {
+    conf: Arc<dyn DbConf + Send + Sync>,
+    pool: DbPool,
+}
+
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref POOLS: Mutex<Vec<PoolEntry>> = Mutex::new(Vec::new());
+}
+
+pub async fn init_pools<P: DbConf>(configs: Vec<P>) {
+    let mut pools = POOLS.lock().unwrap();
+    for conf in configs {
+        let url = conf.url().to_string();
+        if pools.iter().any(|e| e.conf.url() == url) {
+            continue;
+        }
+        let pool = build_pool(conf.url(), conf.timezone(), conf.max_connections(), conf.is_readonly()).await;
+        pools.push(PoolEntry { conf: Arc::new(conf), pool });
     }
-    let pool = build_pool(url.as_str(), timezone, max_connections, readonly).await;
-    POOL_B.set(pool).unwrap();
 }
 
-/// 开发环境退化：POOL_B 指向与 POOL 相同的池（单库场景）。
-///
-/// 注意：此项仅在 `POOL` 已初始化后调用；
-/// 由于 `POOL_B` 和 `POOL` 共享同一个 `DbPool` 实例（Clone），
-/// 连接数不会翻倍，行为等价于单池。
-pub fn alias_pool_b_to_pool_a() {
-    let pool_a = POOL.get().expect("POOL must be initialized before aliasing");
-    POOL_B.set(pool_a.clone()).unwrap();
+pub(crate) fn resolve_pool(
+    conf: Option<&(dyn DbConf + Send + Sync)>,
+) -> (DbPool, bool, Option<Arc<dyn Encryptor>>) {
+    let pools = POOLS.lock().unwrap();
+    let entry = if let Some(c) = conf {
+        pools.iter()
+            .find(|e| e.conf.url() == c.url())
+            .expect("pool not registered")
+    } else {
+        pools.first().expect("no pool configured")
+    };
+    (
+        entry.pool.clone(),
+        entry.conf.is_readonly(),
+        entry.conf.encryptor(),
+    )
 }
 
 async fn build_pool(url: &str, timezone: Option<i8>, max_connections: u32, readonly: bool) -> DbPool {
@@ -51,19 +64,10 @@ async fn build_pool(url: &str, timezone: Option<i8>, max_connections: u32, reado
     builder = builder.after_connect(move |conn, _meta| {
         Box::pin(async move {
             if let Some(tz) = timezone {
-                #[cfg(feature = "mysql")]
-                let tz_sql = format!(
-                    "SET time_zone='{}{}:00';",
-                    if tz > 0 { "+" } else { "-" },
-                    tz.abs()
-                );
-                #[cfg(feature = "postgres")]
-                let tz_sql = format!(
-                    "SET TIME ZONE INTERVAL '{}{} hours';",
-                    if tz > 0 { "+" } else { "-" },
-                    tz.abs()
-                );
-                let _ = conn.execute(tz_sql.as_str()).await;
+                let sign = if tz >= 0 { "+" } else { "-" };
+                let _ = conn.execute(
+                    format!("SET time_zone='{}{}:00';", sign, tz.abs()).as_str()
+                ).await;
             }
             if readonly {
                 let _ = conn.execute("SET SESSION transaction_read_only = ON;").await;
@@ -73,4 +77,19 @@ async fn build_pool(url: &str, timezone: Option<i8>, max_connections: u32, reado
     });
 
     builder.connect(url).await.expect("Failed to connect to database")
+}
+
+pub fn get_pool(url: &str) -> DbPool {
+    POOLS.lock().unwrap()
+        .iter()
+        .find(|e| e.conf.url() == url)
+        .map(|e| e.pool.clone())
+        .expect("pool not registered")
+}
+
+pub fn default_pool() -> DbPool {
+    POOLS.lock().unwrap()
+        .first()
+        .map(|e| e.pool.clone())
+        .expect("no pool configured")
 }

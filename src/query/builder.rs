@@ -9,7 +9,7 @@ use crate::query::db::{Db, DbPool, DbQueryResult, DbRow};
 use crate::query::dialect::{DbDialect, ValueKind};
 use url::Url;
 use lazy_static::lazy_static;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use serde_json::{json, Number};
 use serde_json::Value as JsonValue;
 use std::future::Future;
@@ -18,9 +18,9 @@ use uuid::Uuid;
 use rust_decimal::prelude::ToPrimitive;
 use sqlx::Executor;
 use sqlx::Database;
-use crate::configuration::{encryptor, get_encryptor};
-use crate::query::pool::{POOL, IS_POOL_B_READONLY};
-use std::sync::atomic::Ordering;
+use crate::configuration::{resolve_encryptor, set_build_encryptor};
+use crate::query::pool::DbConf;
+
 use crate::utils::stringUtils::to_camel_case;
 use crate::mapping::description::SqlColumn;
 use crate::query::builder::JoinType::{INNER, LEFT};
@@ -750,13 +750,11 @@ impl From<&Numeric> for SelectField{
     }
 }
 fn encrypt_value(value:String)->String{
-    let encryptor = get_encryptor();
-    encryptor.encrypt(value)
+    resolve_encryptor().encrypt(value)
 }
 
 fn decrypt_field(field:Field) -> String {
-    let encryptor = get_encryptor();
-    encryptor.decrypt_field(field)
+    resolve_encryptor().decrypt_field(field)
 }
 
 impl ToString for Field {
@@ -834,7 +832,7 @@ pub struct QueryBuilder {
     order_by:Vec<SelectField>,
     group_by:Vec<SelectField>,
     update_values: Vec<(SelectField, FieldValue)>, // 用于存储更新字段和值
-    _pool: Option<DbPool>,
+    _pool_conf: Option<Arc<dyn DbConf + Send + Sync>>,
 }
 
 /// 包装字段名，处理SQL关键字
@@ -1247,53 +1245,53 @@ fn build_primary_key_where_conditions(columns: &[SqlColumn]) -> Vec<String> {
 impl QueryBuilder {
 
     pub fn select_all_fields() -> QueryBuilder {
-        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None,count_all:None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None,count_all:None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn init_with_select_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, count_all:None,target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, count_all:None,target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn init_with_select_all_fields<A>(table: & A) -> QueryBuilder where A : Table {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn init_with_select_distinct_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), count_all:None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), count_all:None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn update<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update_By_Condition,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Update_By_Condition,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update_By_PrimaryKey,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Update_By_PrimaryKey,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn delete_all_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool: None }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
@@ -1411,15 +1409,13 @@ impl QueryBuilder {
         self
     }
 
-    pub fn on_pool(mut self, pool: DbPool) -> QueryBuilder {
-        self._pool = Some(pool);
+    pub fn on_pool<P: DbConf + Send + Sync + 'static>(mut self, conf: P) -> QueryBuilder {
+        self._pool_conf = Some(Arc::new(conf));
         self
     }
 
-    fn resolve_pool(&self) -> (&DbPool, bool) {
-            let pool = self._pool.as_ref().unwrap_or_else(|| POOL.get().unwrap());
-        let is_readonly = self._pool.is_some() && IS_POOL_B_READONLY.load(Ordering::Acquire);
-        (pool, is_readonly)
+    fn resolve_pool(&self) -> (DbPool, bool, Option<std::sync::Arc<dyn crate::configuration::Encryptor>>) {
+        crate::query::pool::resolve_pool(self._pool_conf.as_deref())
     }
 
     pub fn limit(mut self, limit: i32) -> QueryBuilder {
@@ -1444,14 +1440,15 @@ impl QueryBuilder {
 
     ///execute insert/update/delete and return the affected rows number
     pub async fn execute(&self) -> Result<DbQueryResult,Error> {
-        let (pool, is_readonly) = self.resolve_pool();
+        let (pool, is_readonly, encryptor) = self.resolve_pool();
         if is_readonly {
             return Err(Error::Protocol("POOL_B is readonly; write operations are rejected. Use POOL for INSERT/UPDATE/DELETE.".into()));
         }
+        let _enc_guard = set_build_encryptor(encryptor);
         let build_result = self.build();
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
-            let result = sqlx::query::<Db>(&query_string).execute(pool).await?; // Pass the reference to sqlx::query()
+            let result = sqlx::query::<Db>(&query_string).execute(&pool).await?; // Pass the reference to sqlx::query()
             Ok(result)
         }else if let Err(e) = build_result {
             Err(Error::Configuration(e.message.into()))
@@ -1463,10 +1460,11 @@ impl QueryBuilder {
     /// 执行 insert/upsert 并取回指定列（跨库取自动主键）。
     /// PostgreSQL 原生支持 RETURNING；MySQL 不支持 RETURNING，改为执行后 SELECT 回查。
     pub async fn execute_returning(&self, returning_fields: Vec<String>) -> Result<Option<DbRow>,Error> {
-        let (pool, is_readonly) = self.resolve_pool();
+        let (pool, is_readonly, encryptor) = self.resolve_pool();
         if is_readonly {
             return Err(Error::Protocol("POOL_B is readonly; write operations are rejected. Use POOL for INSERT/UPDATE/DELETE.".into()));
         }
+        let _enc_guard = set_build_encryptor(encryptor);
         let build_result = self.build();
         if let Ok(query_string) = build_result {
             let dialect = DbDialect::current();
@@ -1478,7 +1476,7 @@ impl QueryBuilder {
                     .join(", ");
                 let query_string = format!("{} RETURNING {}", query_string.trim_end_matches(';'), returning_sql);
                 println!("query string # {}", query_string);
-                return sqlx::query::<Db>(&query_string).fetch_optional(pool).await;
+                return sqlx::query::<Db>(&query_string).fetch_optional(&pool).await;
             }
             #[cfg(feature = "mysql")]
             if dialect.is_mysql() {
@@ -1487,7 +1485,7 @@ impl QueryBuilder {
                 // 2) UUID / 字符串主键：通过 builder 中已设的主键值构造 WHERE 条件回查
                 let query_string = query_string.trim_end_matches(';').to_string();
                 println!("query string # {}", query_string);
-                let result = sqlx::query::<Db>(&query_string).execute(pool).await?;
+                let result = sqlx::query::<Db>(&query_string).execute(&pool).await?;
                 let last_id = result.last_insert_id();
 
                 if let Some(ref target) = self.target_table {
@@ -1506,7 +1504,7 @@ impl QueryBuilder {
                                 fields, table_name, pk_name, last_id
                             );
                             println!("returning fallback query # {}", select_sql);
-                            return sqlx::query::<Db>(&select_sql).fetch_optional(pool).await;
+                            return sqlx::query::<Db>(&select_sql).fetch_optional(&pool).await;
                         }
                     }
 
@@ -1519,7 +1517,7 @@ impl QueryBuilder {
                                 fields, table_name, pk_conditions.join(" AND ")
                             );
                             println!("returning fallback query # {}", select_sql);
-                            return sqlx::query::<Db>(&select_sql).fetch_optional(pool).await;
+                            return sqlx::query::<Db>(&select_sql).fetch_optional(&pool).await;
                         }
                     }
                 }
@@ -1535,7 +1533,8 @@ impl QueryBuilder {
 
     pub async fn fetch<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<Vec<T>, Error> {
 
-        let (pool, _) = self.resolve_pool();
+        let (pool, _, encryptor) = self.resolve_pool();
+        let _enc_guard = set_build_encryptor(encryptor);
         let build_result = self.build();
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
@@ -1544,7 +1543,7 @@ impl QueryBuilder {
                 .try_map(|row: DbRow| {
                     self.convert_to_json_value(row)
                 })
-                .fetch_all(pool)
+                .fetch_all(&pool)
                 .await?;
 
             let mut result = Vec::new();
@@ -1599,7 +1598,8 @@ impl QueryBuilder {
     ///paging query with parallel count and data fetch
     pub async fn fetch_paging_parallel<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
 
-        let (pool, _) = self.resolve_pool();
+        let (pool, _, encryptor) = self.resolve_pool();
+        let _enc_guard = set_build_encryptor(encryptor);
 
         let mut data_query_builder = self.clone();
         if data_query_builder.limit.is_none() {
@@ -1628,13 +1628,13 @@ impl QueryBuilder {
             .try_map(|row: DbRow| {
                 self.convert_to_number(row)
             })
-            .fetch_one(pool);
+            .fetch_one(&pool);
 
         let data_future = sqlx::query::<Db>(&data_query_string)
             .try_map(|row: DbRow| {
                 self.convert_to_json_value(row)
             })
-            .fetch_all(pool);
+            .fetch_all(&pool);
 
         let (count_result, data_rows) = tokio::try_join!(count_future, data_future)?;
 
@@ -1662,7 +1662,8 @@ impl QueryBuilder {
     ///paging query
     pub async fn fetch_paging<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
 
-        let (pool, _) = self.resolve_pool();
+        let (pool, _, encryptor) = self.resolve_pool();
+        let _enc_guard = set_build_encryptor(encryptor);
 
         let mut count = 0;
 
@@ -1673,7 +1674,7 @@ impl QueryBuilder {
                     .try_map(|row: DbRow| {
                         self.convert_to_number(row)
                     })
-                    .fetch_one(pool)
+                    .fetch_one(&pool)
                     .await?;
             }
             Err(e) => return Err(e),
@@ -1696,7 +1697,7 @@ impl QueryBuilder {
                 .try_map(|row: DbRow| {
                     self.convert_to_json_value(row)
                 })
-                .fetch_all(pool)
+                .fetch_all(&pool)
                 .await?;
 
             let mut result = Vec::new();
@@ -1726,7 +1727,8 @@ impl QueryBuilder {
 
         self.limit = Some(Limit::new(0, 1));
 
-        let (pool, _) = self.resolve_pool();
+        let (pool, _, encryptor) = self.resolve_pool();
+        let _enc_guard = set_build_encryptor(encryptor);
         let build_result = self.build();
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
@@ -1735,7 +1737,7 @@ impl QueryBuilder {
                 .try_map(|row: DbRow| {
                     self.convert_to_json_value(row)
                 })
-                .fetch_one(pool)
+                .fetch_one(&pool)
                 .await;
 
             match query_result {
@@ -1806,7 +1808,8 @@ impl QueryBuilder {
         }
     }
     pub async fn fetch_count(&self) -> Result<i64, Error> {
-        let (pool, _) = self.resolve_pool();
+        let (pool, _, encryptor) = self.resolve_pool();
+        let _enc_guard = set_build_encryptor(encryptor);
         let build_result = self.build();
         if let Ok(query_string) = build_result {
             println!("query string # {}", query_string);
@@ -1815,7 +1818,7 @@ impl QueryBuilder {
                 .try_map(|row: DbRow| {
                     self.convert_to_number(row)
                 })
-                .fetch_one(pool)
+                .fetch_one(&pool)
                 .await?;
             Ok(value)
         }else if let Err(e) = build_result {
