@@ -84,17 +84,18 @@ fn try_get_text(row: &DbRow, i: usize) -> Result<Option<String>, Error> {
 
 /// Macro to dispatch row.try_get() across MySQL/PostgreSQL variants.
 /// Usage: try_get_from_dbrow!(row, i, i64) or try_get_from_dbrow!(row, i, Mysql i8, Postgres bool)
+#[macro_export]
 macro_rules! try_get_from_dbrow {
     ($row:expr, $i:expr, $ty:ty) => {
         match $row {
-            crate::query::db::DbRow::Mysql(r) => r.try_get::<Option<$ty>, _>($i),
-            crate::query::db::DbRow::Postgres(r) => r.try_get::<Option<$ty>, _>($i),
+            $crate::query::db::DbRow::Mysql(r) => r.try_get::<Option<$ty>, _>($i),
+            $crate::query::db::DbRow::Postgres(r) => r.try_get::<Option<$ty>, _>($i),
         }
     };
     ($row:expr, $i:expr, Mysql $mysql_ty:ty, Postgres $pg_ty:ty, as $target_ty:ty) => {
         match $row {
-            crate::query::db::DbRow::Mysql(r) => r.try_get::<Option<$mysql_ty>, _>($i).map(|opt| opt.map(|v| v as $target_ty)),
-            crate::query::db::DbRow::Postgres(r) => r.try_get::<Option<$pg_ty>, _>($i).map(|opt| opt.map(|v| v as $target_ty)),
+            $crate::query::db::DbRow::Mysql(r) => r.try_get::<Option<$mysql_ty>, _>($i).map(|opt| opt.map(|v| v as $target_ty)),
+            $crate::query::db::DbRow::Postgres(r) => r.try_get::<Option<$pg_ty>, _>($i).map(|opt| opt.map(|v| v as $target_ty)),
         }
     };
 }

@@ -26,13 +26,16 @@ lazy_static! {
 }
 
 pub async fn init_pools<P: DbConf>(configs: Vec<P>) {
-    let mut pools = POOLS.lock().unwrap();
     for conf in configs {
         let url = conf.url().to_string();
-        if pools.iter().any(|e| e.conf.url() == url) {
-            continue;
+        {
+            let pools = POOLS.lock().unwrap();
+            if pools.iter().any(|e| e.conf.url() == url) {
+                continue;
+            }
         }
         let pool = build_pool(conf.url(), conf.dialect(), conf.timezone(), conf.max_connections(), conf.is_readonly()).await;
+        let mut pools = POOLS.lock().unwrap();
         pools.push(PoolEntry { conf: Arc::new(conf), pool });
     }
 }
