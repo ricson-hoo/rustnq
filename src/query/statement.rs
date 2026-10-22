@@ -13,6 +13,7 @@ use crate::mapping::column_types::Varchar;
 use crate::query::builder::construct_upsert_primary_key_value;
 use crate::utils::date_sub_unit::DateSubUnit;
 use crate::query::dialect::DbDialect;
+use crate::query::db::DbRow;
 use std::any::Any;
 
 pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
@@ -234,7 +235,10 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
         let primary_key_name = primary_key.get_col_name();
         match QueryBuilder::upsert_table_with_value(table_with_value).execute_returning(vec![primary_key_name.clone()]).await {
             Ok(Some(row)) => {
-                let id: Result<Option<i64>, _> = row.try_get(0);
+                let id = match &row {
+                    DbRow::Mysql(r) => r.try_get::<Option<i64>, _>(0),
+                    DbRow::Postgres(r) => r.try_get::<Option<i64>, _>(0),
+                };
                 if let Ok(Some(id)) = id {
                     if id > 0 {
                         condition = condition.and(Condition::new(format!("{} = {}", primary_key_name, id)));

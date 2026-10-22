@@ -1,27 +1,54 @@
-//! 数据库后端类型别名。
+//! 数据库后端运行时枚举。
 //!
-//! 通过 Cargo feature（`mysql` / `postgres`）在编译期选定后端：
-//! - `mysql`（默认）：`DbPool = MySqlPool`、`DbRow = MySqlRow`、`DbQueryResult = MySqlQueryResult`
-//! - `postgres`：`DbPool = PgPool`、`DbRow = PgRow`、`DbQueryResult = PgQueryResult`
-//!
-//! 消费项目（如 zmtcm-backend-rs）：
-//! ```toml
-//! rustnq = { path = "...", default-features = false, features = ["postgres"] }
-//! ```
+//! MySQL 与 PostgreSQL 后端同时编译，运行时根据连接池类型自动分发。
+//! SQL 方言差异集中于 [`DbDialect`](super::dialect::DbDialect) 模块。
 
-// 两个后端 feature 互斥。依赖树中如有多个 rustnq 消费方，必须统一使用同一个后端
-// feature（不要依赖默认 features），否则这里会报错而不是产生模糊的重复定义错误。
-#[cfg(all(feature = "mysql", feature = "postgres"))]
-compile_error!("rustnq: features `mysql` and `postgres` are mutually exclusive; 请让依赖树中所有 rustnq 消费方统一使用同一个后端 feature（推荐显式声明 default-features = false）");
+#[derive(Clone, Debug)]
+pub enum DbPool {
+    Mysql(sqlx::MySqlPool),
+    Postgres(sqlx::PgPool),
+}
 
-#[cfg(feature = "postgres")]
-pub use sqlx_postgres::{
-    PgPool as DbPool, PgPoolOptions as DbPoolOptions, PgQueryResult as DbQueryResult,
-    PgRow as DbRow, Postgres as Db,
-};
+impl DbPool {
+    pub fn as_mysql(&self) -> &sqlx::MySqlPool {
+        match self {
+            DbPool::Mysql(p) => p,
+            DbPool::Postgres(_) => panic!("expected MySQL pool, found Postgres"),
+        }
+    }
 
-#[cfg(feature = "mysql")]
-pub use sqlx_mysql::{
-    MySql as Db, MySqlPool as DbPool, MySqlPoolOptions as DbPoolOptions,
-    MySqlQueryResult as DbQueryResult, MySqlRow as DbRow,
-};
+    pub fn as_postgres(&self) -> &sqlx::PgPool {
+        match self {
+            DbPool::Postgres(p) => p,
+            DbPool::Mysql(_) => panic!("expected Postgres pool, found MySQL"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum DbRow {
+    Mysql(sqlx::mysql::MySqlRow),
+    Postgres(sqlx::postgres::PgRow),
+}
+
+#[derive(Debug)]
+pub enum DbQueryResult {
+    Mysql(sqlx::mysql::MySqlQueryResult),
+    Postgres(sqlx::postgres::PgQueryResult),
+}
+
+impl DbQueryResult {
+    pub fn rows_affected(&self) -> u64 {
+        match self {
+            DbQueryResult::Mysql(r) => r.rows_affected(),
+            DbQueryResult::Postgres(r) => r.rows_affected(),
+        }
+    }
+
+    pub fn last_insert_id(&self) -> Option<u64> {
+        match self {
+            DbQueryResult::Mysql(r) => Some(r.last_insert_id()),
+            DbQueryResult::Postgres(_r) => None,
+        }
+    }
+}

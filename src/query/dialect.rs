@@ -1,32 +1,38 @@
 //! 数据库方言（MySQL / PostgreSQL）。
 //!
-//! 方言由 Cargo feature 在**编译期**选定（默认 `mysql`，PostgreSQL 项目用
+//! 方言在**运行时**由连接池类型决定（默认 `mysql`，PostgreSQL 项目用
 //! `default-features = false, features = ["postgres"]`），与 `codegen` 的
 //! `TableIntrospector` 双后端设计保持一致。
 //!
 //! 所有 SQL 语法差异（标识符包裹、LIMIT、upsert、日期函数、类型归一化）
 //! 都集中在本模块，查询代码本身无需感知后端差异。
 
-/// 支持的数据库方言（由编译期 feature 决定；保留枚举以承载分支逻辑）
+/// 支持的数据库方言（运行时由连接池类型决定）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbDialect {
     MySql,
     Postgres,
 }
 
+thread_local! {
+    static CURRENT_DIALECT: std::cell::RefCell<Option<DbDialect>> = std::cell::RefCell::new(None);
+}
+
 impl DbDialect {
-    /// 当前编译期方言
+    /// 当前线程方言（由连接池在执行操作前设置）
     pub fn current() -> DbDialect {
-        #[cfg(feature = "postgres")]
-        {
-            return DbDialect::Postgres;
+        CURRENT_DIALECT.with(|d| {
+            d.borrow().unwrap_or(DbDialect::MySql)
+        })
+    }
+
+    /// 在当前线程设置方言，返回一个 guard，离开作用域时自动恢复
+    pub fn set_current(dialect: DbDialect) -> DialectGuard {
+        let prev = CURRENT_DIALECT.with(|d| d.borrow_mut().replace(dialect));
+        DialectGuard {
+            prev,
+            _no_send_sync: std::marker::PhantomData,
         }
-        #[cfg(feature = "mysql")]
-        {
-            return DbDialect::MySql;
-        }
-        #[allow(unreachable_code)]
-        DbDialect::MySql
     }
 
     pub fn is_mysql(&self) -> bool {
@@ -112,25 +118,17 @@ impl DbDialect {
 
     /// LIMIT 子句
     pub fn limit_clause(&self, offset: i32, limit: i32) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            format!("limit {} offset {}", limit, offset)
-        }
-        #[cfg(feature = "mysql")]
-        {
-            format!("limit {}, {}", offset, limit)
+        match self {
+            DbDialect::Postgres => format!("limit {} offset {}", limit, offset),
+            DbDialect::MySql => format!("limit {}, {}", offset, limit),
         }
     }
 
     /// 行值类型归一化：后端类型名 → 统一 [`ValueKind`]
     pub fn value_kind(&self, type_name: &str) -> ValueKind {
-        #[cfg(feature = "postgres")]
-        {
-            pg_value_kind(type_name)
-        }
-        #[cfg(feature = "mysql")]
-        {
-            mysql_value_kind(type_name)
+        match self {
+            DbDialect::Postgres => pg_value_kind(type_name),
+            DbDialect::MySql => mysql_value_kind(type_name),
         }
     }
 
@@ -138,201 +136,157 @@ impl DbDialect {
 
     /// 今天
     pub fn curdate(&self) -> &'static str {
-        #[cfg(feature = "postgres")]
-        {
-            "CURRENT_DATE"
-        }
-        #[cfg(feature = "mysql")]
-        {
-            "CURDATE()"
+        match self {
+            DbDialect::Postgres => "CURRENT_DATE",
+            DbDialect::MySql => "CURDATE()",
         }
     }
 
     /// TIMESTAMPDIFF(unit, date, CURDATE())：date 距今经过的 unit 数
     pub fn timestamp_diff(&self, unit: &str, date: &str) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            match unit {
-                "DAY" => format!("(CURRENT_DATE - ({}::date))", date),
-                "MONTH" => format!(
-                    "((EXTRACT(YEAR FROM CURRENT_DATE)::int - EXTRACT(YEAR FROM ({}::date))::int) * 12 + EXTRACT(MONTH FROM CURRENT_DATE)::int - EXTRACT(MONTH FROM ({}::date))::int)",
-                    date, date
-                ),
-                "YEAR" => format!(
-                    "(EXTRACT(YEAR FROM CURRENT_DATE)::int - EXTRACT(YEAR FROM ({}::date))::int)",
-                    date
-                ),
-                _ => format!("(CURRENT_DATE - ({}::date))", date),
+        match self {
+            DbDialect::Postgres => {
+                match unit {
+                    "DAY" => format!("(CURRENT_DATE - ({}::date))", date),
+                    "MONTH" => format!(
+                        "((EXTRACT(YEAR FROM CURRENT_DATE)::int - EXTRACT(YEAR FROM ({}::date))::int) * 12 + EXTRACT(MONTH FROM CURRENT_DATE)::int - EXTRACT(MONTH FROM ({}::date))::int)",
+                        date, date
+                    ),
+                    "YEAR" => format!(
+                        "(EXTRACT(YEAR FROM CURRENT_DATE)::int - EXTRACT(YEAR FROM ({}::date))::int)",
+                        date
+                    ),
+                    _ => format!("(CURRENT_DATE - ({}::date))", date),
+                }
             }
-        }
-        #[cfg(feature = "mysql")]
-        {
-            format!("TIMESTAMPDIFF ({}, {}, CURDATE())", unit, date)
+            DbDialect::MySql => format!("TIMESTAMPDIFF ({}, {}, CURDATE())", unit, date),
         }
     }
 
     /// 取年份
     pub fn year(&self, field: &str) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            format!("EXTRACT(YEAR FROM {})", field)
-        }
-        #[cfg(feature = "mysql")]
-        {
-            format!("YEAR({})", field)
+        match self {
+            DbDialect::Postgres => format!("EXTRACT(YEAR FROM {})", field),
+            DbDialect::MySql => format!("YEAR({})", field),
         }
     }
 
     /// 取日期部分
     pub fn date(&self, field: &str) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            format!("({})::date", field)
-        }
-        #[cfg(feature = "mysql")]
-        {
-            format!("DATE({})", field)
+        match self {
+            DbDialect::Postgres => format!("({})::date", field),
+            DbDialect::MySql => format!("DATE({})", field),
         }
     }
 
     /// 取月份
     pub fn month(&self, field: &str) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            format!("EXTRACT(MONTH FROM {})", field)
-        }
-        #[cfg(feature = "mysql")]
-        {
-            format!("MONTH({})", field)
+        match self {
+            DbDialect::Postgres => format!("EXTRACT(MONTH FROM {})", field),
+            DbDialect::MySql => format!("MONTH({})", field),
         }
     }
 
     /// 今天往前推 n 个 unit（DATE_SUB(CURDATE(), INTERVAL n unit)）
     pub fn date_sub(&self, value: i32, unit: &str) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            match unit {
-                "DAY" => format!("(CURRENT_DATE - {})", value),
-                "MONTH" => format!("(CURRENT_DATE - INTERVAL '{} months')", value),
-                "YEAR" => format!("(CURRENT_DATE - INTERVAL '{} years')", value),
-                _ => format!("(CURRENT_DATE - {})", value),
+        match self {
+            DbDialect::Postgres => {
+                match unit {
+                    "DAY" => format!("(CURRENT_DATE - {})", value),
+                    "MONTH" => format!("(CURRENT_DATE - INTERVAL '{} months')", value),
+                    "YEAR" => format!("(CURRENT_DATE - INTERVAL '{} years')", value),
+                    _ => format!("(CURRENT_DATE - {})", value),
+                }
             }
-        }
-        #[cfg(feature = "mysql")]
-        {
-            format!("DATE_SUB (CURDATE(), INTERVAL {} {})", value, unit)
+            DbDialect::MySql => format!("DATE_SUB (CURDATE(), INTERVAL {} {})", value, unit),
         }
     }
 
     /// 与某年份的年差绝对值（ABS(x - YEAR(field))）
     pub fn year_diff(&self, another_year: i32, field: &str) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            format!(
+        match self {
+            DbDialect::Postgres => format!(
                 "ABS({} - EXTRACT(YEAR FROM {})::int)",
                 another_year, field
-            )
-        }
-        #[cfg(feature = "mysql")]
-        {
-            format!("ABS({} - YEAR({}))", another_year, field)
+            ),
+            DbDialect::MySql => format!("ABS({} - YEAR({}))", another_year, field),
         }
     }
 
     /// 本季度第一天
     pub fn quarter_start(&self) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            "DATE_TRUNC('quarter', CURRENT_DATE)::date".to_string()
-        }
-        #[cfg(feature = "mysql")]
-        {
-            "MAKEDATE(YEAR(CURDATE()), 1) + INTERVAL (QUARTER(CURDATE())-1) QUARTER".to_string()
+        match self {
+            DbDialect::Postgres => "DATE_TRUNC('quarter', CURRENT_DATE)::date".to_string(),
+            DbDialect::MySql => "MAKEDATE(YEAR(CURDATE()), 1) + INTERVAL (QUARTER(CURDATE())-1) QUARTER".to_string(),
         }
     }
 
     /// 下季度第一天
     pub fn quarter_end(&self) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            "(DATE_TRUNC('quarter', CURRENT_DATE) + INTERVAL '3 months')::date".to_string()
-        }
-        #[cfg(feature = "mysql")]
-        {
-            "MAKEDATE(YEAR(CURDATE()), 1) + INTERVAL QUARTER(CURDATE()) QUARTER".to_string()
+        match self {
+            DbDialect::Postgres => "(DATE_TRUNC('quarter', CURRENT_DATE) + INTERVAL '3 months')::date".to_string(),
+            DbDialect::MySql => "MAKEDATE(YEAR(CURDATE()), 1) + INTERVAL QUARTER(CURDATE()) QUARTER".to_string(),
         }
     }
 
     /// 本月第一天
     pub fn month_start(&self) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            "DATE_TRUNC('month', CURRENT_DATE)::date".to_string()
-        }
-        #[cfg(feature = "mysql")]
-        {
-            "DATE_FORMAT(CURDATE(), '%Y-%m-01')".to_string()
+        match self {
+            DbDialect::Postgres => "DATE_TRUNC('month', CURRENT_DATE)::date".to_string(),
+            DbDialect::MySql => "DATE_FORMAT(CURDATE(), '%Y-%m-01')".to_string(),
         }
     }
 
     /// 下月第一天
     pub fn month_end(&self) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            "(DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::date".to_string()
-        }
-        #[cfg(feature = "mysql")]
-        {
-            "DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 1 MONTH".to_string()
+        match self {
+            DbDialect::Postgres => "(DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::date".to_string(),
+            DbDialect::MySql => "DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 1 MONTH".to_string(),
         }
     }
 
     /// 本周第一天（周日为一周起点，与 MySQL DAYOFWEEK 语义一致）
     pub fn week_start(&self) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            "(CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)::int)".to_string()
-        }
-        #[cfg(feature = "mysql")]
-        {
-            "DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)".to_string()
+        match self {
+            DbDialect::Postgres => "(CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)::int)".to_string(),
+            DbDialect::MySql => "DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)".to_string(),
         }
     }
 
     /// 下周日
     pub fn week_end(&self) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            "(CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)::int + 7)".to_string()
-        }
-        #[cfg(feature = "mysql")]
-        {
-            "DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) + INTERVAL 7 DAY".to_string()
+        match self {
+            DbDialect::Postgres => "(CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)::int + 7)".to_string(),
+            DbDialect::MySql => "DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) + INTERVAL 7 DAY".to_string(),
         }
     }
 
     /// 明日
     pub fn tomorrow(&self) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            "(CURRENT_DATE + 1)".to_string()
-        }
-        #[cfg(feature = "mysql")]
-        {
-            "CURDATE() + INTERVAL 1 DAY".to_string()
+        match self {
+            DbDialect::Postgres => "(CURRENT_DATE + 1)".to_string(),
+            DbDialect::MySql => "CURDATE() + INTERVAL 1 DAY".to_string(),
         }
     }
 
     /// 行内聚合拼接（MySQL group_concat / PG string_agg）
     pub fn group_concat(&self, fields: &str) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            format!("string_agg({}, ',')", fields)
+        match self {
+            DbDialect::Postgres => format!("string_agg({}, ',')", fields),
+            DbDialect::MySql => format!("group_concat({})", fields),
         }
-        #[cfg(feature = "mysql")]
-        {
-            format!("group_concat({})", fields)
-        }
+    }
+}
+
+/// 方言设置守卫：离开作用域时自动恢复上一方言
+pub struct DialectGuard {
+    prev: Option<DbDialect>,
+    _no_send_sync: std::marker::PhantomData<fn()>,
+}
+
+impl Drop for DialectGuard {
+    fn drop(&mut self) {
+        CURRENT_DIALECT.with(|d| *d.borrow_mut() = self.prev);
     }
 }
 

@@ -5,7 +5,7 @@ use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
 use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text, Numeric};
-use crate::query::db::{Db, DbPool, DbQueryResult, DbRow};
+use crate::query::db::{DbPool, DbQueryResult, DbRow};
 use crate::query::dialect::{DbDialect, ValueKind};
 use url::Url;
 use lazy_static::lazy_static;
@@ -59,27 +59,44 @@ impl QueryBuildError{
 /// 通用文本读取：优先按 String 解码。
 /// PostgreSQL 的 uuid / 自定义 enum 等类型无法直接按 String 解码（sqlx 的
 /// String::compatible 不含这些类型），此时退化为按 wire 协议文本读取。
-#[cfg(feature = "postgres")]
 fn try_get_text(row: &DbRow, i: usize) -> Result<Option<String>, Error> {
-    match row.try_get::<Option<String>, _>(i) {
-        Ok(v) => Ok(v),
-        Err(_) => {
-            let raw = row.try_get_raw(i)?;
-            if raw.is_null() {
-                Ok(None)
-            } else {
-                match raw.as_str() {
-                    Ok(s) => Ok(Some(s.to_string())),
-                    Err(e) => Err(Error::Decode(e)),
+    match row {
+        DbRow::Mysql(r) => r.try_get::<Option<String>, _>(i),
+        DbRow::Postgres(r) => {
+            match r.try_get::<Option<String>, _>(i) {
+                Ok(v) => Ok(v),
+                Err(_) => {
+                    let raw = r.try_get_raw(i)?;
+                    if raw.is_null() {
+                        Ok(None)
+                    } else {
+                        match raw.as_str() {
+                            Ok(s) => Ok(Some(s.to_string())),
+                            Err(e) => Err(Error::Decode(e)),
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-#[cfg(feature = "mysql")]
-fn try_get_text(row: &DbRow, i: usize) -> Result<Option<String>, Error> {
-    row.try_get::<Option<String>, _>(i)
+
+/// Macro to dispatch row.try_get() across MySQL/PostgreSQL variants.
+/// Usage: try_get_from_dbrow!(row, i, i64) or try_get_from_dbrow!(row, i, Mysql i8, Postgres bool)
+macro_rules! try_get_from_dbrow {
+    ($row:expr, $i:expr, $ty:ty) => {
+        match $row {
+            crate::query::db::DbRow::Mysql(r) => r.try_get::<Option<$ty>, _>($i),
+            crate::query::db::DbRow::Postgres(r) => r.try_get::<Option<$ty>, _>($i),
+        }
+    };
+    ($row:expr, $i:expr, Mysql $mysql_ty:ty, Postgres $pg_ty:ty, as $target_ty:ty) => {
+        match $row {
+            crate::query::db::DbRow::Mysql(r) => r.try_get::<Option<$mysql_ty>, _>($i).map(|opt| opt.map(|v| v as $target_ty)),
+            crate::query::db::DbRow::Postgres(r) => r.try_get::<Option<$pg_ty>, _>($i).map(|opt| opt.map(|v| v as $target_ty)),
+        }
+    };
 }
 
 pub trait RowMappable{
@@ -967,10 +984,12 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
                         // MySQL 的 TINYINT(1) 用 1/0；PostgreSQL 的 bool 用 true/false（bool 列不接受 int 字面量）
-                        #[cfg(feature = "mysql")]
-                        let bool_literal = if let Some(value) = col.value() { if value {Some("1".to_string())} else {Some("0".to_string())} } else { None };
-                        #[cfg(feature = "postgres")]
-                        let bool_literal = if let Some(value) = col.value() { if value {Some("true".to_string())} else {Some("false".to_string())} } else { None };
+                        let bool_literal = if let Some(value) = col.value() {
+                            match DbDialect::current() {
+                                DbDialect::MySql => if value { Some("1".to_string()) } else { Some("0".to_string()) },
+                                DbDialect::Postgres => if value { Some("true".to_string()) } else { Some("false".to_string()) },
+                            }
+                        } else { None };
                         add_non_text_upsert_fields_values(col.name(), bool_literal, insert_fields, insert_values, update_fields_values);
                     }
                 }
@@ -1414,8 +1433,105 @@ impl QueryBuilder {
         self
     }
 
-    fn resolve_pool(&self) -> (DbPool, bool, Option<std::sync::Arc<dyn crate::configuration::Encryptor>>) {
+    // ===== Runtime pool dispatch helpers =====
+
+    async fn _db_execute(&self, pool: &DbPool, query: &str) -> Result<DbQueryResult, sqlx::Error> {
+        match pool {
+            DbPool::Mysql(p) => {
+                let r = sqlx::query::<sqlx::MySql>(query).execute(p).await?;
+                Ok(DbQueryResult::Mysql(r))
+            }
+            DbPool::Postgres(p) => {
+                let r = sqlx::query::<sqlx::Postgres>(query).execute(p).await?;
+                Ok(DbQueryResult::Postgres(r))
+            }
+        }
+    }
+
+    async fn _db_fetch_all_json(&self, pool: &DbPool, query: &str) -> Result<Vec<JsonValue>, sqlx::Error> {
+        match pool {
+            DbPool::Mysql(p) => {
+                sqlx::query::<sqlx::MySql>(query)
+                    .try_map(|row: sqlx::mysql::MySqlRow| self.convert_to_json_value(DbRow::Mysql(row)))
+                    .fetch_all(p)
+                    .await
+            }
+            DbPool::Postgres(p) => {
+                sqlx::query::<sqlx::Postgres>(query)
+                    .try_map(|row: sqlx::postgres::PgRow| self.convert_to_json_value(DbRow::Postgres(row)))
+                    .fetch_all(p)
+                    .await
+            }
+        }
+    }
+
+    async fn _db_fetch_one_json(&self, pool: &DbPool, query: &str) -> Result<JsonValue, sqlx::Error> {
+        match pool {
+            DbPool::Mysql(p) => {
+                sqlx::query::<sqlx::MySql>(query)
+                    .try_map(|row: sqlx::mysql::MySqlRow| self.convert_to_json_value(DbRow::Mysql(row)))
+                    .fetch_one(p)
+                    .await
+            }
+            DbPool::Postgres(p) => {
+                sqlx::query::<sqlx::Postgres>(query)
+                    .try_map(|row: sqlx::postgres::PgRow| self.convert_to_json_value(DbRow::Postgres(row)))
+                    .fetch_one(p)
+                    .await
+            }
+        }
+    }
+
+    async fn _db_fetch_optional_row(&self, pool: &DbPool, query: &str) -> Result<Option<DbRow>, sqlx::Error> {
+        match pool {
+            DbPool::Mysql(p) => {
+                sqlx::query::<sqlx::MySql>(query)
+                    .fetch_optional(p)
+                    .await
+                    .map(|opt| opt.map(DbRow::Mysql))
+            }
+            DbPool::Postgres(p) => {
+                sqlx::query::<sqlx::Postgres>(query)
+                    .fetch_optional(p)
+                    .await
+                    .map(|opt| opt.map(DbRow::Postgres))
+            }
+        }
+    }
+
+    async fn _db_fetch_count(&self, pool: &DbPool, query: &str) -> Result<i64, sqlx::Error> {
+        match pool {
+            DbPool::Mysql(p) => {
+                sqlx::query::<sqlx::MySql>(query)
+                    .try_map(|row: sqlx::mysql::MySqlRow| self.convert_to_number(DbRow::Mysql(row)))
+                    .fetch_one(p)
+                    .await
+            }
+            DbPool::Postgres(p) => {
+                sqlx::query::<sqlx::Postgres>(query)
+                    .try_map(|row: sqlx::postgres::PgRow| self.convert_to_number(DbRow::Postgres(row)))
+                    .fetch_one(p)
+                    .await
+            }
+        }
+    }
+    fn resolve_pool(&self) -> (DbPool, std::sync::Arc<dyn DbConf>) {
         crate::query::pool::resolve_pool(self._pool_conf.as_deref())
+    }
+
+    /// 统一设置池上下文：获取池、检查只读、注入 encryptor 与 dialect
+    fn prepare_ctx(&self, check_readonly: bool) -> Result<DbPool, Error> {
+        let (pool, conf) = self.resolve_pool();
+        if check_readonly && conf.is_readonly() {
+            return Err(Error::Protocol("readonly pool does not allow write operations.".into()));
+        }
+        // thread-local guard：函数结束时自动清理
+        let _enc_guard = set_build_encryptor(conf.encryptor());
+        let _dialect_guard = DbDialect::set_current(conf.dialect());
+        // 将 guard 所有权转移给调用方（通过 mem::forget 保持 alive）
+        std::mem::forget(_enc_guard);
+        std::mem::forget(_dialect_guard);
+        Ok(pool)
     }
 
     pub fn limit(mut self, limit: i32) -> QueryBuilder {
@@ -1440,75 +1556,59 @@ impl QueryBuilder {
 
     ///execute insert/update/delete and return the affected rows number
     pub async fn execute(&self) -> Result<DbQueryResult,Error> {
-        let (pool, is_readonly, encryptor) = self.resolve_pool();
-        if is_readonly {
-            return Err(Error::Protocol("readonly pool does not allow write operations.".into()));
-        }
-        let _enc_guard = set_build_encryptor(encryptor);
-        let build_result = self.build();
-        if let Ok(query_string) = build_result {
-            println!("query string # {}", query_string);
-            let result = sqlx::query::<Db>(&query_string).execute(&pool).await?; // Pass the reference to sqlx::query()
-            Ok(result)
-        }else if let Err(e) = build_result {
-            Err(Error::Configuration(e.message.into()))
-        }else {
-            Err(Error::Configuration("未知错误".into()))
-        }
+        let pool = self.prepare_ctx(true)?;
+        let query_string = self.build()
+            .map_err(|e| Error::Configuration(e.message.into()))?;
+        println!("query string # {}", query_string);
+        self._db_execute(&pool, &query_string).await
     }
 
     /// 执行 insert/upsert 并取回指定列（跨库取自动主键）。
     /// PostgreSQL 原生支持 RETURNING；MySQL 不支持 RETURNING，改为执行后 SELECT 回查。
     pub async fn execute_returning(&self, returning_fields: Vec<String>) -> Result<Option<DbRow>,Error> {
-        let (pool, is_readonly, encryptor) = self.resolve_pool();
-        if is_readonly {
-            return Err(Error::Protocol("readonly pool does not allow write operations.".into()));
-        }
-        let _enc_guard = set_build_encryptor(encryptor);
-        let build_result = self.build();
-        if let Ok(query_string) = build_result {
-            let dialect = DbDialect::current();
-            #[cfg(feature = "postgres")]
-            if dialect.is_postgres() {
+        let pool = self.prepare_ctx(true)?;
+        let dialect = DbDialect::current();
+        let query_string = self.build()
+            .map_err(|e| Error::Configuration(e.message.into()))?;
+        match dialect {
+            DbDialect::Postgres => {
                 let returning_sql = returning_fields.iter()
                     .map(|field| wrap_field_name(field))
                     .collect::<Vec<String>>()
                     .join(", ");
                 let query_string = format!("{} RETURNING {}", query_string.trim_end_matches(';'), returning_sql);
                 println!("query string # {}", query_string);
-                return sqlx::query::<Db>(&query_string).fetch_optional(&pool).await;
+                return self._db_fetch_optional_row(&pool, &query_string).await;
             }
-            #[cfg(feature = "mysql")]
-            if dialect.is_mysql() {
+            DbDialect::MySql => {
                 // MySQL 不支持 RETURNING 子句；先执行 INSERT/UPSERT，再回查所需列：
                 // 1) 自增主键：通过 LAST_INSERT_ID() 回查
                 // 2) UUID / 字符串主键：通过 builder 中已设的主键值构造 WHERE 条件回查
                 let query_string = query_string.trim_end_matches(';').to_string();
                 println!("query string # {}", query_string);
-                let result = sqlx::query::<Db>(&query_string).execute(&pool).await?;
-                let last_id = result.last_insert_id();
-
+                let result = self._db_execute(&pool, &query_string).await?;
+                let last_id = result.last_insert_id(); // Option<u64>: PostgreSQL returns None
                 if let Some(ref target) = self.target_table {
                     let fields = returning_fields.iter()
                         .map(|f| wrap_field_name(f))
                         .collect::<Vec<String>>()
                         .join(", ");
                     let table_name = DbDialect::current().wrap_table_reference(&target.name);
-
-                    if last_id > 0 && !returning_fields.is_empty() {
-                        // 自增主键回查
-                        if let Some(pk_col) = target.primary_key.first() {
-                            let pk_name = DbDialect::current().wrap_identifier(&pk_col.get_col_name());
-                            let select_sql = format!(
-                                "SELECT {} FROM {} WHERE {} = {}",
-                                fields, table_name, pk_name, last_id
-                            );
-                            println!("returning fallback query # {}", select_sql);
-                            return sqlx::query::<Db>(&select_sql).fetch_optional(&pool).await;
+                    if let Some(id) = last_id {
+                        if id > 0 && !returning_fields.is_empty() {
+                            // 自增主键回查
+                            if let Some(pk_col) = target.primary_key.first() {
+                                let pk_name = DbDialect::current().wrap_identifier(&pk_col.get_col_name());
+                                let select_sql = format!(
+                                    "SELECT {} FROM {} WHERE {} = {}",
+                                    fields, table_name, pk_name, id
+                                );
+                                println!("returning fallback query # {}", select_sql);
+                                return self._db_fetch_optional_row(&pool, &select_sql).await;
+                            }
                         }
                     }
-
-                    // last_id == 0（非自增主键，如 UUID）：尝试用 builder 中已有的主键值回查
+                    // last_id == None（非自增主键，如 UUID）：尝试用 builder 中已有的主键值回查
                     if !returning_fields.is_empty() {
                         let pk_conditions = build_primary_key_where_conditions(&target.primary_key);
                         if !pk_conditions.is_empty() {
@@ -1517,57 +1617,41 @@ impl QueryBuilder {
                                 fields, table_name, pk_conditions.join(" AND ")
                             );
                             println!("returning fallback query # {}", select_sql);
-                            return sqlx::query::<Db>(&select_sql).fetch_optional(&pool).await;
+                            return self._db_fetch_optional_row(&pool, &select_sql).await;
                         }
                     }
                 }
                 return Ok(None);
             }
-            Ok(None)
-        }else if let Err(e) = build_result {
-            Err(Error::Configuration(e.message.into()))
-        }else {
-            Err(Error::Configuration("未知错误".into()))
+            _ => Ok(None),
         }
     }
 
     pub async fn fetch<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<Vec<T>, Error> {
+        let pool = self.prepare_ctx(false)?;
+        let query_string = self.build()
+            .map_err(|e| Error::Configuration(e.message.into()))?;
+        println!("query string # {}", query_string);
 
-        let (pool, _, encryptor) = self.resolve_pool();
-        let _enc_guard = set_build_encryptor(encryptor);
-        let build_result = self.build();
-        if let Ok(query_string) = build_result {
-            println!("query string # {}", query_string);
+        let jsons = self._db_fetch_all_json(&pool, &query_string).await?;
 
-            let jsons = sqlx::query::<Db>(&query_string)
-                .try_map(|row: DbRow| {
-                    self.convert_to_json_value(row)
-                })
-                .fetch_all(&pool)
-                .await?;
-
-            let mut result = Vec::new();
-            for json in jsons {
-                let item_parsed_result = serde_json::from_value::<T>(json.clone());
-                match item_parsed_result {
-                    Ok(item_parsed) => {
-                        result.push(item_parsed);
-                    }
-                    Err(err) => {println!("error={:?}", err);}
+        let mut result = Vec::new();
+        for json in jsons {
+            let item_parsed_result = serde_json::from_value::<T>(json.clone());
+            match item_parsed_result {
+                Ok(item_parsed) => {
+                    result.push(item_parsed);
                 }
-                // if let Ok(item_parsed) = item_parsed_result {
+                Err(err) => {println!("error={:?}", err);}
+            }
+            // if let Ok(item_parsed) = item_parsed_result {
                 //     result.push(item_parsed);
                 // }else {
                 //     println!("entity={:?}", json);
                 //     // println!("注意类型不匹配");
                 // }
-            }
-            Ok(result)
-        }else if let Err(e) = build_result {
-            Err(Error::Configuration(e.message.into()))
-        }else {
-            Err(Error::Configuration("未知错误".into()))
         }
+        Ok(result)
     }
 
     ///构建 count 查询语句
@@ -1597,44 +1681,34 @@ impl QueryBuilder {
 
     ///paging query with parallel count and data fetch
     pub async fn fetch_paging_parallel<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
-
-        let (pool, _, encryptor) = self.resolve_pool();
-        let _enc_guard = set_build_encryptor(encryptor);
+        let pool = self.prepare_ctx(false)?;
 
         let mut data_query_builder = self.clone();
         if data_query_builder.limit.is_none() {
-            data_query_builder.limit = Some(Limit::new(0,20));
+        data_query_builder.limit = Some(Limit::new(0,20));
         }else if let(Some(ref limit)) = data_query_builder.limit{
-            if limit.limit < 1 {
-                data_query_builder.limit = Some(Limit::new(limit.offset.clone(),1));
-            }
+        if limit.limit < 1 {
+            data_query_builder.limit = Some(Limit::new(limit.offset.clone(),1));
+        }
         }
 
         let count_query_string = match self.build_count_query() {
-            Ok(q) => q,
-            Err(e) => return Err(e),
+        Ok(q) => q,
+        Err(e) => return Err(e),
         };
         let data_query_build_result = data_query_builder.build();
 
         let data_query_string = match data_query_build_result {
-            Ok(q) => q,
-            Err(e) => return Err(Error::Configuration(e.message.into())),
+        Ok(q) => q,
+        Err(e) => return Err(Error::Configuration(e.message.into())),
         };
 
         println!("count query string # {}", count_query_string);
         println!("query string # {}", data_query_string);
 
-        let count_future = sqlx::query::<Db>(&count_query_string)
-            .try_map(|row: DbRow| {
-                self.convert_to_number(row)
-            })
-            .fetch_one(&pool);
+        let count_future = self._db_fetch_count(&pool, &count_query_string);
 
-        let data_future = sqlx::query::<Db>(&data_query_string)
-            .try_map(|row: DbRow| {
-                self.convert_to_json_value(row)
-            })
-            .fetch_all(&pool);
+        let data_future = self._db_fetch_all_json(&pool, &data_query_string);
 
         let (count_result, data_rows) = tokio::try_join!(count_future, data_future)?;
 
@@ -1642,6 +1716,54 @@ impl QueryBuilder {
 
         let mut result = Vec::new();
         for json in data_rows {
+        let item_parsed_result = serde_json::from_value::<T>(json.clone());
+        match item_parsed_result {
+            Ok(item_parsed) => {
+                result.push(item_parsed);
+            }
+            Err(err) => {
+                println!("error={:?}", err);
+                return Err(Error::Configuration(err.into()))
+            }
+        }
+        }
+
+        let limit = data_query_builder.limit.clone().unwrap().limit;
+        let current_page = data_query_builder.limit.clone().unwrap().offset/limit.clone()+1;
+        Ok(PagingData::new(result,Some(current_page), Some(limit), Some(count)))
+    }
+
+    ///paging query
+    pub async fn fetch_paging<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
+        let pool = self.prepare_ctx(false)?;
+
+        let mut count = 0;
+
+        match self.build_count_query() {
+        Ok(query_string) => {
+            println!("count query string # {}", query_string);
+            count = self._db_fetch_count(&pool, &query_string).await?;
+        }
+        Err(e) => return Err(e),
+        }
+
+        let mut query_builder = self.clone();
+        if query_builder.limit.is_none() {
+        query_builder.limit = Some(Limit::new(0,20));
+        }else if let(Some(ref limit)) = query_builder.limit{
+        if limit.limit < 1 {
+            query_builder.limit = Some(Limit::new(limit.offset.clone(),1));
+        }
+        }
+
+        let query_string = query_builder.build()
+        .map_err(|e| Error::Configuration(e.message.into()))?;
+        println!("query string # {}", query_string);
+
+        let jsons = self._db_fetch_all_json(&pool, &query_string).await?;
+
+        let mut result = Vec::new();
+        for json in jsons {
             let item_parsed_result = serde_json::from_value::<T>(json.clone());
             match item_parsed_result {
                 Ok(item_parsed) => {
@@ -1653,124 +1775,46 @@ impl QueryBuilder {
                 }
             }
         }
-
-        let limit = data_query_builder.limit.clone().unwrap().limit;
-        let current_page = data_query_builder.limit.clone().unwrap().offset/limit.clone()+1;
+        let mut limit = query_builder.limit.clone().unwrap().limit;
+        let current_page = query_builder.limit.clone().unwrap().offset/limit.clone()+1;
         Ok(PagingData::new(result,Some(current_page), Some(limit), Some(count)))
     }
 
-    ///paging query
-    pub async fn fetch_paging<T: Serialize + for<'de> serde::Deserialize<'de>>(&self) -> Result<PagingData<T>, Error> {
-
-        let (pool, _, encryptor) = self.resolve_pool();
-        let _enc_guard = set_build_encryptor(encryptor);
-
-        let mut count = 0;
-
-        match self.build_count_query() {
-            Ok(query_string) => {
-                println!("count query string # {}", query_string);
-                count = sqlx::query::<Db>(&query_string)
-                    .try_map(|row: DbRow| {
-                        self.convert_to_number(row)
-                    })
-                    .fetch_one(&pool)
-                    .await?;
-            }
-            Err(e) => return Err(e),
-        }
-
-        let mut query_builder = self.clone();
-        if query_builder.limit.is_none() {
-            query_builder.limit = Some(Limit::new(0,20));
-        }else if let(Some(ref limit)) = query_builder.limit{
-            if limit.limit < 1 {
-                query_builder.limit = Some(Limit::new(limit.offset.clone(),1));
-            }
-        }
-
-        let build_result = query_builder.build();
-        if let Ok(query_string) = build_result {
-            println!("query string # {}", query_string);
-
-            let jsons = sqlx::query::<Db>(&query_string)
-                .try_map(|row: DbRow| {
-                    self.convert_to_json_value(row)
-                })
-                .fetch_all(&pool)
-                .await?;
-
-            let mut result = Vec::new();
-            for json in jsons {
-                let item_parsed_result = serde_json::from_value::<T>(json.clone());
-                match item_parsed_result {
-                    Ok(item_parsed) => {
-                        result.push(item_parsed);
-                    }
-                    Err(err) => {
-                        println!("error={:?}", err);
-                        return Err(Error::Configuration(err.into()))
-                    }
-                }
-            }
-            let mut limit = query_builder.limit.clone().unwrap().limit;
-            let current_page = query_builder.limit.clone().unwrap().offset/limit.clone()+1;
-            Ok(PagingData::new(result,Some(current_page), Some(limit), Some(count)))
-        }else if let Err(e) = build_result {
-            Err(Error::Configuration(e.message.into()))
-        }else {
-            Err(Error::Configuration("未知错误".into()))
-        }
-    }
-
     pub async fn fetch_one<T: Serialize + for<'de> serde::Deserialize<'de>>(&mut self) -> Result<Option<T>,Error> {
-
         self.limit = Some(Limit::new(0, 1));
+        let pool = self.prepare_ctx(false)?;
+        let query_string = self.build()
+        .map_err(|e| Error::Encode(e.message.into()))?;
+        println!("query string # {}", query_string);
 
-        let (pool, _, encryptor) = self.resolve_pool();
-        let _enc_guard = set_build_encryptor(encryptor);
-        let build_result = self.build();
-        if let Ok(query_string) = build_result {
-            println!("query string # {}", query_string);
+        let query_result = self._db_fetch_one_json(&pool, &query_string).await;
 
-            let query_result = sqlx::query::<Db>(&query_string)
-                .try_map(|row: DbRow| {
-                    self.convert_to_json_value(row)
-                })
-                .fetch_one(&pool)
-                .await;
-
-            match query_result {
-                Ok(result)=>{
-                    let colums_count = self.select_fields.len();
-                    // 单列标量分支
-                    if colums_count == 1 {
-                        // 处理单列的查询
-                        let json_obj = result.as_object();
-                        match json_obj {
-                            Some(obj) => {
-                                // 用 row 拿到第一列列名
-                                let first_col_name = obj.keys().next().map(|k| k.to_string());
-                                match first_col_name {
-                                    Some(col_name) => {
-                                        match obj.get(&col_name) {
-                                            Some(v) => {
-                                                match serde_json::from_value::<T>(v.clone()) {
-                                                    Ok(val) => {
-                                                        return Ok(Some(val));
-                                                    }
-                                                    Err(e) => {
-                                                        return Err(Error::Decode(e.to_string().into()));
-                                                    }
-                                                }
+        match query_result {
+        Ok(result)=>{
+            let colums_count = self.select_fields.len();
+            // 单列标量分支
+            if colums_count == 1 {
+                // 处理单列的查询
+                let json_obj = result.as_object();
+                match json_obj {
+                    Some(obj) => {
+                        // 用 row 拿到第一列列名
+                        let first_col_name = obj.keys().next().map(|k| k.to_string());
+                        match first_col_name {
+                            Some(col_name) => {
+                                match obj.get(&col_name) {
+                                    Some(v) => {
+                                        match serde_json::from_value::<T>(v.clone()) {
+                                            Ok(val) => {
+                                                return Ok(Some(val));
                                             }
-                                            None => {
-                                                return Err(Error::Decode(format!("列 {} 未在 JSON 结果中找到", col_name).into()));
+                                            Err(e) => {
+                                                return Err(Error::Decode(e.to_string().into()));
                                             }
                                         }
                                     }
                                     None => {
-                                        return Err(Error::Decode("JSON 结果不是对象".into()));
+                                        return Err(Error::Decode(format!("列 {} 未在 JSON 结果中找到", col_name).into()));
                                     }
                                 }
                             }
@@ -1779,671 +1823,672 @@ impl QueryBuilder {
                             }
                         }
                     }
-
-                    let json_parse_result = serde_json::from_value(result);
-                    match json_parse_result {
-                        Ok(json)=>{
-                            Ok(Some(json))
-                        },
-                        Err(e) =>{
-                            Err(Error::Decode(e.to_string().into()))
-                        }
-                    }
-                },
-                Err(e) => {
-                    match e {
-                        Error::RowNotFound => {
-                            Ok(None)
-                        }
-                        _ => {
-                            Err(e)
-                        }
+                    None => {
+                        return Err(Error::Decode("JSON 结果不是对象".into()));
                     }
                 }
             }
-        }else if let Err(e) = build_result {
-            Err(Error::Encode(e.message.into()))
-        }else {
-            Err(Error::Encode("未知错误".into()))
+
+            let json_parse_result = serde_json::from_value(result);
+            match json_parse_result {
+                Ok(json)=>{
+                    Ok(Some(json))
+                },
+                Err(e) =>{
+                    Err(Error::Decode(e.to_string().into()))
+                }
+            }
+        },
+        Err(e) => {
+            match e {
+                Error::RowNotFound => {
+                    Ok(None)
+                }
+                _ => {
+                    Err(e)
+                }
+            }
+        }
         }
     }
     pub async fn fetch_count(&self) -> Result<i64, Error> {
-        let (pool, _, encryptor) = self.resolve_pool();
-        let _enc_guard = set_build_encryptor(encryptor);
-        let build_result = self.build();
-        if let Ok(query_string) = build_result {
-            println!("query string # {}", query_string);
-
-            let value = sqlx::query::<Db>(&query_string)
-                .try_map(|row: DbRow| {
-                    self.convert_to_number(row)
-                })
-                .fetch_one(&pool)
-                .await?;
-            Ok(value)
-        }else if let Err(e) = build_result {
-            Err(Error::Configuration(e.message.into()))
-        }else {
-            Err(Error::Configuration("未知错误".into()))
-        }
+        let pool = self.prepare_ctx(false)?;
+        let query_string = self.build()
+        .map_err(|e| Error::Configuration(e.message.into()))?;
+        println!("query string # {}", query_string);
+        self._db_fetch_count(&pool, &query_string).await
     }
 
     ///将数据库数据行转为JsonValue（MySQL / PostgreSQL 通用）
     fn convert_to_json_value(&self, row:DbRow)-> Result<JsonValue, Error>{
         // println!("row of product {:#?}", row);
         let mut json_obj = json!({});
-        let columns = row.columns();
-        let mut i=0;
-        for column in columns {
-            let mut column_name = column.name();
-            let mut obj_name: Option<String> = None;
-            if column_name.contains("__"){
-                let parts: Vec<&str> = column_name.split("__").collect();
-                if parts.len() == 2 {
-                    obj_name = Some(parts[0].to_string());
-                    column_name = parts[1];
-                    if !json_obj[obj_name.as_ref().unwrap()].is_object() {
-                        json_obj[obj_name.as_ref().unwrap()] = json!({});
-                    }
-                }
+        let dialect = DbDialect::current();
+        let column_count = match &row {
+        DbRow::Mysql(r) => r.columns().len(),
+        DbRow::Postgres(r) => r.columns().len(),
+        };
+        for i in 0..column_count {
+        let (column_name_str, type_info_name, type_info_detail, is_set_flag) = match &row {
+        DbRow::Mysql(r) => {
+            let col = &r.columns()[i];
+            let name = col.name();
+            let ti = col.type_info();
+            let ti_name = ti.name();
+            let ti_detail = format!("{:?}", ti);
+            let set_flag = ti_detail.split([' ', '|', '(', ')']).any(|tok| tok == "SET");
+            (name, ti_name, ti_detail, set_flag)
+        }
+        DbRow::Postgres(r) => {
+            let col = &r.columns()[i];
+            let name = col.name();
+            let ti = col.type_info();
+            let ti_name = ti.name();
+            let ti_detail = format!("{:?}", ti);
+            let set_flag = ti_detail.split([' ', '|', '(', ')']).any(|tok| tok == "SET");
+            (name, ti_name, ti_detail, set_flag)
+        }
+        };
+        let mut column_name = column_name_str;
+        let mut obj_name: Option<String> = None;
+        if column_name.contains("__"){
+        let parts: Vec<&str> = column_name.split("__").collect();
+        if parts.len() == 2 {
+            obj_name = Some(parts[0].to_string());
+            column_name = parts[1];
+            if !json_obj[obj_name.as_ref().unwrap()].is_object() {
+                json_obj[obj_name.as_ref().unwrap()] = json!({});
             }
-            let camel_case_column_name = to_camel_case(&column_name);
-            let mut type_name = column.type_info().name();
-            let type_detail = format!("{:?}", column.type_info());
-            // mysql的set返回的是varchar
-            let is_set_flag = type_detail.split([' ', '|', '(', ')']).any(|tok| tok == "SET");
-            if type_name == "SET" || is_set_flag {
-                type_name = "SET";
-            }
-            //println!("type_name of {} {} {:?}",column_name, type_name, DbDialect::current().value_kind(type_name));
-            let value_kind = if type_name == "SET" {
-                ValueKind::Set
-            } else {
-                DbDialect::current().value_kind(type_name)
-            };
-            match value_kind {
-                ValueKind::Str => {
-                    let value_result = try_get_text(&row, i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
-                            }else {
-                                json_obj[column_name] = serde_json::Value::String(value.clone());
-                                json_obj[camel_case_column_name] = serde_json::Value::String(value);
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::Uuid => {
-                    let value_result: Result<Option<Uuid>, Error> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            let s = value.to_string();
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(s.clone());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(s);
-                            }else {
-                                json_obj[column_name] = serde_json::Value::String(s.clone());
-                                json_obj[camel_case_column_name] = serde_json::Value::String(s);
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::SmallInt => {
-                    let value_result: Result<Option<i16>, Error> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
-                            }else {
-                                json_obj[column_name] = value.clone().into();
-                                json_obj[camel_case_column_name] = value.into();
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::Int => {
-                    let value_result: Result<Option<i32>, Error> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
-                            }else {
-                                json_obj[column_name] = value.clone().into();
-                                json_obj[camel_case_column_name] = value.into();
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::BigInt => {
-                    let value_result: Result<Option<i64>, Error> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
-                            }else {
-                                json_obj[column_name] = value.clone().into();
-                                json_obj[camel_case_column_name] = value.into();
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::UInt => {
-                    //println!("decoding INT {}",column_name);
-                    // PostgreSQL 无 unsigned 整数（pg_value_kind 不会返回 UInt），该分支仅作编译期占位
-                    #[cfg(feature = "mysql")]
-                    let value_result: Result<Option<u64>, Error> = row.try_get(i);
-                    #[cfg(feature = "postgres")]
-                    let value_result: Result<Option<i64>, Error> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
-                            }else {
-                                json_obj[column_name] = value.clone().into();
-                                json_obj[camel_case_column_name] = value.into();
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::Decimal => {
-                    let value_result: Result<Option<rust_decimal::Decimal>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            // 将 Decimal 转换为 f64
-                            if let Some(float_value) = value.to_f64() {
-                                if obj_name.is_some() {
-                                    json_obj[obj_name.as_ref().unwrap()][column_name] = float_value.clone().into();
-                                    json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = float_value.into();
-                                }else {
-                                    json_obj[column_name] = float_value.clone().into();
-                                    json_obj[camel_case_column_name] = float_value.into();
-                                }
-                            } else {
-                                if obj_name.is_some() {
-                                    json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                    json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                                }else {
-                                    json_obj[column_name] = serde_json::Value::Null;
-                                    json_obj[camel_case_column_name] = serde_json::Value::Null;
-                                }
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::Bool => {   //max_size为1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(1) }
-                    //println!("decoding BOOLEAN {}",column_name);
-                    // MySQL 的 TINYINT(1) 以 i8 读取；PostgreSQL 的 bool 以 bool 读取
-                    #[cfg(feature = "mysql")]
-                    let value_result: Result<Option<i8>, Error> = row.try_get(i);
-                    #[cfg(feature = "postgres")]
-                    let value_result: Result<Option<bool>, Error> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            // 归一化为 JSON bool：MySQL 读 i8（>0 为 true），PG 直接读 bool
-                            let bool_value: bool = {
-                                #[cfg(feature = "mysql")]
-                                { value > 0 }
-                                #[cfg(feature = "postgres")]
-                                { value }
-                            };
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Bool(bool_value);
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Bool(bool_value);
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Bool(bool_value);
-                                json_obj[camel_case_column_name] = serde_json::Value::Bool(bool_value);
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::TinyInt => {//max_size>1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(4) }
-                    //println!("decoding TINYINT {}",column_name);
-                    // PostgreSQL 无 TINYINT（pg_value_kind 不会返回 TinyInt），该分支仅作编译期占位
-                    #[cfg(feature = "mysql")]
-                    let value_result: Result<Option<i8>, Error> = row.try_get(i);
-                    #[cfg(feature = "postgres")]
-                    let value_result: Result<Option<i64>, Error> = row.try_get(i);
-
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(value.into());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(value.into());
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Number(value.into());
-                                json_obj[camel_case_column_name] = serde_json::Value::Number(value.into());
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::Enum => {
-                    let value_result: Result<Option<String>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
-                            }else {
-                                json_obj[column_name] = serde_json::Value::String(value.clone());
-                                json_obj[camel_case_column_name] = serde_json::Value::String(value);
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::Set => {
-                    #[cfg(feature = "postgres")]
-                    let values: Vec<serde_json::Value> = {
-                        let raw = row.try_get_raw(i);
-                        match raw {
-                            Ok(raw_val) if !raw_val.is_null() => {
-                                let bytes = raw_val.as_bytes()
-                                    .unwrap_or_else(|_| raw_val.as_str().unwrap_or("").as_bytes());
-                                if bytes.is_empty() {
-                                    vec![]
-                                } else if bytes[0] == b'{' {
-                                    let s = String::from_utf8_lossy(bytes);
-                                    let s = s.trim();
-                                    let inner = &s[1..s.len()-1];
-                                    if inner.is_empty() { vec![] }
-                                    else {
-                                        inner.split(',')
-                                            .map(|v| serde_json::Value::String(v.trim().to_string()))
-                                            .collect()
-                                    }
-                                } else {
-                                    (|| {
-                                        let mut pos = 0usize;
-                                        if bytes.len() < 12 { return vec![]; }
-                                        let ndim = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]);
-                                        pos += 4;
-                                        pos += 8;
-                                        if ndim == 0 { return vec![]; }
-                                        if bytes.len() < pos + 4 { return vec![]; }
-                                        let dim = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]) as usize;
-                                        pos += 8;
-                                        let mut result = Vec::with_capacity(dim);
-                                        for _ in 0..dim {
-                                            if bytes.len() < pos + 4 { break; }
-                                            let len = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]) as usize;
-                                            pos += 4;
-                                            if bytes.len() < pos + len { break; }
-                                            let s = String::from_utf8_lossy(&bytes[pos..pos+len]).to_string();
-                                            result.push(serde_json::Value::String(s));
-                                            pos += len;
-                                        }
-                                        result
-                                    })()
-                                }
-                            }
-                            _ => vec![],
-                        }
-                    };
-
-                    #[cfg(not(feature = "postgres"))]
-                    let values: Vec<serde_json::Value> = {
-                        let value_result: Result<Option<String>, _> = row.try_get(i);
-                        match value_result {
-                            Ok(Some(value)) if !value.is_empty() => {
-                                value.split(',')
-                                    .map(|s| serde_json::Value::String(s.trim().to_string()))
-                                    .collect()
-                            }
-                            _ => vec![],
-                        }
-                    };
-
+        }
+        }
+        let camel_case_column_name = to_camel_case(&column_name);
+        let mut type_name = type_info_name;
+        let type_detail = type_info_detail;
+        // mysql的set返回的是varchar
+        if type_name == "SET" || is_set_flag {
+        type_name = "SET";
+        }
+        //println!("type_name of {} {} {:?}",column_name, type_name, DbDialect::current().value_kind(&type_name));
+        let value_kind = if type_name == "SET" {
+        ValueKind::Set
+        } else {
+        DbDialect::current().value_kind(&type_name)
+        };
+        match value_kind {
+        ValueKind::Str => {
+            let value_result = try_get_text(&row, i);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
                     if obj_name.is_some() {
-                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Array(values.clone());
-                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Array(values);
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
                     }else {
-                        json_obj[column_name] = serde_json::Value::Array(values.clone());
-                        json_obj[camel_case_column_name] = serde_json::Value::Array(values);
+                        json_obj[column_name] = serde_json::Value::String(value.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
                     }
                 }
-                ValueKind::Json => {
-                    let value_result: Result<Option<serde_json::Value>, _> = row.try_get(i);
-                    match value_result {
-                        Ok(Some(json_value)) => {
-                            let str_value = json_value.to_string();
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(str_value.clone());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(str_value);
-                            } else {
-                                json_obj[column_name] = serde_json::Value::String(str_value.clone());
-                                json_obj[camel_case_column_name] = serde_json::Value::String(str_value);
-                            }
-                        }
-                        Ok(None) => {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            } else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("解析json出错 '{}': {}", column_name, e);
-                        }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Uuid => {
+            let value_result = try_get_from_dbrow!(&row, i, Uuid);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    let s = value.to_string();
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(s.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(s);
+                    }else {
+                        json_obj[column_name] = serde_json::Value::String(s.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(s);
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
                     }
                 }
-                ValueKind::DateTime => {
-                    // Handle DATETIME type
-                    let value_result: Result<Option<chrono::NaiveDateTime>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            let timestamp = value.and_utc().timestamp();
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                                json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                            }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::SmallInt => {
+            let value_result = try_get_from_dbrow!(&row, i, i16);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                    }else {
+                        json_obj[column_name] = value.clone().into();
+                        json_obj[camel_case_column_name] = value.into();
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Int => {
+            let value_result = try_get_from_dbrow!(&row, i, i32);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                    }else {
+                        json_obj[column_name] = value.clone().into();
+                        json_obj[camel_case_column_name] = value.into();
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::BigInt => {
+            let value_result = try_get_from_dbrow!(&row, i, i64);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                    }else {
+                        json_obj[column_name] = value.clone().into();
+                        json_obj[camel_case_column_name] = value.into();
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::UInt => {
+            //println!("decoding INT {}",column_name);
+            // PostgreSQL 无 unsigned 整数（pg_value_kind 不会返回 UInt），该分支仅保留类型兼容
+            let value_result = try_get_from_dbrow!(&row, i, Mysql u64, Postgres i64, as i64);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                    }else {
+                        json_obj[column_name] = value.clone().into();
+                        json_obj[camel_case_column_name] = value.into();
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Decimal => {
+            let value_result = try_get_from_dbrow!(&row, i, rust_decimal::Decimal);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    // 将 Decimal 转换为 f64
+                    if let Some(float_value) = value.to_f64() {
+                        if obj_name.is_some() {
+                            json_obj[obj_name.as_ref().unwrap()][column_name] = float_value.clone().into();
+                            json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = float_value.into();
+                        }else {
+                            json_obj[column_name] = float_value.clone().into();
+                            json_obj[camel_case_column_name] = float_value.into();
+                        }
+                    } else {
+                        if obj_name.is_some() {
+                            json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                            json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                        }else {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null;
+                        }
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Bool => {   //max_size为1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(1) }
+            //println!("decoding BOOLEAN {}",column_name);
+            // MySQL 的 TINYINT(1) 以 i8 读取；PostgreSQL 的 bool 以 bool 读取
+            let value_result: Result<Option<i8>, Error> = try_get_from_dbrow!(&row, i, Mysql i8, Postgres bool, as i8);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    // 归一化为 JSON bool：MySQL 读 i8（>0 为 true），PG 直接读 bool
+                    let bool_value: bool = match DbDialect::current() {
+                        DbDialect::MySql => value > 0,
+                        DbDialect::Postgres => true,
+                    };
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Bool(bool_value);
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Bool(bool_value);
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Bool(bool_value);
+                        json_obj[camel_case_column_name] = serde_json::Value::Bool(bool_value);
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::TinyInt => {//max_size>1时会识别为boolean. MySqlTypeInfo { type: Tiny, flags: ColumnFlags(NOT_NULL | MULTIPLE_KEY), max_size: Some(4) }
+            //println!("decoding TINYINT {}",column_name);
+            // PostgreSQL 无 TINYINT（pg_value_kind 不会返回 TinyInt），该分支仅保留类型兼容
+            let value_result = try_get_from_dbrow!(&row, i, Mysql i8, Postgres i64, as i64);
 
-                        }else{
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(value.into());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(value.into());
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Number(value.into());
+                        json_obj[camel_case_column_name] = serde_json::Value::Number(value.into());
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
                     }
                 }
-                ValueKind::Timestamp => {
-                    let value_result: Result<Option<DateTime<Utc>>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            let cur_value = value.timestamp_millis();
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
-                                json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
-                            }
-                        }else{
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Enum => {
+            let value_result = try_get_text(&row, i);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
+                    }else {
+                        json_obj[column_name] = serde_json::Value::String(value.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
                     }
                 }
-                ValueKind::Date => {
-                    let value_result: Result<Option<chrono::NaiveDate>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            let timestamp = value.and_time(NaiveTime::default()).and_utc().timestamp_millis();
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                                json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                            }
-
-                        }else{
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::Time => {
-                    // Handle TIME type
-                    let value_result: Result<Option<chrono::NaiveTime>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            // Convert NaiveTime to string format "HH:MM:SS"
-                            let time_str = value.format("%H:%M:%S").to_string();
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(time_str.clone());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(time_str);
-                            }else {
-                                json_obj[column_name] = serde_json::Value::String(time_str.clone());
-                                json_obj[camel_case_column_name] = serde_json::Value::String(time_str);
-                            }
-                        }else{
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                ValueKind::Bytes => {
-                    let value_result: Result<Option<Vec<u8>>, _>= row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            match String::from_utf8(value) {
-                                Ok(utf8_str) => {
-                                    if obj_name.is_some() {
-                                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(utf8_str.to_string());
-                                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(utf8_str.to_string());
-                                    }else {
-                                        json_obj[column_name] = serde_json::Value::String(utf8_str.to_string());
-                                        json_obj[camel_case_column_name] = serde_json::Value::String(utf8_str.to_string());
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Set => {
+            let values: Vec<serde_json::Value> = match DbDialect::current() {
+                DbDialect::Postgres => {
+                    let raw = match &row {
+                        DbRow::Postgres(r) => r.try_get_raw(i),
+                        _ => unreachable!(),
+                    };
+                    match raw {
+                        Ok(raw_val) if !raw_val.is_null() => {
+                            let bytes = raw_val.as_bytes()
+                                .unwrap_or_else(|_| raw_val.as_str().unwrap_or("").as_bytes());
+                            if bytes.is_empty() {
+                                vec![]
+                            } else if bytes[0] == b'{' {
+                                let s = String::from_utf8_lossy(bytes);
+                                let s = s.trim();
+                                let inner = &s[1..s.len()-1];
+                                if inner.is_empty() { vec![] }
+                                else {
+                                    inner.split(',')
+                                        .map(|v| serde_json::Value::String(v.trim().to_string()))
+                                        .collect()
+                                }
+                            } else {
+                                (|| {
+                                    let mut pos = 0usize;
+                                    if bytes.len() < 12 { return vec![]; }
+                                    let ndim = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]);
+                                    pos += 4;
+                                    pos += 8;
+                                    if ndim == 0 { return vec![]; }
+                                    if bytes.len() < pos + 4 { return vec![]; }
+                                    let dim = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]) as usize;
+                                    pos += 8;
+                                    let mut result = Vec::with_capacity(dim);
+                                    for _ in 0..dim {
+                                        if bytes.len() < pos + 4 { break; }
+                                        let len = i32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]) as usize;
+                                        pos += 4;
+                                        if bytes.len() < pos + len { break; }
+                                        let s = String::from_utf8_lossy(&bytes[pos..pos+len]).to_string();
+                                        result.push(serde_json::Value::String(s));
+                                        pos += len;
                                     }
-                                }
-                                Err(_) => {
-                                    json_obj[column_name] = serde_json::Value::Null;
-                                    json_obj[camel_case_column_name] = serde_json::Value::Null
-                                }
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                                    result
+                                })()
                             }
                         }
+                        _ => vec![],
                     }
                 }
-                ValueKind::Float => {
-                    // PostgreSQL float4/float8、MySQL FLOAT/DOUBLE
-                    let value_result: Result<Option<f64>, _> = row.try_get(i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
-                            }else {
-                                json_obj[column_name] = value.clone().into();
-                                json_obj[camel_case_column_name] = value.into();
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
-                            }
-                        }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                    }
-                }
-                _ => {
-                    // 其他类型（如 PostgreSQL 自定义 enum）尝试按字符串读取，失败输出 null
+                DbDialect::MySql => {
                     let value_result = try_get_text(&row, i);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
+                    match value_result {
+                        Ok(Some(value)) if !value.is_empty() => {
+                            value.split(',')
+                                .map(|s| serde_json::Value::String(s.trim().to_string()))
+                                .collect()
+                        }
+                        _ => vec![],
+                    }
+                }
+            };
+
+            if obj_name.is_some() {
+                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Array(values.clone());
+                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Array(values);
+            }else {
+                json_obj[column_name] = serde_json::Value::Array(values.clone());
+                json_obj[camel_case_column_name] = serde_json::Value::Array(values);
+            }
+        }
+        ValueKind::Json => {
+            let value_result = try_get_from_dbrow!(&row, i, serde_json::Value);
+            match value_result {
+                Ok(Some(json_value)) => {
+                    let str_value = json_value.to_string();
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(str_value.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(str_value);
+                    } else {
+                        json_obj[column_name] = serde_json::Value::String(str_value.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(str_value);
+                    }
+                }
+                Ok(None) => {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    } else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("解析json出错 '{}': {}", column_name, e);
+                }
+            }
+        }
+        ValueKind::DateTime => {
+            // Handle DATETIME type
+            let value_result = try_get_from_dbrow!(&row, i, chrono::NaiveDateTime);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    let timestamp = value.and_utc().timestamp();
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                        json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                    }
+
+                }else{
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Timestamp => {
+            let value_result = try_get_from_dbrow!(&row, i, DateTime<Utc>);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    let cur_value = value.timestamp_millis();
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                        json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                    }
+                }else{
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Date => {
+            let value_result = try_get_from_dbrow!(&row, i, chrono::NaiveDate);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    let timestamp = value.and_time(NaiveTime::default()).and_utc().timestamp_millis();
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                        json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                    }
+
+                }else{
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Time => {
+            // Handle TIME type
+            let value_result = try_get_from_dbrow!(&row, i, chrono::NaiveTime);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    // Convert NaiveTime to string format "HH:MM:SS"
+                    let time_str = value.format("%H:%M:%S").to_string();
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(time_str.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(time_str);
+                    }else {
+                        json_obj[column_name] = serde_json::Value::String(time_str.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(time_str);
+                    }
+                }else{
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        ValueKind::Bytes => {
+            let value_result = try_get_from_dbrow!(&row, i, Vec<u8>);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    match String::from_utf8(value) {
+                        Ok(utf8_str) => {
                             if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
+                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(utf8_str.to_string());
+                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(utf8_str.to_string());
                             }else {
-                                json_obj[column_name] = serde_json::Value::String(value.clone());
-                                json_obj[camel_case_column_name] = serde_json::Value::String(value);
-                            }
-                        }else {
-                            if obj_name.is_some() {
-                                json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                                json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                            }else {
-                                json_obj[column_name] = serde_json::Value::Null;
-                                json_obj[camel_case_column_name] = serde_json::Value::Null;
+                                json_obj[column_name] = serde_json::Value::String(utf8_str.to_string());
+                                json_obj[camel_case_column_name] = serde_json::Value::String(utf8_str.to_string());
                             }
                         }
-                    } else if let Err(err) = value_result {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+                        Err(_) => {
+                            json_obj[column_name] = serde_json::Value::Null;
+                            json_obj[camel_case_column_name] = serde_json::Value::Null
+                        }
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
                     }
                 }
             }
+        }
+        ValueKind::Float => {
+            // PostgreSQL float4/float8、MySQL FLOAT/DOUBLE
+            let value_result = try_get_from_dbrow!(&row, i, f64);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = value.clone().into();
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = value.into();
+                    }else {
+                        json_obj[column_name] = value.clone().into();
+                        json_obj[camel_case_column_name] = value.into();
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        _ => {
+            // 其他类型（如 PostgreSQL 自定义 enum）尝试按字符串读取，失败输出 null
+            let value_result = try_get_text(&row, i);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(value.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(value);
+                    }else {
+                        json_obj[column_name] = serde_json::Value::String(value.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(value);
+                    }
+                }else {
+                    if obj_name.is_some() {
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                    }else {
+                        json_obj[column_name] = serde_json::Value::Null;
+                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    }
+                }
+            } else if let Err(err) = value_result {
+                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            }
+        }
+        }
 
-            i += 1;
         }
         Ok(json_obj)
     }
     fn convert_to_number(&self,row:DbRow) -> Result<i64, Error>{
         let mut count_res :i64 = 0;
-        let colum = row.columns().get(0);
-        if let Some(colum) = colum{
-            let column_name = colum.name();
-            let type_name = colum.type_info().name();
-            match DbDialect::current().value_kind(type_name) {
-                ValueKind::TinyInt | ValueKind::SmallInt | ValueKind::Int | ValueKind::BigInt | ValueKind::UInt | ValueKind::Decimal | ValueKind::Float => {
-                    let value_result:Result<Option<i64>, _> = row.try_get(0);
-                    if let Ok(value) = value_result {
-                        if let Some(value) = value {
-                            count_res =value.clone().into();
-                        }
-                    }
-                }
-                _ => {
-                    //println!("type_name of {} {}",column_name, type_name);
+        let col_info: Option<(String, String)> = match &row {
+        DbRow::Mysql(r) => r.columns().get(0).map(|c| (c.name().to_string(), c.type_info().name().to_string())),
+        DbRow::Postgres(r) => r.columns().get(0).map(|c| (c.name().to_string(), c.type_info().name().to_string())),
+        };
+        if let Some((col_name, type_name)) = col_info {
+// column info already extracted above
+        match DbDialect::current().value_kind(&type_name) {
+        ValueKind::TinyInt | ValueKind::SmallInt | ValueKind::Int | ValueKind::BigInt | ValueKind::UInt | ValueKind::Decimal | ValueKind::Float => {
+            let value_result = try_get_from_dbrow!(&row, 0, i64);
+            if let Ok(value) = value_result {
+                if let Some(value) = value {
+                    count_res =value.clone().into();
                 }
             }
+        }
+        _ => {
+            //println!("type_name of {} {}",column_name, type_name);
+        }
+        }
         }
         Ok(count_res)
     }
@@ -2455,190 +2500,190 @@ impl QueryBuilder {
     pub fn build(&self) -> Result<String,QueryBuildError> {
         let mut queryString = "".to_string();
         match self.operation {
-            Operation::Select => {
-                if !self.select_fields.is_empty() {
-                    if self.distinct.is_some() && self.distinct.unwrap() {
-                        queryString = format!("select distinct {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
-                    }else {
-                        queryString = format!("select {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
-                    }
-                }else {
-                    if let Some(true) = self.is_select_all {
-                        queryString = "select *".to_string();
-                    }else{
-                        return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
-                    }
-                }
-
-                if self.target_table.is_some() {
-                    let target = self.target_table.clone().unwrap();
-                    // 表名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
-                    let table_name = DbDialect::current().wrap_table_reference(&target.name);
-                    let table_str = if let Some(idx) = &target.force_index {
-                        if DbDialect::current().is_postgres() {
-                            // PostgreSQL 不支持 FORCE INDEX 提示，忽略
-                            table_name
-                        } else {
-                            format!("{} FORCE INDEX ({})", table_name, idx)
-                        }
-                    } else {
-                        table_name
-                    };
-                    queryString = format!("{} from {}",queryString, table_str);
-                }else {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"please provide table name to select from".to_string()));
-                }
-                if !self.joins.is_empty() {
-                    // Traverse joins and generate JOIN statements for each TableJoin
-                    for (i, join) in self.joins.iter().enumerate() {
-                        // Generate JOIN statements based on joinotype
-                        let join_keyword = if DbDialect::current().is_postgres() && matches!(join.join_type, JoinType::STRAIGHT) {
-                            "INNER JOIN".to_string()
-                        } else {
-                            join.join_type.to_string()
-                        };
-                        let join_table_name = DbDialect::current().wrap_table_reference(&join.target_table.name);
-                        queryString.push_str(&format!(" {} {} ON {} ", join_keyword, join_table_name, join.clone().condition.unwrap().query));
-                    }
-                }
-                if self.conditions.len() > 0 {
-                    queryString = format!("{} where {}",queryString, self.conditions.iter()
-                            .map(|condition| condition.query.clone())
-                            .collect::<Vec<String>>()
-                            .join(" AND "));
-                }
-                if self.group_by.len() > 0 {
-                    queryString = format!("{} group by {}",queryString, self.group_by.iter()
-                            .map(|str| str.clone().to_string())
-                            .collect::<Vec<String>>()
-                            .join(", "));
-                }
-                if self.order_by.len() > 0 {
-                    queryString = format!("{} order by {}",queryString, self.order_by.iter()
-                            .map(|str| str.clone().to_string())
-                            .collect::<Vec<String>>()
-                            .join(", "));
-                }
-                if self.limit.is_some() {
-                    let limit = self.clone().limit.unwrap();
-                    queryString = format!("{} {}", queryString, DbDialect::current().limit_clause(limit.offset, limit.limit));
-                }
-            },
-            Operation::Insert => {
-                if self.target_table.is_none() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for insert operation".to_string()));
-                }
-                let target_table = self.target_table.clone().unwrap();
-
-                if target_table.primary_key.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
-                }
-                let mut insert_fields: Vec<String> = Vec::new();
-                let mut insert_values: Vec<String> = Vec::new();
-                construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values,&mut vec![]);
-                construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut vec![], target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
-                //decrypt?
-                let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
-                queryString = format!("INSERT INTO {} ({}) VALUES ({})", table_name, insert_fields.join(", "), insert_values.join(", "));
-            },
-            Operation::Update_By_PrimaryKey => {
-                if self.target_table.is_none() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
-                }
-                let target_table = self.target_table.clone().unwrap();
-
-                if target_table.primary_key.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for Update_By_Key operation".to_string()));
-                }
-
-                let mut primary_key_conditions = Vec::<String>::new();
-                let mut update_fields_values: Vec<String> = Vec::new();
-                if self.update_values.is_empty() {
-                    construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
-                }else{
-                    update_fields_values = render_update_set_clause(&self.update_values);
-                }
-                construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
-                if primary_key_conditions.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for update operation".to_string()));
-                }
-                //decrypt?
-                let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
-                queryString = format!("update {} set {} where {}", table_name, update_fields_values.join(", "), primary_key_conditions.iter()
-                    .map(|condition| condition.clone())
-                    .collect::<Vec<String>>()
-                    .join(" AND "));
-            },
-            Operation::Update_By_Condition => {
-                if self.target_table.is_none() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
-                }
-                let target_table = self.target_table.clone().unwrap();
-
-                if self.conditions.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for Update_By_Condtion operation".to_string()));
-                }
-
-                let mut update_fields_values: Vec<String> = Vec::new();
-                if self.update_values.is_empty() {
-                    construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
-                }else{
-                    update_fields_values = render_update_set_clause(&self.update_values);
-                }
-                
-                // 修复：使用传入的条件而不是主键条件
-                let where_conditions = self.conditions.iter()
-                    .map(|condition| condition.query.clone())
-                    .collect::<Vec<String>>()
-                    .join(" AND ");
-                
-                let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
-                queryString = format!("update {} set {} where {}", 
-                    table_name, 
-                    update_fields_values.join(", "), 
-                    where_conditions);
-            },
-            Operation::Insert_Or_Update => {
-                if self.target_table.is_none() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for upsert operation".to_string()));
-                }
-                let target_table = self.target_table.clone().unwrap();
-
-                if target_table.primary_key.is_empty() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
-                }
-                let mut insert_fields: Vec<String> = Vec::new();
-                let mut insert_values: Vec<String> = Vec::new();
-                let mut update_fields_values: Vec<String> = Vec::new();
-
-                construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values, &mut vec![]);
-                construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut update_fields_values,target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
-                //decrypt?
-                let conflict_columns: Vec<String> = target_table.primary_key.iter()
-                    .map(|pk| wrap_field_name(&pk.get_col_name()))
-                    .collect();
-                let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
-                queryString = match DbDialect::current() {
-                    DbDialect::MySql => format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", table_name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", ")),
-                    DbDialect::Postgres => format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", ")),
-                };
-            },
-            Operation::Delete => {
-                if self.target_table.is_none() {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for delete operation".to_string()));
-                }
-                if self.conditions.len() <= 0 {
-                    return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide filters for  delete operation".to_string()));
-                }
-                let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
-                queryString = format!("delete from {} where {}", table_name, self.conditions.iter()
-                    .map(|condition| condition.query.clone())
-                    .collect::<Vec<String>>()
-                    .join(" AND "));
-            },
-            _ => {
-                return Err(QueryBuildError::new(BuildErrorType::MissingOperation,"please provide one of these operation Select, Insert, Update, Delete, Insert_Or_Update".to_string()));
+        Operation::Select => {
+        if !self.select_fields.is_empty() {
+            if self.distinct.is_some() && self.distinct.unwrap() {
+                queryString = format!("select distinct {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
+            }else {
+                queryString = format!("select {}",self.populate_select_fields_as_string());//self.select_fields.join(", ")
             }
+        }else {
+            if let Some(true) = self.is_select_all {
+                queryString = "select *".to_string();
+            }else{
+                return Err(QueryBuildError::new(BuildErrorType::MissingFields,"please provide at lease on field for select operation".to_string()));
+            }
+        }
+
+        if self.target_table.is_some() {
+            let target = self.target_table.clone().unwrap();
+            // 表名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
+            let table_name = DbDialect::current().wrap_table_reference(&target.name);
+            let table_str = if let Some(idx) = &target.force_index {
+                if DbDialect::current().is_postgres() {
+                    // PostgreSQL 不支持 FORCE INDEX 提示，忽略
+                    table_name
+                } else {
+                    format!("{} FORCE INDEX ({})", table_name, idx)
+                }
+            } else {
+                table_name
+            };
+            queryString = format!("{} from {}",queryString, table_str);
+        }else {
+            return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable,"please provide table name to select from".to_string()));
+        }
+        if !self.joins.is_empty() {
+            // Traverse joins and generate JOIN statements for each TableJoin
+            for (i, join) in self.joins.iter().enumerate() {
+                // Generate JOIN statements based on joinotype
+                let join_keyword = if DbDialect::current().is_postgres() && matches!(join.join_type, JoinType::STRAIGHT) {
+                    "INNER JOIN".to_string()
+                } else {
+                    join.join_type.to_string()
+                };
+                let join_table_name = DbDialect::current().wrap_table_reference(&join.target_table.name);
+                queryString.push_str(&format!(" {} {} ON {} ", join_keyword, join_table_name, join.clone().condition.unwrap().query));
+            }
+        }
+        if self.conditions.len() > 0 {
+            queryString = format!("{} where {}",queryString, self.conditions.iter()
+                    .map(|condition| condition.query.clone())
+                    .collect::<Vec<String>>()
+                    .join(" AND "));
+        }
+        if self.group_by.len() > 0 {
+            queryString = format!("{} group by {}",queryString, self.group_by.iter()
+                    .map(|str| str.clone().to_string())
+                    .collect::<Vec<String>>()
+                    .join(", "));
+        }
+        if self.order_by.len() > 0 {
+            queryString = format!("{} order by {}",queryString, self.order_by.iter()
+                    .map(|str| str.clone().to_string())
+                    .collect::<Vec<String>>()
+                    .join(", "));
+        }
+        if self.limit.is_some() {
+            let limit = self.clone().limit.unwrap();
+            queryString = format!("{} {}", queryString, DbDialect::current().limit_clause(limit.offset, limit.limit));
+        }
+        },
+        Operation::Insert => {
+        if self.target_table.is_none() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for insert operation".to_string()));
+        }
+        let target_table = self.target_table.clone().unwrap();
+
+        if target_table.primary_key.is_empty() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
+        }
+        let mut insert_fields: Vec<String> = Vec::new();
+        let mut insert_values: Vec<String> = Vec::new();
+        construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values,&mut vec![]);
+        construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut vec![], target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
+        //decrypt?
+        let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
+        queryString = format!("INSERT INTO {} ({}) VALUES ({})", table_name, insert_fields.join(", "), insert_values.join(", "));
+        },
+        Operation::Update_By_PrimaryKey => {
+        if self.target_table.is_none() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
+        }
+        let target_table = self.target_table.clone().unwrap();
+
+        if target_table.primary_key.is_empty() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for Update_By_Key operation".to_string()));
+        }
+
+        let mut primary_key_conditions = Vec::<String>::new();
+        let mut update_fields_values: Vec<String> = Vec::new();
+        if self.update_values.is_empty() {
+            construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
+        }else{
+            update_fields_values = render_update_set_clause(&self.update_values);
+        }
+        construct_upsert_primary_key_value(&target_table.primary_key,&mut vec![], &mut vec![], &mut primary_key_conditions);
+        if primary_key_conditions.is_empty() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for update operation".to_string()));
+        }
+        //decrypt?
+        let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
+        queryString = format!("update {} set {} where {}", table_name, update_fields_values.join(", "), primary_key_conditions.iter()
+            .map(|condition| condition.clone())
+            .collect::<Vec<String>>()
+            .join(" AND "));
+        },
+        Operation::Update_By_Condition => {
+        if self.target_table.is_none() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for update operation".to_string()));
+        }
+        let target_table = self.target_table.clone().unwrap();
+
+        if self.conditions.is_empty() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide at least one condition for Update_By_Condtion operation".to_string()));
+        }
+
+        let mut update_fields_values: Vec<String> = Vec::new();
+        if self.update_values.is_empty() {
+            construct_upsert_fields_values(&target_table.columns, &mut vec![], &mut vec![], &mut update_fields_values, target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
+        }else{
+            update_fields_values = render_update_set_clause(&self.update_values);
+        }
+                
+        // 修复：使用传入的条件而不是主键条件
+        let where_conditions = self.conditions.iter()
+            .map(|condition| condition.query.clone())
+            .collect::<Vec<String>>()
+            .join(" AND ");
+                
+        let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
+        queryString = format!("update {} set {} where {}", 
+            table_name, 
+            update_fields_values.join(", "), 
+            where_conditions);
+        },
+        Operation::Insert_Or_Update => {
+        if self.target_table.is_none() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for upsert operation".to_string()));
+        }
+        let target_table = self.target_table.clone().unwrap();
+
+        if target_table.primary_key.is_empty() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingPrimaryKey, "Primary key not found for upsert operation".to_string()));
+        }
+        let mut insert_fields: Vec<String> = Vec::new();
+        let mut insert_values: Vec<String> = Vec::new();
+        let mut update_fields_values: Vec<String> = Vec::new();
+
+        construct_upsert_primary_key_value(&target_table.primary_key,&mut insert_fields, &mut insert_values, &mut vec![]);
+        construct_upsert_fields_values(&target_table.columns, &mut insert_fields, &mut insert_values, &mut update_fields_values,target_table.primary_key.iter().map(|it|it.get_col_name()).collect::<Vec<String>>());
+        //decrypt?
+        let conflict_columns: Vec<String> = target_table.primary_key.iter()
+            .map(|pk| wrap_field_name(&pk.get_col_name()))
+            .collect();
+        let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
+        queryString = match DbDialect::current() {
+            DbDialect::MySql => format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", table_name, insert_fields.join(", "), insert_values.join(", "), update_fields_values.join(", ")),
+            DbDialect::Postgres => format!("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {};", table_name, insert_fields.join(", "), insert_values.join(", "), conflict_columns.join(", "), update_fields_values.join(", ")),
+        };
+        },
+        Operation::Delete => {
+        if self.target_table.is_none() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for delete operation".to_string()));
+        }
+        if self.conditions.len() <= 0 {
+            return Err(QueryBuildError::new(BuildErrorType::MissingCondition, "please provide filters for  delete operation".to_string()));
+        }
+        let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
+        queryString = format!("delete from {} where {}", table_name, self.conditions.iter()
+            .map(|condition| condition.query.clone())
+            .collect::<Vec<String>>()
+            .join(" AND "));
+        },
+        _ => {
+        return Err(QueryBuildError::new(BuildErrorType::MissingOperation,"please provide one of these operation Select, Insert, Update, Delete, Insert_Or_Update".to_string()));
+        }
         }
         // println!("buider: {:#?}",self);
         //println!("queryString: {:#?}",queryString);
