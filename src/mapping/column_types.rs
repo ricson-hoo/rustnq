@@ -1061,6 +1061,24 @@ impl crate::mapping::column_types::Longtext {
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
+
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
+    }
+
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
+    pub fn not_equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<crate::mapping::column_types::Longtext>,
+    {
+        let input = input.into();
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding, input.table, input.name, input.value, Some("!="))
+    }
 }
 
 impl From<Varchar> for crate::mapping::column_types::Longtext {
@@ -1210,6 +1228,19 @@ impl Int {
             .map(|input| input.to_string())
             .collect::<Vec<String>>()
             .join(", ")))
+    }
+
+    pub fn not_equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<crate::mapping::column_types::Int>,
+    {
+        let int = input.into();
+        let output = match int.holding {
+            Holding::Name => int.qualified_name(),
+            Holding::Value => format!("'{}",int.value.unwrap().to_string()),
+            _ => "".to_string()
+        };
+        Condition::new(format!("{} != {}", self.qualified_name(), output))
     }
 
     pub fn is_null(&self) -> Condition
