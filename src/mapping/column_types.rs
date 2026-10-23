@@ -7,6 +7,7 @@ use std::fmt;
 use std::str::FromStr;
 use crate::utils::date_sub_unit::DateSubUnit;
 use crate::configuration::resolve_encryptor;
+use crate::query::statement::CastType;
 use chrono::NaiveDateTime;
 
 pub trait And {
@@ -177,7 +178,8 @@ pub struct Varchar {
     value: Option<String>,
     sub_query: Option<QueryBuilder>,
     holding: Holding,
-    is_encrypted:bool
+    is_encrypted:bool,
+    cast_type: Option<CastType>,
 }
 
 impl Varchar {
@@ -187,11 +189,11 @@ impl Varchar {
     }*/
 
     pub fn with_name(name: String) -> Self {
-        Varchar {table:None, name:name, alias:None, target:None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
+        Varchar {table:None, name:name, alias:None, target:None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false, cast_type: None }
     }
 
     pub fn with_value(value: Option<String>) -> Self {
-        Varchar {table:None, value:value, alias:None, target:None, name:"".to_string() ,holding: Holding::Value, sub_query:None,is_encrypted:false }
+        Varchar {table:None, value:value, alias:None, target:None, name:"".to_string() ,holding: Holding::Value, sub_query:None,is_encrypted:false, cast_type: None }
     }
 
     pub fn value(&self) -> Option<String> {
@@ -199,19 +201,19 @@ impl Varchar {
     }
 
     pub fn with_name_value(name: String, value: Option<String>) -> Self {
-        Varchar {table:None, name:name, alias:None, target:None, value:value, holding: Holding::Value, sub_query:None,is_encrypted:false }
+        Varchar {table:None, name:name, alias:None, target:None, value:value, holding: Holding::Value, sub_query:None,is_encrypted:false, cast_type: None }
     }
 
     pub fn with_name_query(name: String, sub_query: Option<QueryBuilder>) -> Self {
-        Varchar {table:None, name:name, alias:None, target:None, value:Some("".to_string()), holding: Holding::SubQuery, sub_query:sub_query,is_encrypted:false }
+        Varchar {table:None, name:name, alias:None, target:None, value:Some("".to_string()), holding: Holding::SubQuery, sub_query:sub_query,is_encrypted:false, cast_type: None }
     }
 
     pub fn with_qualified_name(table:String, name: String) -> Self {
-        Varchar {table:Some(table), name:name, alias:None, target:None, value: None ,holding: Holding::Name, sub_query:None, is_encrypted:false }
+        Varchar {table:Some(table), name:name, alias:None, target:None, value: None ,holding: Holding::Name, sub_query:None, is_encrypted:false, cast_type: None }
     }
 
     pub fn with_qualified_name_value(table:String, name: String, value: Option<String>) -> Self {
-        Varchar {table:Some(table), name:name, alias:None, target:None, value:value, holding: Holding::Value, sub_query:None, is_encrypted:false }
+        Varchar {table:Some(table), name:name, alias:None, target:None, value:value, holding: Holding::Value, sub_query:None, is_encrypted:false, cast_type: None }
     }
 
     pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
@@ -289,7 +291,7 @@ impl Varchar {
         T: Into<Varchar>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted, input.holding, input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted, input.holding, input.table,input.name,input.value, input.cast_type.clone())
         /*let output = match varchar.holding {
             Holding::Name => varchar.name.clone(),
             Holding::Value => format!("'{}'",varchar.value.unwrap().to_string()),
@@ -381,6 +383,7 @@ impl From<Bigint> for Varchar {
             sub_query: v.sub_query,
             holding: v.holding,
             is_encrypted: v.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -426,6 +429,7 @@ impl<T:Clone> From<Enum<T>> for Varchar where std::string::String: From<T> {
             sub_query: a_enum.sub_query,
             holding: a_enum.holding,
             is_encrypted: a_enum.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -457,6 +461,7 @@ impl<T> From<Set<T>> for Varchar where  std::string::String: From<T>,T:Clone {
             sub_query: set.sub_query,
             holding: set.holding,
             is_encrypted: set.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -477,6 +482,7 @@ impl From<Array> for Varchar {
             sub_query: arr.sub_query,
             holding: arr.holding,
             is_encrypted: arr.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -493,6 +499,7 @@ impl From<&Int> for Varchar {
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -509,6 +516,7 @@ impl From<Int> for Varchar {
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -524,6 +532,7 @@ impl From<Longtext> for Varchar  {
             sub_query: value.sub_query.clone(),
             holding: value.holding.clone(),
             is_encrypted: value.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -539,6 +548,7 @@ impl From<&Longtext> for Varchar   {
             sub_query: value.sub_query.clone(),
             holding: value.holding.clone(),
             is_encrypted: value.is_encrypted, 
+        cast_type: None,
         }
     }
 }
@@ -578,8 +588,11 @@ impl Column for Varchar {
         }
     }*/
     fn qualified_name(&self) -> String {
-        // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
-        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
+        let name = crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name);
+        if let Some(ref ct) = self.cast_type {
+            return format!("CAST({} AS {})", name, ct.to_sql());
+        }
+        name
     }
 }
 
@@ -599,10 +612,15 @@ fn encrypt_value(value:String) -> String {
     resolve_encryptor().encrypt(value)
 }
 
-fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,self_is_encrypted: bool, input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>) -> Condition {
+fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,self_is_encrypted: bool, input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>,input_cast_type:Option<CastType>) -> Condition {
     let dialect = crate::query::dialect::DbDialect::current();
     let self_name = dialect.wrap_qualified_name(self_table.as_deref(), &self_name);
     let input_name = dialect.wrap_qualified_name(input_table.as_deref(), &input_name);
+    let input_name = if let Some(ref ct) = input_cast_type {
+        format!("CAST({} AS {})", input_name, ct.to_sql())
+    } else {
+        input_name
+    };
     let output = match input_holding {
         Holding::Name => format!(" = {}",input_name),
         Holding::Value => match input_value {
@@ -654,7 +672,7 @@ impl Char {
         T: Into<Char>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding, input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding, input.table,input.name,input.value, None)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -749,7 +767,7 @@ impl crate::mapping::column_types::Tinytext {
         T: Into<crate::mapping::column_types::Tinytext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value, None)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -832,7 +850,7 @@ impl crate::mapping::column_types::Text {
         T: Into<crate::mapping::column_types::Text>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), self.is_encrypted.clone(), input.holding,input.table, input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), self.is_encrypted.clone(), input.holding,input.table, input.name,input.value, None)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -874,6 +892,7 @@ impl From<Text> for Varchar {
             sub_query: v.sub_query,
             holding: v.holding,
             is_encrypted: v.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -935,7 +954,7 @@ impl crate::mapping::column_types::Mediumtext {
         T: Into<crate::mapping::column_types::Mediumtext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value, None)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -1023,7 +1042,7 @@ impl crate::mapping::column_types::Longtext {
         T: Into<crate::mapping::column_types::Longtext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value, None)
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -1153,6 +1172,20 @@ impl Int {
     pub fn div<T: std::fmt::Display>(&mut self, value: T) -> Self {
         self.name = format!("{} DIV {}", self.name, value);
         self.clone()
+    }
+
+    pub fn cast_as_varchar(&self, cast_type: CastType) -> Varchar {
+        Varchar{
+            table: self.table.clone(),
+            name: self.name.clone(),
+            alias: self.alias.clone(),
+            target: self.target.clone(),
+            value: self.value.map(|v| v.to_string()),
+            sub_query: self.sub_query.clone(),
+            holding: self.holding.clone(),
+            is_encrypted: self.is_encrypted,
+            cast_type: Some(cast_type),
+        }
     }
 
     pub fn equal<T>(&self, input: T) -> Condition
@@ -1729,6 +1762,7 @@ impl From<Boolean> for Varchar {
             sub_query: v.sub_query,
             holding: v.holding,
             is_encrypted: v.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -1860,6 +1894,7 @@ impl From<Tinyint> for Varchar {
             sub_query: v.sub_query,
             holding: v.holding,
             is_encrypted: v.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -2526,6 +2561,7 @@ impl From<Decimal> for Varchar {
             sub_query: v.sub_query,
             holding: v.holding,
             is_encrypted: v.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -2643,6 +2679,7 @@ impl From<&Date> for Varchar {
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -2659,6 +2696,7 @@ impl From<Date> for Varchar {
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -2675,6 +2713,7 @@ impl From<&Datetime> for Varchar {
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -2691,6 +2730,7 @@ impl From<Datetime> for Varchar {
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
+        cast_type: None,
         }
     }
 }
@@ -3052,6 +3092,7 @@ impl From<Timestamp> for Varchar {
             sub_query: i.sub_query.clone(),
             holding: i.holding.clone(),
             is_encrypted: i.is_encrypted,
+            cast_type: None,
         }
     }
 }
@@ -3135,7 +3176,7 @@ impl crate::mapping::column_types::Json {
         T: Into<crate::mapping::column_types::Json>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table, input.name,input.value)
+        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table, input.name,input.value, None)
     }
 
     pub fn like(&self, pattern: String) -> Condition

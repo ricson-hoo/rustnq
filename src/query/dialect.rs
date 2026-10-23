@@ -202,6 +202,21 @@ impl DbDialect {
         }
     }
 
+    /// DATE_ADD(CURDATE(), INTERVAL n unit)
+    pub fn date_add(&self, value: i32, unit: &str) -> String {
+        match self {
+            DbDialect::Postgres => {
+                match unit {
+                    "DAY" => format!("(CURRENT_DATE + {})", value),
+                    "MONTH" => format!("(CURRENT_DATE + INTERVAL '{} months')", value),
+                    "YEAR" => format!("(CURRENT_DATE + INTERVAL '{} years')", value),
+                    _ => format!("(CURRENT_DATE + {})", value),
+                }
+            }
+            DbDialect::MySql => format!("DATE_ADD (CURDATE(), INTERVAL {} {})", value, unit),
+        }
+    }
+
     /// 与某年份的年差绝对值（ABS(x - YEAR(field))）
     pub fn year_diff(&self, another_year: i32, field: &str) -> String {
         match self {
