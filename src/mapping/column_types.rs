@@ -869,6 +869,38 @@ impl crate::mapping::column_types::Text {
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
+
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
+    }
+
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
+    pub fn not_equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<crate::mapping::column_types::Text>,
+    {
+        let input = input.into();
+        let output = match input.holding {
+            Holding::Name => input.qualified_name(),
+            Holding::Value => match input.value {
+                Some(v) => format!("'{}'", v),
+                None => "NULL".to_string(),
+            },
+            _ => "NULL".to_string(),
+        };
+        Condition::new(format!("{} != {}", self.qualified_name(), output))
+    }
+}
+
+impl From<&str> for Text {
+    fn from(s: &str) -> Self {
+        Text::with_value(Some(s.to_string()))
+    }
 }
 
 impl Column for crate::mapping::column_types::Text {
@@ -1077,7 +1109,15 @@ impl crate::mapping::column_types::Longtext {
         T: Into<crate::mapping::column_types::Longtext>,
     {
         let input = input.into();
-        build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding, input.table, input.name, input.value, Some("!="))
+        let output = match input.holding {
+            Holding::Name => input.qualified_name(),
+            Holding::Value => match input.value {
+                Some(value) => if self.is_encrypted { encrypt_value(value) } else { format!("'{}'", value) },
+                None => "NULL".to_string(),
+            },
+            _ => "".to_string()
+        };
+        Condition::new(format!("{} != {}", self.qualified_name(), output))
     }
 }
 
@@ -1776,6 +1816,36 @@ impl crate::mapping::column_types::Boolean {
 
     pub fn asc(&self) -> SelectField {
         SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
+    }
+
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
+    pub fn not_equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<Boolean>,
+    {
+        let boolean = input.into();
+        let output = match boolean.holding {
+            Holding::Name => boolean.qualified_name(),
+            Holding::Value => {
+                let b = boolean.value.unwrap_or_default();
+                if DbDialect::current().is_postgres() {
+                    if b {"TRUE"} else {"FALSE"}.to_string()
+                } else {
+                    if b {"1"} else {"0"}.to_string()
+                }
+            }
+            _=> "".to_string()
+        };
+        Condition::new(format!("{} != {}", self.qualified_name(), output))
     }
 
     pub fn cast_as<T: From<Boolean> + Casted>(&self, cast_type: CastType) -> T {
