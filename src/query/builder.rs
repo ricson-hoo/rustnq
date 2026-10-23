@@ -7,6 +7,7 @@ use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
 use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text, Numeric};
 use crate::query::db::{DbPool, DbQueryResult, DbRow};
 use crate::query::dialect::{DbDialect, ValueKind};
+use crate::query::statement::CastType;
 use url::Url;
 use lazy_static::lazy_static;
 use std::sync::{Arc, Mutex};
@@ -270,13 +271,19 @@ pub struct Field {
     pub target: Option<String>,
     pub as_: Option<String>,
     pub is_encrypted: bool,
+    pub(crate) cast_type: Option<CastType>,
 }
 
 impl Field {
     pub(crate) fn new(table: &str, name: &str, target: Option<String>, as_: Option<String>, is_encrypted: bool) -> Self {
         Field{
-            table:table.to_string(),name:name.to_string(), target, as_, is_encrypted,
+            table:table.to_string(),name:name.to_string(), target, as_, is_encrypted, cast_type: None,
         }
+    }
+
+    pub(crate) fn with_cast_type(mut self, cast_type: Option<CastType>) -> Self {
+        self.cast_type = cast_type;
+        self
     }
 }
 
@@ -295,9 +302,12 @@ pub struct SubqueryField {
 pub enum SelectField {
     Field(Field),
     Subquery(SubqueryField),
-    UnsafeExpr(String, Option<String>),
-    RawValue(String, Option<String>),
-    NullValue(Option<String>),
+    UnsafeExpr(String),
+    UnsafeExprAliased(String, String),
+    RawValue(String),
+    RawValueAliased(String, String),
+    NullValue(),
+    NullValueAliased(String),
 }
 
 #[derive(Debug,Clone)]
@@ -369,9 +379,9 @@ impl SelectField {
                 target: Some(target.to_string()),
                 as_: subquery_field.as_.clone(),
             }),
-            SelectField::UnsafeExpr(_, _) => self.clone(),
-            SelectField::RawValue(_, _) => self.clone(),
-            SelectField::NullValue(_) => self.clone(),
+            SelectField::UnsafeExpr(_) | SelectField::UnsafeExprAliased(_, _) => self.clone(),
+            SelectField::RawValue(_) | SelectField::RawValueAliased(_, _) => self.clone(),
+            SelectField::NullValue() | SelectField::NullValueAliased(_) => self.clone(),
         }
     }
     
@@ -379,9 +389,12 @@ impl SelectField {
         match &mut self {
             SelectField::Field(field) => field.as_ = None,
             SelectField::Subquery(subquery_field) => subquery_field.as_ = None,
-            SelectField::UnsafeExpr(_, ref mut alias) => *alias = None,
-            SelectField::RawValue(_, ref mut alias) => *alias = None,
-            SelectField::NullValue(ref mut alias) => *alias = None
+            SelectField::UnsafeExpr(_) => {},
+            SelectField::UnsafeExprAliased(s, _) => return SelectField::UnsafeExpr(s.clone()),
+            SelectField::RawValue(_) => {},
+            SelectField::RawValueAliased(s, _) => return SelectField::RawValue(s.clone()),
+            SelectField::NullValue() => {},
+            SelectField::NullValueAliased(_) => return SelectField::NullValue()
         }
         self
     }
@@ -396,17 +409,23 @@ impl SelectField {
                 subquery.as_ = Some(alias.to_string());
                 self.clone()
             }
-            SelectField::UnsafeExpr(_, ref mut a) => {
-                *a = Some(alias.to_string());
-                self.clone()
+            SelectField::UnsafeExpr(s) => {
+                SelectField::UnsafeExprAliased(s.clone(), alias.to_string())
             }
-            SelectField::RawValue(_, ref mut a) => {
-                *a = Some(alias.to_string());
-                self.clone()
+            SelectField::UnsafeExprAliased(s, _) => {
+                SelectField::UnsafeExprAliased(s.clone(), alias.to_string())
             }
-            SelectField::NullValue(ref mut a) => {
-                *a = Some(alias.to_string());
-                self.clone()
+            SelectField::RawValue(s) => {
+                SelectField::RawValueAliased(s.clone(), alias.to_string())
+            }
+            SelectField::RawValueAliased(s, _) => {
+                SelectField::RawValueAliased(s.clone(), alias.to_string())
+            }
+            SelectField::NullValue() => {
+                SelectField::NullValueAliased(alias.to_string())
+            }
+            SelectField::NullValueAliased(_) => {
+                SelectField::NullValueAliased(alias.to_string())
             }
         }
     }
@@ -417,32 +436,32 @@ impl SelectField {
 impl From<&SqlColumn> for SelectField {
     fn from(value: &SqlColumn) -> SelectField {
         match value {
-            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Array(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Array(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
         }
     }
 }
@@ -450,32 +469,32 @@ impl From<&SqlColumn> for SelectField {
 impl From<SqlColumn> for SelectField {
     fn from(value: SqlColumn) -> SelectField {
         match value {
-            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Array(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
-            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string(), None),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Char(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Varchar(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinytext(col_def) =>col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Text(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Mediumtext(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Longtext(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Enum(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Set(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Array(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Boolean(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Tinyint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Smallint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Int(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Bigint(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::BigintUnsigned(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Numeric(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Float(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Double(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Decimal(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Date(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
         }
     }
 }
@@ -484,23 +503,23 @@ impl From<&Varchar> for SelectField{
     fn from(varchar: &Varchar) -> SelectField {
         match varchar.holding() {
             Holding::Name=> {
-                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()))
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()).with_cast_type(varchar.cast_type.clone()))
             },
             Holding::Value => {
                 if varchar.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("'{}' as {}",&varchar.value().unwrap_or_default(), varchar.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("'{}' as {}",&varchar.value().unwrap_or_default(), varchar.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("'{}'",&varchar.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("'{}'",&varchar.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
-                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()))
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()).with_cast_type(varchar.cast_type.clone()))
             },
             Holding::SubQuery=> {
                 if let Some(sub_query) = varchar.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(varchar.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("'?'".to_string(), None)]), target:None, as_:Some(varchar.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("'?'".to_string())]), target:None, as_:Some(varchar.name())})
                 }
             }
         }
@@ -510,23 +529,23 @@ impl From<Varchar> for SelectField{
     fn from(varchar: Varchar) -> SelectField {
         match varchar.holding() {
             Holding::Name=> {
-                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()))
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()).with_cast_type(varchar.cast_type.clone()))
             },
             Holding::Value => {
                 if varchar.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("{} as {}",&varchar.value().unwrap_or_default(), varchar.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("{} as {}",&varchar.value().unwrap_or_default(), varchar.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("{}",&varchar.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("{}",&varchar.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
-                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()))
+                SelectField::Field(Field::new(&varchar.table(),&varchar.name(), None, varchar.alias(),varchar.is_encrypted()).with_cast_type(varchar.cast_type.clone()))
             },
             Holding::SubQuery=> {
                 if let Some(sub_query) = varchar.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(varchar.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string(), None)]), target:None, as_:Some(varchar.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string())]), target:None, as_:Some(varchar.name())})
                 }
             }
         }
@@ -540,9 +559,9 @@ impl From<Int> for SelectField{
             },
             Holding::Value => {
                 if value.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
@@ -552,7 +571,7 @@ impl From<Int> for SelectField{
                 if let Some(sub_query) = value.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string(), None)]), target:None, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -566,9 +585,9 @@ impl From<Tinyint> for SelectField{
             },
             Holding::Value => {
                 if value.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
@@ -578,7 +597,7 @@ impl From<Tinyint> for SelectField{
                 if let Some(sub_query) = value.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string(), None)]), target:None, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -592,9 +611,9 @@ impl From<Boolean> for SelectField{
             },
             Holding::Value => {
                 if value.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
@@ -604,7 +623,7 @@ impl From<Boolean> for SelectField{
                 if let Some(sub_query) = value.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string(), None)]), target:None, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -619,9 +638,9 @@ impl From<Datetime> for SelectField{
             },
             Holding::Value => {
                 if value.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
@@ -631,7 +650,7 @@ impl From<Datetime> for SelectField{
                 if let Some(sub_query) = value.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string(), None)]), target:None, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -646,9 +665,9 @@ impl From<Time> for SelectField{
             },
             Holding::Value => {
                 if value.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("{} as {}",&value.value().unwrap_or_default(), value.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("{}",&value.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
@@ -658,7 +677,7 @@ impl From<Time> for SelectField{
                 if let Some(sub_query) = value.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string(), None)]), target:None, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -769,9 +788,9 @@ impl From<Numeric> for SelectField{
             },
             Holding::Value => {
                 if value.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("{} as {}",value.value().unwrap_or_default(), value.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("{} as {}",value.value().unwrap_or_default(), value.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("{}",value.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("{}",value.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
@@ -781,7 +800,7 @@ impl From<Numeric> for SelectField{
                 if let Some(sub_query) = value.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string(), None)]), target:None, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -796,9 +815,9 @@ impl From<&Numeric> for SelectField{
             },
             Holding::Value => {
                 if value.alias().is_some() {
-                    SelectField::UnsafeExpr(format!("{} as {}",value.value().unwrap_or_default(), value.alias().unwrap()), None)
+                    SelectField::UnsafeExpr(format!("{} as {}",value.value().unwrap_or_default(), value.alias().unwrap()))
                 }else {
-                    SelectField::UnsafeExpr(format!("{}",value.value().unwrap_or_default()), None)
+                    SelectField::UnsafeExpr(format!("{}",value.value().unwrap_or_default()))
                 }
             },
             Holding::NameValue=> {
@@ -808,7 +827,7 @@ impl From<&Numeric> for SelectField{
                 if let Some(sub_query) = value.sub_query(){
                     SelectField::Subquery(SubqueryField{query_builder:sub_query, target:None, as_:Some(value.name())})
                 }else{
-                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string(), None)]), target:None, as_:Some(value.name())})
+                    SelectField::Subquery(SubqueryField{query_builder:select(vec![SelectField::UnsafeExpr("".to_string())]), target:None, as_:Some(value.name())})
                 }
             }
         }
@@ -817,13 +836,13 @@ impl From<&Numeric> for SelectField{
 
 impl From<i32> for SelectField {
     fn from(value: i32) -> SelectField {
-        SelectField::RawValue(value.to_string(), None)
+        SelectField::RawValue(value.to_string())
     }
 }
 
 impl From<f64> for SelectField {
     fn from(value: f64) -> SelectField {
-        SelectField::RawValue(value.to_string(), None)
+        SelectField::RawValue(value.to_string())
     }
 }
 
@@ -839,10 +858,17 @@ impl ToString for Field {
     fn to_string(&self) -> String {
         // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
         let dialect = DbDialect::current();
-        let mut qualified_field = if self.table.is_empty() {
-            dialect.wrap_identifier(&self.name)
-        }else {
-            dialect.wrap_qualified_name(Some(&self.table), &self.name)
+        let mut qualified_field = {
+            let base = if self.table.is_empty() {
+                dialect.wrap_identifier(&self.name)
+            } else {
+                dialect.wrap_qualified_name(Some(&self.table), &self.name)
+            };
+            if let Some(ref ct) = self.cast_type {
+                format!("CAST({} AS {})", base, ct.to_sql())
+            } else {
+                base
+            }
         };
         let mut alias = self.as_.clone();
         if self.is_encrypted {
@@ -887,27 +913,12 @@ impl ToString for SelectField {
         match self {
             SelectField::Field(field) => field.to_string(),
             SelectField::Subquery(subquery) => subquery.to_string(),
-            SelectField::UnsafeExpr(s, alias) => {
-                if let Some(a) = alias {
-                    format!("{} as {}", s, a)
-                } else {
-                    s.clone()
-                }
-            }
-            SelectField::RawValue(s, alias) => {
-                if let Some(a) = alias {
-                    format!("{} as {}", s, a)
-                } else {
-                    s.clone()
-                }
-            }
-            SelectField::NullValue(alias) => {
-                if let Some(a) = alias {
-                    format!("NULL as {}", a)
-                } else {
-                    "NULL".to_string()
-                }
-            }
+            SelectField::UnsafeExpr(s) => s.clone(),
+            SelectField::UnsafeExprAliased(s, a) => format!("{} as {}", s, a),
+            SelectField::RawValue(s) => s.clone(),
+            SelectField::RawValueAliased(s, a) => format!("{} as {}", s, a),
+            SelectField::NullValue() => "NULL".to_string(),
+            SelectField::NullValueAliased(a) => format!("NULL as {}", a)
         }
     }
 }
@@ -1743,10 +1754,10 @@ impl QueryBuilder {
         count_query_builder.limit = None;
         count_query_builder.order_by = vec![];
         if self.group_by.is_empty() {
-            count_query_builder.select_fields = vec![SelectField::UnsafeExpr("count(*)".to_string(), None)];
+            count_query_builder.select_fields = vec![SelectField::UnsafeExpr("count(*)".to_string())];
         } else {
             // 子查询不需要具体列，select 常量 1 减少开销；where/join/group by/having 保留
-            count_query_builder.select_fields = vec![SelectField::UnsafeExpr("1".to_string(), None)];
+            count_query_builder.select_fields = vec![SelectField::UnsafeExpr("1".to_string())];
         }
         match count_query_builder.build() {
             Ok(query_string) => {

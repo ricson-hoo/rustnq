@@ -168,6 +168,10 @@ impl <T:Clone+Into<String>> Column for Enum<T>{
         crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
     }
 }
+pub trait Casted {
+    fn casted(self, cast_type: CastType) -> Self;
+}
+
 
 #[derive(Clone,Debug)]
 pub struct Varchar {
@@ -179,7 +183,7 @@ pub struct Varchar {
     sub_query: Option<QueryBuilder>,
     holding: Holding,
     is_encrypted:bool,
-    cast_type: Option<CastType>,
+    pub(crate) cast_type: Option<CastType>,
 }
 
 impl Varchar {
@@ -385,6 +389,14 @@ impl From<Bigint> for Varchar {
             is_encrypted: v.is_encrypted,
         cast_type: None,
         }
+    }
+}
+
+
+impl Casted for Varchar {
+    fn casted(mut self, cast_type: CastType) -> Self {
+        self.cast_type = Some(cast_type);
+        self
     }
 }
 
@@ -1174,19 +1186,10 @@ impl Int {
         self.clone()
     }
 
-    pub fn cast_as_varchar(&self, cast_type: CastType) -> Varchar {
-        Varchar{
-            table: self.table.clone(),
-            name: self.name.clone(),
-            alias: self.alias.clone(),
-            target: self.target.clone(),
-            value: self.value.map(|v| v.to_string()),
-            sub_query: self.sub_query.clone(),
-            holding: self.holding.clone(),
-            is_encrypted: self.is_encrypted,
-            cast_type: Some(cast_type),
-        }
+    pub fn cast_as<T: From<Int> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
     }
+
 
     pub fn equal<T>(&self, input: T) -> Condition
     where
@@ -1743,6 +1746,11 @@ impl crate::mapping::column_types::Boolean {
     pub fn asc(&self) -> SelectField {
         SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
+
+    pub fn cast_as<T: From<Boolean> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
+    }
+
 }
 
 impl From<bool> for Boolean {
@@ -1858,6 +1866,10 @@ impl Tinyint {
     }
     pub fn sub_query(&self) -> Option<QueryBuilder> {
         self.sub_query.clone()
+    }
+
+    pub fn cast_as<T: From<Tinyint> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
     }
 }
 
@@ -2665,6 +2677,10 @@ impl crate::mapping::column_types::Date {
     pub fn between(&self, date1: chrono::NaiveDate,date2: chrono::NaiveDate) -> Condition {
         Condition::new(format!("{} BETWEEN '{}' AND '{}'", self.qualified_name(), date1.format("%Y-%m-%d").to_string(), date2.format("%Y-%m-%d").to_string()))
     }
+    pub fn cast_as<T: From<Date> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
+    }
+
 }
 
 impl From<&Date> for Varchar {
@@ -2749,6 +2765,8 @@ impl From<Timestamp> for Date {
             is_encrypted: i.is_encrypted,
         }
     }
+
+
 }
 
 impl Column for crate::mapping::column_types::Date {
@@ -2939,11 +2957,17 @@ impl crate::mapping::column_types::Datetime {
     }
 
     pub fn holding(&self) -> Holding {
+
+
         self.holding.clone()
     }
     pub fn sub_query(&self) -> Option<QueryBuilder> {
         self.sub_query.clone()
     }
+    pub fn cast_as<T: From<Datetime> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
+    }
+
 }
 
 impl Column for crate::mapping::column_types::Datetime {
@@ -3078,6 +3102,10 @@ impl crate::mapping::column_types::Timestamp {
     pub fn desc(&self) -> SelectField{
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
+    pub fn cast_as<T: From<Timestamp> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
+    }
+
 }
 
 impl From<Timestamp> for Varchar {
@@ -3086,6 +3114,8 @@ impl From<Timestamp> for Varchar {
         Varchar{
             table: i.table.clone(),
             name: i.name.clone(),
+
+
             alias: i.alias.clone(),
             target: i.target.clone(),
             value: i.value().clone().map(|v| v.to_string()),

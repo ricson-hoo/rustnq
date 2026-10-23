@@ -2,14 +2,13 @@ use std::collections::HashMap;
 use uuid::uuid;
 use crate::mapping::description::{Column, SqlColumn};
 use crate::mapping::description::Table;
-use crate::mapping::column_types::{Bigint, Date, Int};
+use crate::mapping::column_types::{Bigint, Date, Int, Varchar};
 use crate::query::builder::{Condition, InnerTable, QueryBuilder, SelectField, TargetTable};
 use serde::Serialize;
 use sqlx::Error;
 use sqlx::Row;
 use tokio::sync::RwLock;
 use crate::configuration::{get_processors, PROCESSORS};
-use crate::mapping::column_types::Varchar;
 use crate::query::builder::construct_upsert_primary_key_value;
 use crate::utils::date_sub_unit::DateSubUnit;
 use crate::query::dialect::DbDialect;
@@ -63,7 +62,7 @@ pub fn case_when<T:Any+ std::fmt::Display>(cases:Vec<(Condition, Option<T>)>, el
 
     case.push_str(" END");
 
-    SelectField::UnsafeExpr(case, None)
+    SelectField::UnsafeExpr(case)
 }
 
 pub fn union_all(sql_list: Vec<QueryBuilder>) -> QueryBuilder{
@@ -126,6 +125,21 @@ pub fn month<T: Into<SelectField>>(field:T) -> Int{
     Int::with_name(DbDialect::current().month(&field.into().to_string()))
 }
 
+/// DATE_FORMAT(date, format) — MySQL date formatting
+pub fn date_format<T: Into<SelectField>>(field: T, fmt: &str) -> Varchar {
+    Varchar::with_name(format!("DATE_FORMAT({}, '{}')", field.into().to_string(), fmt))
+}
+
+/// SUBSTRING_INDEX(str, delim, count) — MySQL substring by delimiter
+pub fn substring_index<T: Into<SelectField>>(field: T, delimiter: &str, count: i32) -> Varchar {
+    Varchar::with_name(format!("SUBSTRING_INDEX({}, '{}', {})", field.into().to_string(), delimiter, count))
+}
+
+/// REPLACE(str, from_str, to_str) — MySQL string replace
+pub fn str_replace<T: Into<SelectField>>(field: T, from_str: &str, to_str: &str) -> Varchar {
+    Varchar::with_name(format!("REPLACE({}, '{}', '{}')", field.into().to_string(), from_str, to_str))
+}
+
 ///DATE_SUB(date, INTERVAL value unit)
 pub fn date_sub<D: Into<SelectField>>(date: D, value: i32, unit: DateSubUnit) -> Date{
     Date::with_name(format!("DATE_SUB({}, INTERVAL {} {})", date.into().to_string(), value, unit.to_string()))
@@ -184,17 +198,17 @@ impl CastType {
 
 /// CAST(expr AS type) — type-safe cast
 pub fn cast_as<T: Into<SelectField>>(expr: T, cast_type: CastType) -> SelectField {
-    SelectField::UnsafeExpr(format!("CAST({} AS {})", expr.into().to_string(), cast_type.to_sql()), None)
+    SelectField::UnsafeExpr(format!("CAST({} AS {})", expr.into().to_string(), cast_type.to_sql()))
 }
 
 /// COALESCE(expr, default) — returns first non-null argument
 pub fn coalesce<T: Into<SelectField>, U: Into<SelectField>>(expr: T, default: U) -> SelectField {
-    SelectField::UnsafeExpr(format!("COALESCE({}, {})", expr.into().to_string(), default.into().to_string()), None)
+    SelectField::UnsafeExpr(format!("COALESCE({}, {})", expr.into().to_string(), default.into().to_string()))
 }
 
 /// CAST(expr AS target_type) — legacy string-based cast
 pub fn cast<T: Into<SelectField>>(expr: T, target_type: &str) -> SelectField {
-    SelectField::UnsafeExpr(format!("CAST({} AS {})", expr.into().to_string(), target_type), None)
+    SelectField::UnsafeExpr(format!("CAST({} AS {})", expr.into().to_string(), target_type))
 }
 
 /// UNIX_TIMESTAMP(field) — MySQL epoch seconds
@@ -204,12 +218,12 @@ pub fn unix_timestamp<T: Into<SelectField>>(field: T) -> Int {
 
 /// UNIX_TIMESTAMP(field) * 1000 — epoch milliseconds
 pub fn unix_timestamp_ms<T: Into<SelectField>>(field: T) -> SelectField {
-    SelectField::UnsafeExpr(format!("UNIX_TIMESTAMP({}) * 1000", field.into().to_string()), None)
+    SelectField::UnsafeExpr(format!("UNIX_TIMESTAMP({}) * 1000", field.into().to_string()))
 }
 
 /// RAND() — MySQL random value
 pub fn rand() -> SelectField {
-    SelectField::RawValue("RAND()".to_string(), None)
+    SelectField::RawValue("RAND()".to_string())
 }
 
 /// DATEDIFF(date1, date2)
@@ -219,29 +233,18 @@ pub fn datediff<T: Into<SelectField>, U: Into<SelectField>>(date1: T, date2: U) 
 
 /// FLOOR(expr)
 pub fn floor<T: Into<SelectField>>(expr: T) -> SelectField {
-    SelectField::UnsafeExpr(format!("FLOOR({})", expr.into().to_string()), None)
+    SelectField::UnsafeExpr(format!("FLOOR({})", expr.into().to_string()))
 }
 
 /// REPLACE(field, from_str, to_str)
 pub fn replace<T: Into<SelectField>>(field: T, from_str: &str, to_str: &str) -> SelectField {
     SelectField::UnsafeExpr(format!("REPLACE({}, '{}', '{}')", field.into().to_string(), 
-        from_str.replace("'", "''"), to_str.replace("'", "''")), None)
-}
-
-/// DATE_FORMAT(field, fmt)
-pub fn date_format<T: Into<SelectField>>(field: T, fmt: &str) -> SelectField {
-    SelectField::UnsafeExpr(format!("DATE_FORMAT({}, '{}')", field.into().to_string(), fmt), None)
-}
-
-/// SUBSTRING_INDEX(field, delim, count)
-pub fn substring_index<T: Into<SelectField>>(field: T, delim: &str, count: i32) -> SelectField {
-    SelectField::UnsafeExpr(format!("SUBSTRING_INDEX({}, '{}', {})", field.into().to_string(), 
-        delim.replace("'", "''"), count), None)
+        from_str.replace("'", "''"), to_str.replace("'", "''")))
 }
 
 /// NULLIF(expr1, expr2)
 pub fn nullif<T: Into<SelectField>, U: Into<SelectField>>(expr1: T, expr2: U) -> SelectField {
-    SelectField::UnsafeExpr(format!("NULLIF({}, {})", expr1.into().to_string(), expr2.into().to_string()), None)
+    SelectField::UnsafeExpr(format!("NULLIF({}, {})", expr1.into().to_string(), expr2.into().to_string()))
 }
 
 
