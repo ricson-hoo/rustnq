@@ -135,14 +135,15 @@ pub fn substring_index<T: Into<SelectField>>(field: T, delimiter: &str, count: i
     Varchar::with_name(DbDialect::current().substring_index(&field.into().to_string(), delimiter, count))
 }
 
-/// REPLACE(str, from_str, to_str) — MySQL string replace
+/// REPLACE(str, from_str, to_str) — string replace (with SQL injection protection)
 pub fn str_replace<T: Into<SelectField>>(field: T, from_str: &str, to_str: &str) -> Varchar {
-    Varchar::with_name(format!("REPLACE({}, '{}', '{}')", field.into().to_string(), from_str, to_str))
+    Varchar::with_name(format!("REPLACE({}, '{}', '{}')", field.into().to_string(),
+        from_str.replace("'", "''"), to_str.replace("'", "''")))
 }
 
 ///DATE_SUB(date, INTERVAL value unit)
 pub fn date_sub<D: Into<SelectField>>(date: D, value: i32, unit: DateSubUnit) -> Date{
-    Date::with_name(format!("DATE_SUB({}, INTERVAL {} {})", date.into().to_string(), value, unit.to_string()))
+    Date::with_name(DbDialect::current().date_sub(value, &unit.to_string()).replace("CURDATE()", &date.into().to_string()))
 }
 
 /// 本季度第一天
@@ -270,7 +271,7 @@ pub fn group_concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
 
 pub fn concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
     let fields_str = fields.into_iter().map(|field| field.into().to_string()).collect::<Vec<String>>().join(",");
-    Varchar::with_name(format!("concat({})",fields_str))
+    Varchar::with_name(DbDialect::current().concat(&fields_str))
 }
 
 pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>(table_with_value: &mut A) -> Result<T,Error> where A : Table{

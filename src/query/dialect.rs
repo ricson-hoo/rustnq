@@ -327,16 +327,55 @@ impl DbDialect {
     /// DATE_FORMAT / TO_CHAR — date formatting
     pub fn date_format(&self, field: &str, fmt: &str) -> String {
         match self {
-            DbDialect::Postgres => format!("TO_CHAR({}, '{}')", field, fmt),
+            DbDialect::Postgres => format!("TO_CHAR({}, '{}')", field, Self::mysql_to_pg_date_format(fmt)),
             DbDialect::MySql => format!("DATE_FORMAT({}, '{}')", field, fmt),
         }
+    }
+
+    /// Convert MySQL DATE_FORMAT pattern to PostgreSQL TO_CHAR pattern
+    fn mysql_to_pg_date_format(mysql_fmt: &str) -> String {
+        mysql_fmt
+            .replace("%Y", "YYYY")
+            .replace("%y", "YY")
+            .replace("%m", "MM")
+            .replace("%c", "FMM")
+            .replace("%d", "DD")
+            .replace("%e", "FMDD")
+            .replace("%H", "HH24")
+            .replace("%h", "HH12")
+            .replace("%I", "HH12")
+            .replace("%i", "MI")
+            .replace("%s", "SS")
+            .replace("%S", "SS")
+            .replace("%p", "AM")
+            .replace("%W", "Day")
+            .replace("%a", "Dy")
+            .replace("%M", "Month")
+            .replace("%b", "Mon")
     }
 
     /// SUBSTRING_INDEX / SPLIT_PART — substring by delimiter
     pub fn substring_index(&self, field: &str, delimiter: &str, count: i32) -> String {
         match self {
-            DbDialect::Postgres => format!("SPLIT_PART({}, '{}', {})", field, delimiter, count),
+            DbDialect::Postgres => {
+                if count >= 0 {
+                    format!("SPLIT_PART({}, '{}', {})", field, delimiter, count)
+                } else {
+                    format!(
+                        "SUBSTRING({}, LENGTH({}) - POSITION('{}' IN REVERSE({})) + LENGTH('{}') + 1)",
+                        field, field, delimiter, field, delimiter
+                    )
+                }
+            }
             DbDialect::MySql => format!("SUBSTRING_INDEX({}, '{}', {})", field, delimiter, count),
+        }
+    }
+
+    /// CONCAT / || — string concatenation
+    pub fn concat(&self, fields: &str) -> String {
+        match self {
+            DbDialect::Postgres => format!("({})", fields.replace(",", " || ")),
+            DbDialect::MySql => format!("concat({})", fields),
         }
     }
 }
