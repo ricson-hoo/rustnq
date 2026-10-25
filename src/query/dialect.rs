@@ -291,6 +291,54 @@ impl DbDialect {
             DbDialect::MySql => format!("group_concat({})", fields),
         }
     }
+
+    /// UNIX_TIMESTAMP(field) — epoch seconds
+    pub fn unix_timestamp(&self, field: &str) -> String {
+        match self {
+            DbDialect::Postgres => format!("EXTRACT(EPOCH FROM {})", field),
+            DbDialect::MySql => format!("UNIX_TIMESTAMP({})", field),
+        }
+    }
+
+    /// UNIX_TIMESTAMP(field) * 1000 — epoch milliseconds
+    pub fn unix_timestamp_ms(&self, field: &str) -> String {
+        match self {
+            DbDialect::Postgres => format!("(EXTRACT(EPOCH FROM {}) * 1000)::bigint", field),
+            DbDialect::MySql => format!("CAST(UNIX_TIMESTAMP({}) * 1000 AS SIGNED)", field),
+        }
+    }
+
+    /// RAND() / RANDOM() — random value
+    pub fn rand(&self) -> &'static str {
+        match self {
+            DbDialect::Postgres => "RANDOM()",
+            DbDialect::MySql => "RAND()",
+        }
+    }
+
+    /// DATEDIFF(date1, date2) — date difference in days
+    pub fn datediff(&self, date1: &str, date2: &str) -> String {
+        match self {
+            DbDialect::Postgres => format!("({}::date - {}::date)", date1, date2),
+            DbDialect::MySql => format!("DATEDIFF({}, {})", date1, date2),
+        }
+    }
+
+    /// DATE_FORMAT / TO_CHAR — date formatting
+    pub fn date_format(&self, field: &str, fmt: &str) -> String {
+        match self {
+            DbDialect::Postgres => format!("TO_CHAR({}, '{}')", field, fmt),
+            DbDialect::MySql => format!("DATE_FORMAT({}, '{}')", field, fmt),
+        }
+    }
+
+    /// SUBSTRING_INDEX / SPLIT_PART — substring by delimiter
+    pub fn substring_index(&self, field: &str, delimiter: &str, count: i32) -> String {
+        match self {
+            DbDialect::Postgres => format!("SPLIT_PART({}, '{}', {})", field, delimiter, count),
+            DbDialect::MySql => format!("SUBSTRING_INDEX({}, '{}', {})", field, delimiter, count),
+        }
+    }
 }
 
 /// 方言设置守卫：离开作用域时自动恢复上一方言

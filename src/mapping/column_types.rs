@@ -1350,7 +1350,7 @@ impl Int {
         let int = input.into();
         let output = match int.holding {
             Holding::Name => int.qualified_name(),
-            Holding::Value => format!("'{}'",int.value.unwrap().to_string()),
+            Holding::Value => int.value.unwrap().to_string(),
             Holding::SubQuery => int.sub_query
                 .as_ref()
                 .and_then(|q| q.build().ok())
@@ -1376,7 +1376,7 @@ impl Int {
         let int = input.into();
         let output = match int.holding {
             Holding::Name => int.qualified_name(),
-            Holding::Value => format!("'{}'",int.value.unwrap().to_string()),
+            Holding::Value => int.value.unwrap().to_string(),
             Holding::SubQuery => int.sub_query
                 .as_ref()
                 .and_then(|q| q.build().ok())

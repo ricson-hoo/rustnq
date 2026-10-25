@@ -889,7 +889,10 @@ impl From<String> for SelectField {
 impl From<bool> for SelectField {
     fn from(value: bool) -> SelectField {
         SelectField::RawValue(if value { "true".to_string() } else { "false".to_string() })
-    }}impl From<Longtext> for SelectField {
+    }
+}
+
+impl From<Longtext> for SelectField {
     fn from(value: Longtext) -> SelectField {
         SelectField::Field(Field::new(&value.table(), &value.name(), None, value.alias(), value.is_encrypted()))
     }

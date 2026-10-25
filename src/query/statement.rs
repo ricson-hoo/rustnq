@@ -125,14 +125,14 @@ pub fn month<T: Into<SelectField>>(field:T) -> Int{
     Int::with_name(DbDialect::current().month(&field.into().to_string()))
 }
 
-/// DATE_FORMAT(date, format) — MySQL date formatting
+/// DATE_FORMAT(date, format) — date formatting (MySQL: DATE_FORMAT, PG: TO_CHAR)
 pub fn date_format<T: Into<SelectField>>(field: T, fmt: &str) -> Varchar {
-    Varchar::with_name(format!("DATE_FORMAT({}, '{}')", field.into().to_string(), fmt))
+    Varchar::with_name(DbDialect::current().date_format(&field.into().to_string(), fmt))
 }
 
-/// SUBSTRING_INDEX(str, delim, count) — MySQL substring by delimiter
+/// SUBSTRING_INDEX(str, delim, count) — substring by delimiter (MySQL: SUBSTRING_INDEX, PG: SPLIT_PART)
 pub fn substring_index<T: Into<SelectField>>(field: T, delimiter: &str, count: i32) -> Varchar {
-    Varchar::with_name(format!("SUBSTRING_INDEX({}, '{}', {})", field.into().to_string(), delimiter, count))
+    Varchar::with_name(DbDialect::current().substring_index(&field.into().to_string(), delimiter, count))
 }
 
 /// REPLACE(str, from_str, to_str) — MySQL string replace
@@ -183,9 +183,10 @@ pub enum CastType {
 
 impl CastType {
     pub(crate) fn to_sql(&self) -> String {
+        let is_pg = crate::query::dialect::DbDialect::current().is_postgres();
         match self {
-            CastType::Signed => "SIGNED".to_string(),
-            CastType::Unsigned => "UNSIGNED".to_string(),
+            CastType::Signed => if is_pg { "INTEGER".to_string() } else { "SIGNED".to_string() },
+            CastType::Unsigned => if is_pg { "INTEGER".to_string() } else { "UNSIGNED".to_string() },
             CastType::Char(None) => "CHAR".to_string(),
             CastType::Char(Some(n)) => format!("CHAR({})", n),
             CastType::Decimal(p, s) => format!("DECIMAL({},{})", p, s),
@@ -211,24 +212,24 @@ pub fn cast<T: Into<SelectField>>(expr: T, target_type: &str) -> SelectField {
     SelectField::UnsafeExpr(format!("CAST({} AS {})", expr.into().to_string(), target_type))
 }
 
-/// UNIX_TIMESTAMP(field) — MySQL epoch seconds
+/// UNIX_TIMESTAMP / EXTRACT(EPOCH FROM ...) — epoch seconds
 pub fn unix_timestamp<T: Into<SelectField>>(field: T) -> Int {
-    Int::with_name(format!("UNIX_TIMESTAMP({})", field.into().to_string()))
+    Int::with_name(DbDialect::current().unix_timestamp(&field.into().to_string()))
 }
 
-/// UNIX_TIMESTAMP(field) * 1000 — epoch milliseconds
+/// epoch milliseconds (MySQL: UNIX_TIMESTAMP*1000, PG: EXTRACT(EPOCH)*1000)
 pub fn unix_timestamp_ms<T: Into<SelectField>>(field: T) -> Bigint {
-    Bigint::with_name(format!("CAST(UNIX_TIMESTAMP({}) * 1000 AS SIGNED)", field.into().to_string()))
+    Bigint::with_name(DbDialect::current().unix_timestamp_ms(&field.into().to_string()))
 }
 
-/// RAND() — MySQL random value
+/// RAND() / RANDOM() — random value
 pub fn rand() -> SelectField {
-    SelectField::RawValue("RAND()".to_string())
+    SelectField::RawValue(DbDialect::current().rand().to_string())
 }
 
-/// DATEDIFF(date1, date2)
+/// DATEDIFF / date subtraction — date difference in days
 pub fn datediff<T: Into<SelectField>, U: Into<SelectField>>(date1: T, date2: U) -> Int {
-    Int::with_name(format!("DATEDIFF({}, {})", date1.into().to_string(), date2.into().to_string()))
+    Int::with_name(DbDialect::current().datediff(&date1.into().to_string(), &date2.into().to_string()))
 }
 
 /// FLOOR(expr)
