@@ -143,7 +143,7 @@ pub fn str_replace<T: Into<SelectField>>(field: T, from_str: &str, to_str: &str)
 
 ///DATE_SUB(date, INTERVAL value unit)
 pub fn date_sub<D: Into<SelectField>>(date: D, value: i32, unit: DateSubUnit) -> Date{
-    Date::with_name(DbDialect::current().date_sub(value, &unit.to_string()).replace("CURDATE()", &date.into().to_string()))
+    Date::with_name(DbDialect::current().date_sub(&date.into().to_string(), value, &unit.to_string()))
 }
 
 /// 本季度第一天
@@ -168,7 +168,7 @@ pub fn month_end() -> Varchar {
 
 ///DATE_ADD(date, INTERVAL value unit)
 pub fn date_add<D: Into<SelectField>>(date: D, value: i32, unit: DateSubUnit) -> Date{
-    Date::with_name(format!("DATE_ADD({}, INTERVAL {} {})", date.into().to_string(), value, unit.to_string()))
+    Date::with_name(DbDialect::current().date_add(&date.into().to_string(), value, &unit.to_string()))
 }
 
 #[derive(Clone, Debug)]

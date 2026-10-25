@@ -187,33 +187,33 @@ impl DbDialect {
         }
     }
 
-    /// 今天往前推 n 个 unit（DATE_SUB(CURDATE(), INTERVAL n unit)）
-    pub fn date_sub(&self, value: i32, unit: &str) -> String {
+    /// 日期往前推 n 个 unit（DATE_SUB / PG interval 减法）
+    pub fn date_sub(&self, date: &str, value: i32, unit: &str) -> String {
         match self {
             DbDialect::Postgres => {
                 match unit {
-                    "DAY" => format!("(CURRENT_DATE - {})", value),
-                    "MONTH" => format!("(CURRENT_DATE - INTERVAL '{} months')", value),
-                    "YEAR" => format!("(CURRENT_DATE - INTERVAL '{} years')", value),
-                    _ => format!("(CURRENT_DATE - {})", value),
+                    "DAY" => format!("({} - {})", date, value),
+                    "MONTH" => format!("({} - INTERVAL '{} months')", date, value),
+                    "YEAR" => format!("({} - INTERVAL '{} years')", date, value),
+                    _ => format!("({} - {})", date, value),
                 }
             }
-            DbDialect::MySql => format!("DATE_SUB (CURDATE(), INTERVAL {} {})", value, unit),
+            DbDialect::MySql => format!("DATE_SUB ({}, INTERVAL {} {})", date, value, unit),
         }
     }
 
-    /// DATE_ADD(CURDATE(), INTERVAL n unit)
-    pub fn date_add(&self, value: i32, unit: &str) -> String {
+    /// 日期往后推 n 个 unit（DATE_ADD / PG interval 加法）
+    pub fn date_add(&self, date: &str, value: i32, unit: &str) -> String {
         match self {
             DbDialect::Postgres => {
                 match unit {
-                    "DAY" => format!("(CURRENT_DATE + {})", value),
-                    "MONTH" => format!("(CURRENT_DATE + INTERVAL '{} months')", value),
-                    "YEAR" => format!("(CURRENT_DATE + INTERVAL '{} years')", value),
-                    _ => format!("(CURRENT_DATE + {})", value),
+                    "DAY" => format!("({} + {})", date, value),
+                    "MONTH" => format!("({} + INTERVAL '{} months')", date, value),
+                    "YEAR" => format!("({} + INTERVAL '{} years')", date, value),
+                    _ => format!("({} + {})", date, value),
                 }
             }
-            DbDialect::MySql => format!("DATE_ADD (CURDATE(), INTERVAL {} {})", value, unit),
+            DbDialect::MySql => format!("DATE_ADD ({}, INTERVAL {} {})", date, value, unit),
         }
     }
 
@@ -361,9 +361,16 @@ impl DbDialect {
                 if count >= 0 {
                     format!("SPLIT_PART({}, '{}', {})", field, delimiter, count)
                 } else {
+                    let n = -count;
+                    let pos_from_right = if n == 1 {
+                        format!("POSITION('{}' IN REVERSE({}))", delimiter, field)
+                    } else {
+                        format!("POSITION('{}' IN REPLACE(REVERSE({}), '{}', '{}', 1)) + {}",
+                            delimiter, field, delimiter, delimiter, n - 1)
+                    };
                     format!(
-                        "SUBSTRING({}, LENGTH({}) - POSITION('{}' IN REVERSE({})) + LENGTH('{}') + 1)",
-                        field, field, delimiter, field, delimiter
+                        "SUBSTRING({}, 1, LENGTH({}) - ({}) + 1)",
+                        field, field, pos_from_right
                     )
                 }
             }
