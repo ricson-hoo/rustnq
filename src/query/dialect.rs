@@ -361,16 +361,12 @@ impl DbDialect {
                 if count >= 0 {
                     format!("SPLIT_PART({}, '{}', {})", field, delimiter, count)
                 } else {
+                    // MySQL: SUBSTRING_INDEX('a,b,c,d', ',', -1) = 'a,b,c' (all but last 1)
+                    // PG: use array slicing to drop last |count| elements
                     let n = -count;
-                    let pos_from_right = if n == 1 {
-                        format!("POSITION('{}' IN REVERSE({}))", delimiter, field)
-                    } else {
-                        format!("POSITION('{}' IN REPLACE(REVERSE({}), '{}', '{}', 1)) + {}",
-                            delimiter, field, delimiter, delimiter, n - 1)
-                    };
                     format!(
-                        "SUBSTRING({}, 1, LENGTH({}) - ({}) + 1)",
-                        field, field, pos_from_right
+                        "array_to_string((string_to_array({}, '{}'))[1:array_length(string_to_array({}, '{}'), 1) - {}], '{}')",
+                        field, delimiter, field, delimiter, n, delimiter
                     )
                 }
             }
