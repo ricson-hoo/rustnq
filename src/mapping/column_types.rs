@@ -314,6 +314,16 @@ impl Varchar {
             .join(" , ")))
     }
 
+    pub fn in_query_result(&self, query: QueryBuilder) -> Condition
+    {
+        Condition::new(format!("{} IN ({})", self.qualified_name(), query.build().unwrap_or_default()))
+    }
+
+    pub fn not_in_query_result(&self, query: QueryBuilder) -> Condition
+    {
+        Condition::new(format!("{} NOT IN ({})", self.qualified_name(), query.build().unwrap_or_default()))
+    }
+
     pub fn optional_as(mut self, alias:Option<String>) -> Self {
         if(alias.is_some()){
             self.alias = alias;

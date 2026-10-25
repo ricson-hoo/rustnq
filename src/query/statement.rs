@@ -74,7 +74,7 @@ pub fn union_all(sql_list: Vec<QueryBuilder>) -> QueryBuilder{
     }
     let table = InnerTable{
         table_name: format!("({}) as my_table", list.join(" union all ")),
-        map_fields: Default::default(),
+        fields_map: Default::default(),
     };
     QueryBuilder::init_with_select_all_fields(&table)
 }

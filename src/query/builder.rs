@@ -1537,22 +1537,31 @@ impl QueryBuilder {
             println!("query string # {}", query_string);
             InnerTable {
                 table_name: format!("({}) as {}", query_string, table),
-                map_fields: self.select_fields.iter().filter_map(|field| {
-                    let alias = match field {
-                        SelectField::Field(f) => f.as_.clone(),
-                        SelectField::Subquery(s) => s.as_.clone(),
-                        SelectField::UnsafeExprAliased(_, a) => Some(a.clone()),
-                        SelectField::RawValueAliased(_, a) => Some(a.clone()),
-                        SelectField::NullValueAliased(a) => Some(a.clone()),
-                        _ => None,
+                fields_map: self.select_fields.iter().filter_map(|field| {
+                    let (key, col_name) = match field {
+                        SelectField::Field(f) => {
+                            if let Some(ref a) = f.as_ {
+                                (a.clone(), a.clone())
+                            } else {
+                                (field.to_string(), f.name.clone())
+                            }
+                        }
+                        SelectField::Subquery(s) => {
+                            let a = s.as_.clone()?;
+                            (a.clone(), a)
+                        }
+                        SelectField::UnsafeExprAliased(_, a) => (a.clone(), a.clone()),
+                        SelectField::RawValueAliased(_, a) => (a.clone(), a.clone()),
+                        SelectField::NullValueAliased(a) => (a.clone(), a.clone()),
+                        _ => return None,
                     };
-                    alias.map(|a| (a.clone(), Varchar::with_qualified_name(table.to_string(), a)))
+                    Some((key, Varchar::with_qualified_name(table.to_string(), col_name)))
                 }).collect::<HashMap<String, Varchar>>(),
             }
         }else{
             InnerTable{
                 table_name: "".to_string(),
-                map_fields: Default::default(),
+                fields_map: Default::default(),
             }
             
         }
@@ -2851,7 +2860,7 @@ impl QueryBuilder {
 
 pub struct InnerTable {
     pub table_name: String,
-    pub map_fields: HashMap<String, Varchar>,
+    pub fields_map: HashMap<String, Varchar>,
 }
 
 impl Table for InnerTable {
