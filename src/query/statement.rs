@@ -10,11 +10,9 @@ use sqlx::Row;
 use tokio::sync::RwLock;
 use crate::configuration::{get_processors, PROCESSORS};
 use crate::query::builder::construct_upsert_primary_key_value;
-use crate::utils::date_sub_unit::DateSubUnit;
+pub use crate::utils::date_sub_unit::DateSubUnit;
 use crate::query::dialect::DbDialect;
 use crate::query::db::DbRow;
-use std::any::Any;
-
 pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
     let fields = fields.into_iter().map(|field| field.into()).collect();
     QueryBuilder::init_with_select_fields(fields)
@@ -41,22 +39,22 @@ pub fn count_distinct<T: Into<SelectField>>(field:T) -> Bigint{
     Bigint::with_name(format!("count(distinct {})", field.into().to_string()))
 }
 
-pub fn case_when<T:Any+ std::fmt::Display>(cases:Vec<(Condition, Option<T>)>, else_value:Option<T>) -> SelectField{
+pub fn case_when<T: Into<SelectField>>(cases: Vec<(Condition, Option<T>)>, else_value: Option<T>) -> SelectField {
     let mut case = "CASE".to_string();
 
     // Add WHEN conditions
     for (condition, value) in cases {
         if let Some(val) = value {
-            case.push_str(&format!(" WHEN {} THEN '{}'", condition, val));
-        }else{
-            case.push_str(" WHEN {} THEN null");
+            case.push_str(&format!(" WHEN {} THEN {}", condition, val.into().to_string()));
+        } else {
+            case.push_str(&format!(" WHEN {} THEN null", condition));
         }
     }
 
     // Add ELSE clause if provided
     if let Some(else_val) = else_value {
-        case.push_str(&format!(" ELSE '{}'", else_val));
-    }else {
+        case.push_str(&format!(" ELSE {}", else_val.into().to_string()));
+    } else {
         case.push_str(" ELSE null");
     }
 
@@ -95,8 +93,6 @@ pub fn max<T: Into<SelectField>>(field:T) -> Varchar{
 pub fn min<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("min({})", field.into().to_string()))
 }
-
-
 pub fn timestamp_diff<T: Into<SelectField>>(date: T, unit: DateSubUnit) -> Int{
     Int::with_name(DbDialect::current().timestamp_diff(&unit.to_string(), &date.into().to_string()))
 }
@@ -108,6 +104,10 @@ pub fn curdate() -> Date{
 pub fn year<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(DbDialect::current().year(&field.into().to_string()))
 }
+pub fn year_int<T: Into<SelectField>>(field:T) -> Int{
+    Int::with_name(DbDialect::current().year(&field.into().to_string()))
+}
+
 
 pub fn extract_year<T: Into<SelectField>>(field:T) -> Varchar{
     Varchar::with_name(format!("Extract(YEAR from {})", field.into().to_string()))
@@ -217,8 +217,8 @@ pub fn unix_timestamp<T: Into<SelectField>>(field: T) -> Int {
 }
 
 /// UNIX_TIMESTAMP(field) * 1000 — epoch milliseconds
-pub fn unix_timestamp_ms<T: Into<SelectField>>(field: T) -> SelectField {
-    SelectField::UnsafeExpr(format!("UNIX_TIMESTAMP({}) * 1000", field.into().to_string()))
+pub fn unix_timestamp_ms<T: Into<SelectField>>(field: T) -> Bigint {
+    Bigint::with_name(format!("CAST(UNIX_TIMESTAMP({}) * 1000 AS SIGNED)", field.into().to_string()))
 }
 
 /// RAND() — MySQL random value
@@ -246,8 +246,6 @@ pub fn replace<T: Into<SelectField>>(field: T, from_str: &str, to_str: &str) -> 
 pub fn nullif<T: Into<SelectField>, U: Into<SelectField>>(expr1: T, expr2: U) -> SelectField {
     SelectField::UnsafeExpr(format!("NULLIF({}, {})", expr1.into().to_string(), expr2.into().to_string()))
 }
-
-
 
 /// 本周第一天
 pub fn week_start() -> Varchar {
@@ -294,7 +292,7 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
                         let generated_uuid_key = Some(uuid::Uuid::new_v4().to_string().replace("-", "").to_string());
                         table_with_value.update_primary_key(vec![SqlColumn::Varchar(Some(Varchar::with_name_value(column_info.name(),generated_uuid_key.clone())))]);
                         text_primary_key_value = generated_uuid_key;
-                    }else {
+                    } else {
                         text_primary_key_value = primary_column_value;
                     }
 
@@ -323,7 +321,7 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
                             condition = condition.and(Condition::new(cond))
                         }
                     }
-                }else {
+                } else {
                     return Err(sqlx::Error::RowNotFound)?;
                 }
             }
@@ -331,7 +329,7 @@ pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>
                 return Err(error)
             }
         }
-    }else {
+    } else {
         // 数字主键：PostgreSQL 用 RETURNING 取回；MySQL 用 LAST_INSERT_ID() + SELECT 回查
         let primary_key = primary_key_vec.get(0).unwrap().clone();
         let primary_key_name = primary_key.get_col_name();

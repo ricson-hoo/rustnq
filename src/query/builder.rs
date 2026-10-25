@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text, Numeric};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text, Numeric, Longtext};
 use crate::query::db::{DbPool, DbQueryResult, DbRow};
 use crate::query::dialect::{DbDialect, ValueKind};
 use crate::query::statement::CastType;
@@ -429,6 +429,34 @@ impl SelectField {
             }
         }
     }
+
+    /// 生成 field = (SELECT ...) 条件，常用于相关子查询比较
+    pub fn equal(&self, other: &SelectField) -> Condition {
+        let left = self.to_string();
+        let right = match other {
+            SelectField::Subquery(sub) => {
+                let mut sub = sub.clone();
+                sub.as_ = None;
+                format!("({})", sub.to_string())
+            }
+            _ => other.to_string(),
+        };
+        Condition::new(format!("{} = {}", left, right))
+    }
+
+    /// 生成 field IN (SELECT ...) 条件
+    pub fn in_(&self, subquery: &SelectField) -> Condition {
+        let left = self.to_string();
+        let right = match subquery {
+            SelectField::Subquery(sub) => {
+                let mut sub = sub.clone();
+                sub.as_ = None;
+                sub.to_string()
+            }
+            _ => subquery.to_string(),
+        };
+        Condition::new(format!("{} IN ({})", left, right))
+    }
 }
 
 
@@ -843,6 +871,33 @@ impl From<i32> for SelectField {
 impl From<f64> for SelectField {
     fn from(value: f64) -> SelectField {
         SelectField::RawValue(value.to_string())
+    }
+}
+
+impl From<&str> for SelectField {
+    fn from(value: &str) -> SelectField {
+        SelectField::RawValue(format!("'{}'", value))
+    }
+}
+
+impl From<String> for SelectField {
+    fn from(value: String) -> SelectField {
+        SelectField::RawValue(format!("'{}'", value))
+    }
+}
+
+impl From<bool> for SelectField {
+    fn from(value: bool) -> SelectField {
+        SelectField::RawValue(if value { "true".to_string() } else { "false".to_string() })
+    }}impl From<Longtext> for SelectField {
+    fn from(value: Longtext) -> SelectField {
+        SelectField::Field(Field::new(&value.table(), &value.name(), None, value.alias(), value.is_encrypted()))
+    }
+}
+
+impl From<&Longtext> for SelectField {
+    fn from(value: &Longtext) -> SelectField {
+        SelectField::Field(Field::new(&value.table(), &value.name(), None, value.alias(), value.is_encrypted()))
     }
 }
 
@@ -1482,7 +1537,17 @@ impl QueryBuilder {
             println!("query string # {}", query_string);
             InnerTable {
                 table_name: format!("({}) as {}", query_string, table),
-                map_fields: self.select_fields.iter().map(|field| (field.clone().to_string(), Varchar::with_name(field.clone().to_string()))).collect::<HashMap<String, Varchar>>(),
+                map_fields: self.select_fields.iter().filter_map(|field| {
+                    let alias = match field {
+                        SelectField::Field(f) => f.as_.clone(),
+                        SelectField::Subquery(s) => s.as_.clone(),
+                        SelectField::UnsafeExprAliased(_, a) => Some(a.clone()),
+                        SelectField::RawValueAliased(_, a) => Some(a.clone()),
+                        SelectField::NullValueAliased(a) => Some(a.clone()),
+                        _ => None,
+                    };
+                    alias.map(|a| (a.clone(), Varchar::with_qualified_name(table.to_string(), a)))
+                }).collect::<HashMap<String, Varchar>>(),
             }
         }else{
             InnerTable{
@@ -2198,11 +2263,8 @@ impl QueryBuilder {
             let value_result: Result<Option<i8>, Error> = try_get_from_dbrow!(&row, i, Mysql i8, Postgres bool, as i8);
             if let Ok(value) = value_result {
                 if let Some(value) = value {
-                    // 归一化为 JSON bool：MySQL 读 i8（>0 为 true），PG 直接读 bool
-                    let bool_value: bool = match DbDialect::current() {
-                        DbDialect::MySql => value > 0,
-                        DbDialect::Postgres => true,
-                    };
+                    // 归一化为 JSON bool：MySQL 读 i8（>0 为 true），PG bool 读为 i8（0/1）
+                    let bool_value: bool = value > 0;
                     if obj_name.is_some() {
                         json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Bool(bool_value);
                         json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Bool(bool_value);

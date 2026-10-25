@@ -82,6 +82,11 @@ impl<T:Clone+Into<String>> Enum<T>{
         Condition::new(format!("{} IS NULL", self.qualified_name()))
     }
 
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
     pub fn equal(&self, input: T) -> Condition
     {
         Condition::new(format!("{} = '{}'", self.qualified_name(), input.into()))
@@ -225,6 +230,22 @@ impl Varchar {
         self
     }
 
+    pub fn cast_as<T: From<Varchar> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
+    }
+
+    pub fn replace(&self, from: &str, to: &str) -> Varchar {
+        let mut v = self.clone();
+        v.name = format!("REPLACE({}, '{}', '{}')", self.name, from, to);
+        v
+    }
+
+    pub fn round(&self, decimals: u32) -> Varchar {
+        let mut v = self.clone();
+        v.name = format!("ROUND({}, {})", self.name, decimals);
+        v
+    }
+
     pub fn as_(&mut self, alias:&str) -> Self {
        self.alias = Some(alias.to_string());
        self.clone()
@@ -236,12 +257,22 @@ impl Varchar {
     }
 
     pub fn div<T: std::fmt::Display>(&mut self, value: T) -> Self {
-       self.name = format!("{} DIV {}", self.name, value);
+       self.name = format!("({} DIV {})", self.name, value);
+       self.clone()
+    }
+
+    pub fn div_field(&mut self, other: &Varchar) -> Self {
+       self.name = format!("({} DIV {})", self.name, other.name);
        self.clone()
     }
 
     pub fn multiply<T: std::fmt::Display>(&mut self, value: T) -> Self {
         self.name = format!("({} * {})", self.name, value);
+        self.clone()
+    }
+
+    pub fn multiply_field(&mut self, other: &Varchar) -> Self {
+        self.name = format!("({} * {})", self.name, other.name);
         self.clone()
     }
 
@@ -270,6 +301,14 @@ impl Varchar {
     pub fn in_<T:Clone+Into<String>>(&self, input_list: Vec<T>) -> Condition
     {
         Condition::new(format!("{} in ({})", self.qualified_name(), input_list.into_iter()
+            .map(|input| format!("'{}'", input.into().to_string()))
+            .collect::<Vec<String>>()
+            .join(" , ")))
+    }
+
+    pub fn not_in<U:Clone+Into<String>>(&self, input_list: Vec<U>) -> Condition
+    {
+        Condition::new(format!("{} not in ({})", self.qualified_name(), input_list.into_iter()
             .map(|input| format!("'{}'", input.into().to_string()))
             .collect::<Vec<String>>()
             .join(" , ")))
@@ -306,6 +345,14 @@ impl Varchar {
             name = format!("{}.{}",self.table.unwrap(),self.name)
         }
         Condition::new(format!("{} = {}", name, output))*/
+    }
+
+    pub fn not_equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<Varchar>,
+    {
+        let input = input.into();
+        build_not_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted, input.holding, input.table,input.name,input.value, input.cast_type.clone())
     }
 
     pub fn like(&self, pattern: String) -> Condition
@@ -644,6 +691,26 @@ fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:St
     Condition::new(format!("{} {}", self_name, output))
 }
 
+fn build_not_equal_condition_for_string_type(self_table:Option<String>, self_name:String,self_is_encrypted: bool, input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>,input_cast_type:Option<CastType>) -> Condition {
+    let dialect = crate::query::dialect::DbDialect::current();
+    let self_name = dialect.wrap_qualified_name(self_table.as_deref(), &self_name);
+    let input_name = dialect.wrap_qualified_name(input_table.as_deref(), &input_name);
+    let input_name = if let Some(ref ct) = input_cast_type {
+        format!("CAST({} AS {})", input_name, ct.to_sql())
+    } else {
+        input_name
+    };
+    let output = match input_holding {
+        Holding::Name => format!(" != {}", input_name),
+        Holding::Value => match input_value {
+            Some(value) => format!(" != {}", if self_is_encrypted { encrypt_value(value) } else { format!("'{}'", value) }),
+            None => "is not null".to_string()
+        },
+        _ => "build_not_equal_condition_for_string_type to do ".to_string()
+    };
+    Condition::new(format!("{} {}", self_name, output))
+}
+
 impl Char {
     pub fn with_name(name: String) -> Self {
         Char {table:None,  name:name, alias: None, target: None, value: None ,holding: Holding::Name, sub_query:None,is_encrypted:false }
@@ -868,6 +935,11 @@ impl crate::mapping::column_types::Text {
     pub fn like(&self, pattern: String) -> Condition
     {
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
+    }
+
+    pub fn not_like(&self, pattern: String) -> Condition
+    {
+        Condition::new(format!("{} NOT LIKE '{}'", self.qualified_name(), pattern))
     }
 
     pub fn is_null(&self) -> Condition
@@ -1200,6 +1272,10 @@ impl Int {
         Int {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
+    pub fn with_sub_query(sub_query: Option<QueryBuilder>) -> Self {
+        Int {table:None, name:"".to_string(), alias: None, target: None, value: None, holding: Holding::SubQuery, sub_query, is_encrypted:false }
+    }
+
     pub fn value(&self) -> Option<i32> {
         self.value.clone()
     }
@@ -1239,6 +1315,14 @@ impl Int {
         Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
     }
 
+    pub fn not_in<T: ToString>(&self, input_list: Vec<T>) -> Condition
+    {
+        Condition::new(format!("{} not in ({})", self.qualified_name(), input_list.into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<String>>()
+            .join(" , ")))
+    }
+
     pub fn div<T: std::fmt::Display>(&mut self, value: T) -> Self {
         self.name = format!("{} DIV {}", self.name, value);
         self.clone()
@@ -1257,6 +1341,11 @@ impl Int {
         let output = match int.holding {
             Holding::Name => int.qualified_name(),
             Holding::Value => format!("'{}'",int.value.unwrap().to_string()),
+            Holding::SubQuery => int.sub_query
+                .as_ref()
+                .and_then(|q| q.build().ok())
+                .map(|sql| format!("({})", sql))
+                .unwrap_or_default(),
             _ => "".to_string()
         };
         Condition::new(format!("{} = {}", self.qualified_name(), output))
@@ -1277,7 +1366,12 @@ impl Int {
         let int = input.into();
         let output = match int.holding {
             Holding::Name => int.qualified_name(),
-            Holding::Value => format!("'{}",int.value.unwrap().to_string()),
+            Holding::Value => format!("'{}'",int.value.unwrap().to_string()),
+            Holding::SubQuery => int.sub_query
+                .as_ref()
+                .and_then(|q| q.build().ok())
+                .map(|sql| format!("({})", sql))
+                .unwrap_or_default(),
             _ => "".to_string()
         };
         Condition::new(format!("{} != {}", self.qualified_name(), output))
@@ -1340,6 +1434,16 @@ impl From<String> for Int {
             Err(err) => {
                 Int::with_value(None)
             }
+        }
+    }
+}
+
+impl From<&str> for Int {
+    fn from(v: &str) -> Self {
+        let res = v.parse::<i32>();
+        match res {
+            Ok(num) => Int::with_value(Some(num)),
+            Err(_) => Int::with_value(None),
         }
     }
 }
@@ -1547,6 +1651,12 @@ impl<T:Clone+Into<String>> Set<T> {
     pub fn target(&mut self, target:&str) -> Self {
         self.target = Some(target.to_string());
         self.clone()
+    }
+
+    pub fn replace(&self, from: &str, to: &str) -> Self {
+        let mut v = self.clone();
+        v.name = format!("REPLACE({}, '{}', '{}')", self.name, from, to);
+        v
     }
 
     pub fn find_in_set(&mut self, value:String) -> Condition {
@@ -2532,6 +2642,32 @@ impl crate::mapping::column_types::Double {
         self.target = Some(target.to_string());
         self.clone()
     }
+
+
+    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn le<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn gt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn equal<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} = ({})", self.qualified_name(), value.to_string()))
+    }
 }
 
 impl Column for crate::mapping::column_types::Double {
@@ -2712,6 +2848,10 @@ impl crate::mapping::column_types::Date {
         Date {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
+    pub fn with_sub_query(sub_query: Option<QueryBuilder>) -> Self {
+        Date {table:None, name:String::new(), alias: None, target: None, value: None, holding: Holding::SubQuery, sub_query, is_encrypted:false }
+    }
+
     pub fn value(&self) -> Option<chrono::NaiveDate> {
         self.value.clone()
     }
@@ -2750,9 +2890,22 @@ impl crate::mapping::column_types::Date {
         Condition::new(format!("{} >= '{}'", self.qualified_name(), value.to_string()))
     }
 
-    pub fn equal<T: ToString>(&self, value: T) -> Condition
+    pub fn equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<Date>,
     {
-        Condition::new(format!("{} = '{}'", self.qualified_name(), value.to_string()))
+        let date = input.into();
+        let output = match date.holding {
+            Holding::Name => date.qualified_name(),
+            Holding::Value => format!("'{}'", date.value.unwrap().to_string()),
+            Holding::SubQuery => date.sub_query
+                .as_ref()
+                .and_then(|q| q.build().ok())
+                .map(|sql| format!("({})", sql))
+                .unwrap_or_default(),
+            _ => String::new()
+        };
+        Condition::new(format!("{} = {}", self.qualified_name(), output))
     }
 
     pub fn gt<T: ToString>(&self, value: T) -> Condition
@@ -2778,10 +2931,46 @@ impl crate::mapping::column_types::Date {
     pub fn between(&self, date1: chrono::NaiveDate,date2: chrono::NaiveDate) -> Condition {
         Condition::new(format!("{} BETWEEN '{}' AND '{}'", self.qualified_name(), date1.format("%Y-%m-%d").to_string(), date2.format("%Y-%m-%d").to_string()))
     }
+
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
+    }
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
     pub fn cast_as<T: From<Date> + Casted>(&self, cast_type: CastType) -> T {
         T::from(self.clone()).casted(cast_type)
     }
 
+
+
+}
+
+impl From<QueryBuilder> for Date {
+    fn from(qb: QueryBuilder) -> Self {
+        Date::with_sub_query(Some(qb))
+    }
+}
+
+impl From<NaiveDate> for Date {
+    fn from(v: NaiveDate) -> Self {
+        Date::with_value(Some(v))
+    }
+}
+
+impl From<String> for Date {
+    fn from(v: String) -> Self {
+        Date::with_value(NaiveDate::parse_from_str(&v, "%Y-%m-%d").ok())
+    }
+}
+
+impl From<&str> for Date {
+    fn from(v: &str) -> Self {
+        Date::with_value(NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
+    }
 }
 
 impl From<&Date> for Varchar {
@@ -2868,6 +3057,22 @@ impl From<Timestamp> for Date {
     }
 
 
+}
+
+impl fmt::Display for crate::mapping::column_types::Date {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.holding {
+            Holding::Name => write!(f, "{}", self.qualified_name()),
+            Holding::Value => {
+                if let Some(ref v) = self.value {
+                    write!(f, "'{}", v.format("%Y-%m-%d"))
+                } else {
+                    write!(f, "NULL")
+                }
+            },
+            _ => write!(f, "{}", self.qualified_name()),
+        }
+    }
 }
 
 impl Column for crate::mapping::column_types::Date {
