@@ -8,11 +8,16 @@ use crate::query::dialect::DbDialect;
 pub trait DbConf: Send + Sync + std::fmt::Debug + 'static {
     fn url(&self) -> &str;
     fn dialect(&self) -> DbDialect;
-    fn timezone(&self) -> Option<i8>           { Some(8) }
-    fn max_connections(&self) -> u32          { 200 }
-    fn is_readonly(&self) -> bool             { false }
+    fn timezone(&self) -> Option<i8> { Some(8) }
+    fn max_connections(&self) -> u32 { 200 }
+    fn is_readonly(&self) -> bool { false }
     fn encryptor(&self) -> Option<Arc<dyn Encryptor>> { None }
+    fn pool_key(&self) -> &str { "main" }
 }
+
+    pub trait DbKey {
+        fn db_key(&self) -> &str;
+    }
 
 struct PoolEntry {
     conf: Arc<dyn DbConf + Send + Sync>,
@@ -121,4 +126,24 @@ pub fn default_db() -> DbPool {
         .first()
         .map(|e| e.pool.clone())
         .expect("no pool configured")
+}
+
+pub fn pool_by_key(key: &str) -> DbPool {
+    POOLS.lock().unwrap()
+        .iter()
+        .find(|e| e.conf.pool_key() == key)
+        .map(|e| e.pool.clone())
+        .unwrap_or_else(default_db)
+}
+
+pub fn pool_of(k: impl DbKey) -> DbPool {
+    pool_by_key(k.db_key())
+}
+
+pub(crate) fn resolve_conf_by_key(key: &str) -> Arc<dyn DbConf + Send + Sync> {
+    POOLS.lock().unwrap()
+        .iter()
+        .find(|e| e.conf.pool_key() == key)
+        .map(|e| e.conf.clone())
+        .expect("pool not registered")
 }

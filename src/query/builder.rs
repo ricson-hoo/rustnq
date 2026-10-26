@@ -30,6 +30,7 @@ use crate::result::PagingData;
 use crate::mapping::column_types::Set;
 use crate::mapping::column_types::Array;
 use crate::query::builder::JoinType::STRAIGHT;
+use crate::query::pool::DbKey;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum BuildErrorType {
@@ -1600,8 +1601,8 @@ impl QueryBuilder {
         self
     }
 
-    pub fn on_pool<P: DbConf + Send + Sync + 'static>(mut self, conf: P) -> QueryBuilder {
-        self._pool_conf = Some(Arc::new(conf));
+    pub fn on_pool<K: DbKey>(mut self, key: K) -> QueryBuilder {
+        self._pool_conf = Some(crate::query::pool::resolve_conf_by_key(key.db_key()));
         self
     }
 
