@@ -300,18 +300,22 @@ impl Varchar {
 
     pub fn in_<T:Clone+Into<String>>(&self, input_list: Vec<T>) -> Condition
     {
-        Condition::new(format!("{} in ({})", self.qualified_name(), input_list.into_iter()
-            .map(|input| format!("'{}'", input.into().to_string()))
-            .collect::<Vec<String>>()
-            .join(" , ")))
+        // 空列表不能生成 `IN ()`（MySQL/PG 都是语法错误），按恒假处理
+        if input_list.is_empty() {
+            return Condition::new("1 = 0".to_string());
+        }
+        Condition::new(format!("{} in ({})", self.qualified_name(),
+            build_in_values(self.is_encrypted, input_list)))
     }
 
     pub fn not_in<U:Clone+Into<String>>(&self, input_list: Vec<U>) -> Condition
     {
-        Condition::new(format!("{} not in ({})", self.qualified_name(), input_list.into_iter()
-            .map(|input| format!("'{}'", input.into().to_string()))
-            .collect::<Vec<String>>()
-            .join(" , ")))
+        // 空列表的 NOT IN 恒真
+        if input_list.is_empty() {
+            return Condition::new("1 = 1".to_string());
+        }
+        Condition::new(format!("{} not in ({})", self.qualified_name(),
+            build_in_values(self.is_encrypted, input_list)))
     }
 
     pub fn in_query_result(&self, query: QueryBuilder) -> Condition
@@ -679,6 +683,24 @@ pub struct Char{
 
 fn encrypt_value(value:String) -> String {
     resolve_encryptor().encrypt(value)
+}
+
+/// 为 IN / NOT IN 拼接值列表。
+/// 加密列必须逐值走 encrypt_value（与 equal 保持一致），否则明文永远匹配不到库中的密文；
+/// 非加密列维持原来的字面量拼装。
+fn build_in_values<T: Into<String>>(is_encrypted: bool, input_list: Vec<T>) -> String {
+    input_list
+        .into_iter()
+        .map(|input| {
+            let value = input.into();
+            if is_encrypted {
+                encrypt_value(value)
+            } else {
+                format!("'{}'", value)
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" , ")
 }
 
 fn build_equal_condition_for_string_type(self_table:Option<String>, self_name:String,self_is_encrypted: bool, input_holding:Holding,input_table:Option<String>, input_name:String,input_value:Option<String>,input_cast_type:Option<CastType>) -> Condition {
