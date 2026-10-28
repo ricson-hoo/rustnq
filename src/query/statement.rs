@@ -18,6 +18,11 @@ pub fn select<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
     QueryBuilder::init_with_select_fields(fields)
 }
 
+
+pub fn with(name: &str, builder: QueryBuilder) -> InnerTable {
+    builder.cte(name)
+}
+
 pub fn select_distinct<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
     let fields = fields.into_iter().map(|field| field.into()).collect();
     QueryBuilder::init_with_select_distinct_fields(fields)
@@ -75,6 +80,7 @@ pub fn union_all(sql_list: Vec<QueryBuilder>) -> QueryBuilder{
     let table = InnerTable{
         table_name: format!("({}) as my_table", list.join(" union all ")),
         fields_map: Default::default(),
+        cte_query: None,
     };
     QueryBuilder::init_with_select_all_fields(&table)
 }

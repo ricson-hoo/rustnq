@@ -8,14 +8,20 @@ use serde::{Serialize,Deserialize};
 use sqlx::encode::IsNull;
 use crate::query::builder::{Field, SelectField};
 
+
+#[derive(Debug, Clone)]
+pub struct CteDefinition {
+    pub name: String,
+    pub query: String,
+}
 pub trait Table{
     fn name(&self) -> String;
     fn all_columns(&self) -> Vec<SqlColumn>;
     fn primary_key(&self) -> Vec<SqlColumn>;
     fn update_primary_key(&mut self,primary_key:Vec<SqlColumn>)->();
     //fn as_(&self,alias:&str) -> Table;
+    fn cte(&self) -> Option<CteDefinition> { None }
 }
-
 #[derive(Clone,Debug)]
 pub enum EmptyEnum {}
 

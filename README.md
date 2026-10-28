@@ -341,6 +341,46 @@ let diabetes_users = select(vec![hm.user_id.clone()])
 condition = condition.and(cr.user_id.in_query_result(diabetes_users));
 ```
 
+
+
+## CTE (Common Table Expressions)
+
+Use `with()` to define a CTE, then join it like any `InnerTable`. CTEs are supported on MySQL 8.0+ and PostgreSQL.
+
+```rust
+use rustnq::query::with;
+
+let user_stats = with("user_stats", select(vec![
+    u.id.clone(),
+    count(o.id.clone()).as_("order_count"),
+])
+.from(&u)
+.left_join(&o).on(u.id.equal(o.user_id.clone()))
+.group_by(vec![u.id.clone()]));
+
+let col = user_stats.fields_map["order_count"].clone();
+
+select(vec![u.id.clone(), u.name.clone(), col.clone()])
+    .from(&u)
+    .left_join(&user_stats).on(u.id.equal(user_stats.fields_map["id"].clone()))
+    .order_by(vec![col.desc()]);
+```
+
+Generated SQL:
+
+```sql
+WITH user_stats AS (
+    SELECT u.id, COUNT(o.id) AS order_count
+    FROM user u LEFT JOIN order o ON u.id = o.user_id
+    GROUP BY u.id
+)
+SELECT u.id, u.name, user_stats.order_count
+FROM user u LEFT JOIN user_stats ON u.id = user_stats.id
+ORDER BY user_stats.order_count DESC
+```
+
+> **Note:** For PostgreSQL-only `FILTER` clause or `ARRAY_AGG`, use `SelectField::UnsafeExprAliased` within the CTE`s SELECT fields.
+
 ## Aggregation & Expressions
 
 ### Aggregates

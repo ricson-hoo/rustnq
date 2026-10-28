@@ -1,4 +1,4 @@
-use crate::mapping::description::{Table, Column, Holding};
+use crate::mapping::description::{Table, Column, Holding, CteDefinition};
 use std::{fmt, fmt::write, format, result};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -204,7 +204,8 @@ pub(crate) struct TargetTable{
     pub name:String,
     pub columns:Vec<SqlColumn>,
     pub primary_key:Vec<SqlColumn>,
-    pub force_index: Option<String>
+    pub force_index: Option<String>,
+    pub cte_definition: Option<CteDefinition>,
 }
 
 impl TargetTable {
@@ -213,7 +214,8 @@ impl TargetTable {
             name: table.name(),
             columns: table.all_columns(),
             primary_key: table.primary_key(),
-            force_index: None
+            force_index: None,
+            cte_definition: table.cte(),
         }
     }
 }
@@ -1561,13 +1563,53 @@ impl QueryBuilder {
                     };
                     Some((key, Varchar::with_qualified_name(table.to_string(), col_name)))
                 }).collect::<HashMap<String, Varchar>>(),
+            cte_query: None,
             }
         }else{
             InnerTable{
                 table_name: "".to_string(),
                 fields_map: Default::default(),
+                cte_query: None,
             }
             
+        }
+    }
+
+    
+    pub fn cte(mut self, name: &str) -> InnerTable {
+        let build_result = self.build();
+        if let Ok(query_string) = build_result {
+            println!("query string # {}", query_string);
+            InnerTable {
+                table_name: name.to_string(),
+                fields_map: self.select_fields.iter().filter_map(|field| {
+                    let (key, col_name) = match field {
+                        SelectField::Field(f) => {
+                            if let Some(ref a) = f.as_ {
+                                (a.clone(), a.clone())
+                            } else {
+                                (field.to_string(), f.name.clone())
+                            }
+                        }
+                        SelectField::Subquery(s) => {
+                            let a = s.as_.clone()?;
+                            (a.clone(), a)
+                        }
+                        SelectField::UnsafeExprAliased(_, a) => (a.clone(), a.clone()),
+                        SelectField::RawValueAliased(_, a) => (a.clone(), a.clone()),
+                        SelectField::NullValueAliased(a) => (a.clone(), a.clone()),
+                        _ => return None,
+                    };
+                    Some((key, Varchar::with_qualified_name(name.to_string(), col_name)))
+                }).collect::<HashMap<String, Varchar>>(),
+                cte_query: Some(query_string),
+            }
+        }else{
+            InnerTable{
+                table_name: "".to_string(),
+                fields_map: Default::default(),
+                cte_query: None,
+            }
         }
     }
 
@@ -2857,6 +2899,31 @@ impl QueryBuilder {
         }
         // println!("buider: {:#?}",self);
         //println!("queryString: {:#?}",queryString);
+        // Collect CTE definitions from target_table and joins
+        let mut cte_defs: std::collections::HashSet<String> = std::collections::HashSet::new();
+        if let Some(ref t) = self.target_table {
+            if let Some(ref cte) = t.cte_definition {
+                if !cte.query.is_empty() {
+                    cte_defs.insert(format!("{} AS (
+{}
+)", cte.name, cte.query));
+                }
+            }
+        }
+        for join in &self.joins {
+            if let Some(ref cte) = join.target_table.cte_definition {
+                if !cte.query.is_empty() {
+                    cte_defs.insert(format!("{} AS (
+{}
+)", cte.name, cte.query));
+                }
+            }
+        }
+        if !cte_defs.is_empty() {
+            let mut defs: Vec<&String> = cte_defs.iter().collect();
+            defs.sort();
+            queryString = format!("WITH {}\n{}", defs.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",\n"), queryString);
+        }
         println!("");
         Ok(queryString.to_string())
     }
@@ -2865,6 +2932,7 @@ impl QueryBuilder {
 pub struct InnerTable {
     pub table_name: String,
     pub fields_map: HashMap<String, Varchar>,
+    pub cte_query: Option<String>,
 }
 
 impl Table for InnerTable {
@@ -2878,6 +2946,14 @@ impl Table for InnerTable {
         vec![]
     }
     fn update_primary_key(&mut self, primary_key: Vec<SqlColumn>) -> () {
-
     }
+
+    fn cte(&self) -> Option<CteDefinition> {
+        self.cte_query.as_ref().map(|q| CteDefinition {
+            name: self.table_name.clone(),
+            query: q.clone(),
+        })
+    }
+
+
 }
