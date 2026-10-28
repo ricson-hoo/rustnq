@@ -2036,7 +2036,7 @@ impl QueryBuilder {
     fn convert_to_json_value(&self, row:DbRow)-> Result<JsonValue, Error>{
         // println!("row of product {:#?}", row);
         let mut json_obj = json!({});
-        let dialect = DbDialect::current();
+        let dialect = row.dialect();
         let column_count = match &row {
         DbRow::Mysql(r) => r.columns().len(),
         DbRow::Postgres(r) => r.columns().len(),
@@ -2085,7 +2085,7 @@ impl QueryBuilder {
         let value_kind = if type_name == "SET" {
         ValueKind::Set
         } else {
-        DbDialect::current().value_kind(&type_name)
+        dialect.value_kind(&type_name)
         };
         match value_kind {
         ValueKind::Str => {
@@ -2350,7 +2350,7 @@ impl QueryBuilder {
             }
         }
         ValueKind::Set => {
-            let values: Vec<serde_json::Value> = match DbDialect::current() {
+            let values: Vec<serde_json::Value> = match dialect {
                 DbDialect::Postgres => {
                     let raw = match &row {
                         DbRow::Postgres(r) => r.try_get_raw(i),
@@ -2645,8 +2645,8 @@ impl QueryBuilder {
         DbRow::Postgres(r) => r.columns().get(0).map(|c| (c.name().to_string(), c.type_info().name().to_string())),
         };
         if let Some((col_name, type_name)) = col_info {
-// column info already extracted above
-        match DbDialect::current().value_kind(&type_name) {
+        let dialect = row.dialect();
+        match dialect.value_kind(&type_name) {
         ValueKind::TinyInt | ValueKind::SmallInt | ValueKind::Int | ValueKind::BigInt | ValueKind::UInt | ValueKind::Decimal | ValueKind::Float => {
             let value_result = try_get_from_dbrow!(&row, 0, i64);
             if let Ok(value) = value_result {

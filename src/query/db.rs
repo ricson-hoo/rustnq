@@ -31,6 +31,15 @@ pub enum DbRow {
     Postgres(sqlx::postgres::PgRow),
 }
 
+impl DbRow {
+    pub fn dialect(&self) -> crate::query::dialect::DbDialect {
+        match self {
+            DbRow::Mysql(_) => crate::query::dialect::DbDialect::MySql,
+            DbRow::Postgres(_) => crate::query::dialect::DbDialect::Postgres,
+        }
+    }
+}
+
 
 
 #[derive(Debug)]
