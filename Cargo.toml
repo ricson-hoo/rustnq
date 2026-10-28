@@ -3,18 +3,11 @@ name = "rustnq"
 version = "0.1.0"
 edition = "2021"
 
-["postgres"]
-default = ["mysql"]
-mysql = ["dep:sqlx-mysql", "sqlx/mysql"]
-postgres = ["dep:sqlx-postgres", "sqlx/postgres"]
-
-[features]
-default = []
 
 [dependencies]
 sqlx = { version = "0.8.6",features = ["json","chrono","rust_decimal","uuid","mysql","postgres","runtime-tokio"]}
-sqlx-mysql = {version = "0.8.6", features = ["json","chrono","rust_decimal","uuid"]}
-sqlx-postgres = {version = "0.8.6", features = ["json","chrono","rust_decimal","uuid"]}
+sqlx-mysql = {version = "0.8.6", features = ["json","chrono","rust_decimal","uuid"], optional = true}
+sqlx-postgres = {version = "0.8.6", features = ["json","chrono","rust_decimal","uuid"], optional = true}
 anyhow = "1.0.89"
 serde = "1.0.210"
 chrono = { version = "^0", features = ["serde"] }
@@ -30,3 +23,7 @@ hex-literal="0.3.3"
 base64 = "0.22.1"
 once_cell = "1.20.1"
 rust_decimal = "1.36.0"
+[features]
+default = ["mysql"]
+mysql = ["dep:sqlx-mysql", "sqlx/mysql"]
+postgres = ["dep:sqlx-postgres", "sqlx/postgres"]

@@ -61,22 +61,20 @@ impl DbDialect {
                 .collect::<Vec<String>>()
                 .join(".");
         }
-        #[cfg(feature = "postgres")]
-        {
-            if PG_RESERVED_KEYWORDS.contains(&name.to_lowercase().as_str()) {
-                return format!("\"{}\"", name);
+        match *self {
+            DbDialect::Postgres => {
+                if PG_RESERVED_KEYWORDS.contains(&name.to_lowercase().as_str()) {
+                    return format!("\"{}\"", name);
+                }
+                return name.to_string();
             }
-            return name.to_string();
-        }
-        #[cfg(feature = "mysql")]
-        {
-            if MYSQL_KEYWORDS.contains(&name.to_lowercase().as_str()) {
-                return format!("`{}`", name);
+            DbDialect::MySql => {
+                if MYSQL_KEYWORDS.contains(&name.to_lowercase().as_str()) {
+                    return format!("`{}`", name);
+                }
+                return name.to_string();
             }
-            return name.to_string();
         }
-        #[allow(unreachable_code)]
-        name.to_string()
     }
 
     /// 列引用（可能为 `表.字段`）包裹
