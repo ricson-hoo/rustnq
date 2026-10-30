@@ -2495,13 +2495,13 @@ impl QueryBuilder {
             let value_result = try_get_from_dbrow!(&row, i, chrono::NaiveDateTime);
             if let Ok(value) = value_result {
                 if let Some(value) = value {
-                    let timestamp = value.and_utc().timestamp();
+                    let formatted = value.format("%Y-%m-%dT%H:%M:%S%.3f").to_string();
                     if obj_name.is_some() {
-                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(formatted.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(formatted);
                     }else {
-                        json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                        json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                        json_obj[column_name] = serde_json::Value::String(formatted.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(formatted);
                     }
 
                 }else{
@@ -2521,13 +2521,13 @@ impl QueryBuilder {
             let value_result = try_get_from_dbrow!(&row, i, DateTime<Utc>);
             if let Ok(value) = value_result {
                 if let Some(value) = value {
-                    let cur_value = value.timestamp_millis();
+                    let formatted = value.to_rfc3339();
                     if obj_name.is_some() {
-                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
-                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(formatted.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(formatted);
                     }else {
-                        json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
-                        json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(cur_value));
+                        json_obj[column_name] = serde_json::Value::String(formatted.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(formatted);
                     }
                 }else{
                     if obj_name.is_some() {
@@ -2546,13 +2546,13 @@ impl QueryBuilder {
             let value_result = try_get_from_dbrow!(&row, i, chrono::NaiveDate);
             if let Ok(value) = value_result {
                 if let Some(value) = value {
-                    let timestamp = value.and_time(NaiveTime::default()).and_utc().timestamp_millis();
+                    let formatted = value.format("%Y-%m-%d").to_string();
                     if obj_name.is_some() {
-                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(formatted.clone());
+                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(formatted);
                     }else {
-                        json_obj[column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
-                        json_obj[camel_case_column_name] = serde_json::Value::Number(serde_json::Number::from(timestamp));
+                        json_obj[column_name] = serde_json::Value::String(formatted.clone());
+                        json_obj[camel_case_column_name] = serde_json::Value::String(formatted);
                     }
 
                 }else{

@@ -98,7 +98,7 @@ async fn build_pool(url: &str, dialect: DbDialect, timezone: Option<i8>, max_con
                 Box::pin(async move {
                     if let Some(tz) = timezone {
                         let _ = conn.execute(
-                            format!("SET TIME ZONE 'UTC{}:00';", if tz >= 0 { format!("+{}", tz) } else { tz.to_string() }).as_str()
+                            format!("SET TIME ZONE '{}{:02}:00';", if tz >= 0 { "+" } else { "-" }, tz.abs()).as_str()
                         ).await;
                     }
                     if readonly {
