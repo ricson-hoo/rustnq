@@ -321,9 +321,14 @@ pub enum FieldValue {
     I32(i32),
     F64(f64),
     Raw(String),
+    Null,
 }
 
 //帮实现intoString
+
+impl FieldValue {
+    pub fn null() -> Self { FieldValue::Null }
+}
 
 impl From<String> for FieldValue {
     fn from(value: String) -> Self { FieldValue::String(value) }
@@ -368,6 +373,7 @@ impl ToString for FieldValue {
                 f.to_string()
             }
             FieldValue::Raw(s) => s.clone(),
+            FieldValue::Null => "NULL".to_string(),
         }
     }
 }

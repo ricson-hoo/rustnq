@@ -73,12 +73,14 @@ async fn build_pool(url: &str, dialect: DbDialect, timezone: Option<i8>, max_con
                 Box::pin(async move {
                     if let Some(tz) = timezone {
                         let sign = if tz >= 0 { "+" } else { "-" };
-                        let _ = conn.execute(
+                        conn.execute(
                             format!("SET time_zone='{}{}:00';", sign, tz.abs()).as_str()
-                        ).await;
+                        ).await?;
                     }
                     if readonly {
-                        let _ = conn.execute("SET SESSION transaction_read_only = ON;").await;
+                        // 先尝试启用 TiDB 的 noop 函数支持，MySQL 上该变量不存在会失败，忽略即可
+                        let _ = conn.execute("SET SESSION tidb_enable_noop_functions = 1;").await;
+                        conn.execute("SET SESSION transaction_read_only = ON;").await?;
                     }
                     Ok(())
                 })
@@ -97,12 +99,13 @@ async fn build_pool(url: &str, dialect: DbDialect, timezone: Option<i8>, max_con
             builder = builder.after_connect(move |conn, _meta| {
                 Box::pin(async move {
                     if let Some(tz) = timezone {
-                        let _ = conn.execute(
-                            format!("SET TIME ZONE '{}{:02}:00';", if tz >= 0 { "+" } else { "-" }, tz.abs()).as_str()
-                        ).await;
+                        let sign = if tz >= 0 { "+" } else { "-" };
+                        conn.execute(
+                            format!("SET TIME ZONE INTERVAL '{}{}:00' HOUR TO MINUTE", sign, tz.abs()).as_str()
+                        ).await?;
                     }
                     if readonly {
-                        let _ = conn.execute("SET SESSION default_transaction_read_only = on;").await;
+                        conn.execute("SET SESSION default_transaction_read_only = on;").await?;
                     }
                     Ok(())
                 })
