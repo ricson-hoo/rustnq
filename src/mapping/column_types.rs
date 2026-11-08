@@ -126,8 +126,9 @@ impl<T:Clone+Into<String>> Enum<T>{
     }
 
 
-    pub fn like(&self, pattern: String) -> Condition
+    pub fn like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         let dialect = crate::query::dialect::DbDialect::current();
         if dialect.is_postgres() {
             Condition::new(format!("{}::text LIKE '{}'", self.qualified_name(), pattern))
@@ -136,8 +137,9 @@ impl<T:Clone+Into<String>> Enum<T>{
         }
     }
 
-    pub fn not_like(&self, pattern: String) -> Condition
+    pub fn not_like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         let dialect = crate::query::dialect::DbDialect::current();
         if dialect.is_postgres() {
             Condition::new(format!("{}::text NOT LIKE '{}'", self.qualified_name(), pattern))
@@ -369,13 +371,15 @@ impl Varchar {
         build_not_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted, input.holding, input.table,input.name,input.value, input.cast_type.clone())
     }
 
-    pub fn like(&self, pattern: String) -> Condition
+    pub fn like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 
-    pub fn not_like(&self, pattern: String) -> Condition
+    pub fn not_like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} NOT LIKE '{}'", self.qualified_name(), pattern))
     }
 
@@ -786,8 +790,9 @@ impl Char {
         build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding, input.table,input.name,input.value, None)
     }
 
-    pub fn like(&self, pattern: String) -> Condition
+    pub fn like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
@@ -881,8 +886,9 @@ impl crate::mapping::column_types::Tinytext {
         build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value, None)
     }
 
-    pub fn like(&self, pattern: String) -> Condition
+    pub fn like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
@@ -964,13 +970,15 @@ impl crate::mapping::column_types::Text {
         build_equal_condition_for_string_type(self.table.clone(),self.name.clone(), self.is_encrypted.clone(), input.holding,input.table, input.name,input.value, None)
     }
 
-    pub fn like(&self, pattern: String) -> Condition
+    pub fn like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 
-    pub fn not_like(&self, pattern: String) -> Condition
+    pub fn not_like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} NOT LIKE '{}'", self.qualified_name(), pattern))
     }
 
@@ -1105,8 +1113,9 @@ impl crate::mapping::column_types::Mediumtext {
         build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value, None)
     }
 
-    pub fn like(&self, pattern: String) -> Condition
+    pub fn like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }
@@ -1193,8 +1202,9 @@ impl crate::mapping::column_types::Longtext {
         build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table,input.name,input.value, None)
     }
 
-    pub fn like(&self, pattern: String) -> Condition
+    pub fn like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 
@@ -2320,6 +2330,114 @@ impl Bigint {
         self.target = Some(target.to_string());
         self.clone()
     }
+
+    pub fn gt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn le<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn not_in<T: ToString>(&self, input_list: Vec<T>) -> Condition
+    {
+        Condition::new(format!("{} not in ({})", self.qualified_name(), input_list.into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<String>>()
+            .join(" , ")))
+    }
+
+    pub fn equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<Bigint>,
+    {
+        let int = input.into();
+        let output = match int.holding {
+            Holding::Name => int.qualified_name(),
+            Holding::Value => int.value.unwrap().to_string(),
+            Holding::SubQuery => int.sub_query
+                .as_ref()
+                .and_then(|q| q.build().ok())
+                .map(|sql| format!("({})", sql))
+                .unwrap_or_default(),
+            _ => "".to_string()
+        };
+        Condition::new(format!("{} = {}", self.qualified_name(), output))
+    }
+
+    pub fn in_<T: ToString>(&self, input_list: Vec<T>) -> Condition
+    {
+        Condition::new(format!("{} in ({})", self.qualified_name(), input_list.into_iter()
+            .map(|input| input.to_string())
+            .collect::<Vec<String>>()
+            .join(", ")))
+    }
+
+    pub fn not_equal<T>(&self, input: T) -> Condition
+    where
+        T: Into<crate::mapping::column_types::Bigint>,
+    {
+        let int = input.into();
+        let output = match int.holding {
+            Holding::Name => int.qualified_name(),
+            Holding::Value => int.value.unwrap().to_string(),
+            Holding::SubQuery => int.sub_query
+                .as_ref()
+                .and_then(|q| q.build().ok())
+                .map(|sql| format!("({})", sql))
+                .unwrap_or_default(),
+            _ => "".to_string()
+        };
+        Condition::new(format!("{} != {}", self.qualified_name(), output))
+    }
+
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
+    }
+
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
+    pub fn is_not_empty(&self) -> Condition
+    {
+        Condition::new(format!("{} !=''", self.qualified_name()))
+    }
+
+    pub fn is_empty(&self) -> Condition
+    {
+        Condition::new(format!("{} =''", self.qualified_name()))
+    }
+
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
 }
 
 impl Column for Bigint {
@@ -2350,6 +2468,18 @@ impl From<&str> for Bigint {
             Ok(num) => Bigint::with_value(Some(num)), // Convert string to i64
             Err(_) => Bigint::with_value(None), // Handle conversion error
         }
+    }
+}
+
+impl From<i64> for Bigint {
+    fn from(v: i64) -> Self {
+        Bigint::with_value(Some(v))
+    }
+}
+
+impl From<i32> for Bigint {
+    fn from(v: i32) -> Self {
+        Bigint::with_value(Some(v as i64))
     }
 }
 
@@ -3547,8 +3677,9 @@ impl crate::mapping::column_types::Json {
         build_equal_condition_for_string_type(self.table.clone(), self.name.clone(), self.is_encrypted.clone(), input.holding,input.table, input.name,input.value, None)
     }
 
-    pub fn like(&self, pattern: String) -> Condition
+    pub fn like<S: Into<String>>(&self, pattern: S) -> Condition
     {
+        let pattern = pattern.into();
         Condition::new(format!("{} LIKE '{}'", self.qualified_name(), pattern))
     }
 }

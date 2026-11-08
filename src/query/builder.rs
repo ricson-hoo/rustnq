@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text, Numeric, Longtext};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text, Numeric, Json, Longtext};
 use crate::query::db::{DbPool, DbQueryResult, DbRow};
 use crate::query::dialect::{DbDialect, ValueKind};
 use crate::query::statement::CastType;
@@ -913,6 +913,18 @@ impl From<&Longtext> for SelectField {
     }
 }
 
+impl From<&Json> for SelectField {
+    fn from(value: &Json) -> SelectField {
+        SelectField::Field(Field::new(&value.table(), &value.name(), None, value.alias(), value.is_encrypted()))
+    }
+}
+
+impl From<Json> for SelectField {
+    fn from(value: Json) -> SelectField {
+        SelectField::Field(Field::new(&value.table(), &value.name(), None, value.alias(), value.is_encrypted()))
+    }
+}
+
 fn encrypt_value(value:String)->String{
     resolve_encryptor().encrypt(value)
 }
@@ -1029,15 +1041,29 @@ fn render_update_set_clause(update_values: &[(SelectField, FieldValue)]) -> Vec<
     update_values
         .iter()
         .map(|(field, value)| {
-            let column_ref = match field {
-                SelectField::Field(f)
-                    if DbDialect::current().is_postgres() && !f.table.is_empty() =>
-                {
-                    DbDialect::current().wrap_identifier(&f.name)
+            let (column_ref, is_encrypted) = match field {
+                SelectField::Field(f) => {
+                    let name = if DbDialect::current().is_postgres() {
+                        DbDialect::current().wrap_identifier(&f.name)
+                    } else if f.table.is_empty() {
+                        DbDialect::current().wrap_identifier(&f.name)
+                    } else {
+                        DbDialect::current().wrap_qualified_name(Some(&f.table), &f.name)
+                    };
+                    (name, f.is_encrypted)
                 }
-                _ => field.to_string(),
+                _ => (field.to_string(), false),
             };
-            format!("{} = {}", column_ref, value.to_string())
+            let value_str = if is_encrypted {
+                match value {
+                    FieldValue::String(s) => encrypt_value(s.clone()),
+                    FieldValue::Null => "NULL".to_string(),
+                    _ => value.to_string(),
+                }
+            } else {
+                value.to_string()
+            };
+            format!("{} = {}", column_ref, value_str)
         })
         .collect()
 }
