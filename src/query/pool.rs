@@ -43,6 +43,10 @@ pub async fn init_pools<P: DbConf>(configs: Vec<P>) {
         let mut pools = POOLS.lock().unwrap();
         pools.push(PoolEntry { conf: Arc::new(conf), pool });
     }
+    // 根据第一个池的方言设置进程级默认方言，确保查询构造阶段使用正确的后端语法
+    if let Some(entry) = POOLS.lock().unwrap().first() {
+        DbDialect::set_default(entry.conf.dialect());
+    }
 }
 
 pub(crate) fn resolve_pool(

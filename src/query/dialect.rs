@@ -18,11 +18,37 @@ thread_local! {
     static CURRENT_DIALECT: std::cell::RefCell<Option<DbDialect>> = std::cell::RefCell::new(None);
 }
 
+/// 进程级默认方言。连接池初始化时根据第一个池的方言设置，
+/// 避免查询构造阶段（`select().from().where_()` / `build()`）在
+/// `_execute_*` 设置线程方言之前就用到了错误的后端语法。
+static DEFAULT_DIALECT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 impl DbDialect {
-    /// 当前线程方言（由连接池在执行操作前设置）
+    fn from_discriminant(v: u8) -> DbDialect {
+        match v {
+            1 => DbDialect::Postgres,
+            _ => DbDialect::MySql,
+        }
+    }
+
+    fn to_discriminant(self) -> u8 {
+        match self {
+            DbDialect::MySql => 0,
+            DbDialect::Postgres => 1,
+        }
+    }
+
+    /// 设置进程级默认方言（由连接池初始化时调用一次）
+    pub fn set_default(dialect: DbDialect) {
+        DEFAULT_DIALECT.store(dialect.to_discriminant(), std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 当前线程方言：优先取线程级设置，否则回退到进程级默认方言
     pub fn current() -> DbDialect {
         CURRENT_DIALECT.with(|d| {
-            d.borrow().unwrap_or(DbDialect::MySql)
+            d.borrow().unwrap_or_else(|| {
+                Self::from_discriminant(DEFAULT_DIALECT.load(std::sync::atomic::Ordering::SeqCst))
+            })
         })
     }
 
