@@ -616,19 +616,15 @@ fn get_enum_name(enum_type_name: &str) -> String {
 }
 
 fn get_qualified_enum_key(enum_value: &str, unsupported_char_in_enum_key: &HashSet<&str>) -> String {
+    let enum_value = enum_value.trim();
     let mut qualified_key = enum_value.to_string();
     let is_numeric = enum_value.chars().next().unwrap_or_default().is_numeric();
 
     if is_numeric {
         qualified_key = format!("_{}", enum_value);
-    }/* else {
-        for un_supported in unsupported_char_in_enum_key.iter() {
-            if qualified_key.contains(un_supported) {
-                qualified_key = format!("_{}", enum_value);
-                break;
-            }
-        }
-    }*/
+    }
+    qualified_key = qualified_key.replace('.', "_").replace(' ', "_");
+    let _ = unsupported_char_in_enum_key;
 
     qualified_key
 }
@@ -708,10 +704,11 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
 
     for (index, item) in enum_items.iter().enumerate() {
         let enum_item = get_qualified_enum_key(item, &HashSet::new());
+        let raw_item = item.trim();
         enum_code_lines.push(format!("    {},", enum_item));
-        enum_to_string_code_lines.push(format!("            {}::{} => \"{}\".to_string(),", enum_name, enum_item,enum_item));
-        enum_from_string_code_lines.push(format!("            \"{}\" => {}::{},",enum_item, enum_name, enum_item));
-        enum_display_code_lines.push(format!("            {}::{} => write!(f,\"{}\"),",enum_name, enum_item, enum_item));
+        enum_to_string_code_lines.push(format!("            {}::{} => \"{}\".to_string(),", enum_name, enum_item, raw_item));
+        enum_from_string_code_lines.push(format!("            \"{}\" => {}::{},", raw_item, enum_name, enum_item));
+        enum_display_code_lines.push(format!("            {}::{} => write!(f,\"{}\"),",enum_name, enum_item, raw_item));
     }
 
     enum_from_string_code_lines.push(format!("            &_ => panic!(\"unknown {}: '{{}}'\", s),", enum_name));
@@ -756,7 +753,8 @@ fn generate_enum(enum_name: &str, column_definition: &str, table_name: &str, col
     writeln!(buf_writer,"    pub fn values() -> Vec<{}> {{",enum_name);
     write!(buf_writer,"        vec![");
     for (index, item) in enum_items.iter().enumerate() {
-        write!(buf_writer,"{}::{},",enum_name,item);
+        let enum_item = get_qualified_enum_key(item, &HashSet::new());
+        write!(buf_writer,"{}::{},",enum_name,enum_item);
     }
     write!(buf_writer,"]\n");
     writeln!(buf_writer,"    }}");

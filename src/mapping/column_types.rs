@@ -1015,6 +1015,12 @@ impl From<&str> for Text {
     }
 }
 
+impl From<String> for Text {
+    fn from(s: String) -> Self {
+        Text::with_value(Some(s))
+    }
+}
+
 impl Column for crate::mapping::column_types::Text {
     fn table(&self) -> String {
         self.table.clone().unwrap_or_default()
