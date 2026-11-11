@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
-use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Double, Timestamp, Int, Datetime, Enum, Time, Tinyint, Text, Numeric, Json, Longtext};
+use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Double, Timestamp, TimestampUtc, Int, Datetime, DatetimeUtc, Enum, Time, Tinyint, Text, Numeric, Json, Longtext};
 use crate::query::db::{DbPool, DbQueryResult, DbRow};
 use crate::query::dialect::{DbDialect, ValueKind};
 use crate::query::statement::CastType;
@@ -500,6 +500,8 @@ impl From<&SqlColumn> for SelectField {
             SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::DatetimeUtc(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::TimestampUtc(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
@@ -533,6 +535,8 @@ impl From<SqlColumn> for SelectField {
             SqlColumn::Time(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Datetime(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Timestamp(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::DatetimeUtc(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
+            SqlColumn::TimestampUtc(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Year(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Blob(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
             SqlColumn::Json(col_def) => col_def.clone().map_or(SelectField::UnsafeExpr("".to_string()),|def|SelectField::Field(Field::new(&def.table(),&def.name(), None, def.alias(),def.is_encrypted()))),
@@ -781,6 +785,43 @@ impl From<Timestamp> for SelectField{
 
 impl From<&Timestamp> for SelectField{
     fn from(value: &Timestamp) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<TimestampUtc> for SelectField{
+    fn from(value: TimestampUtc) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<&TimestampUtc> for SelectField{
+    fn from(value: &TimestampUtc) -> SelectField {
+        SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
+    }
+}
+
+impl From<DatetimeUtc> for SelectField{
+    fn from(value: DatetimeUtc) -> SelectField {
+        match value.holding() {
+            Holding::Value => {
+                // Utc 值带 +00:00 偏移输出，避免依赖会话时区
+                let text = value.value()
+                    .map(|v| v.format("%Y-%m-%d %H:%M:%S%.f%:z").to_string())
+                    .unwrap_or_default();
+                if value.alias().is_some() {
+                    SelectField::UnsafeExpr(format!("{} as {}", text, value.alias().unwrap()))
+                }else {
+                    SelectField::UnsafeExpr(text)
+                }
+            },
+            _ => SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted())),
+        }
+    }
+}
+
+impl From<&DatetimeUtc> for SelectField{
+    fn from(value: &DatetimeUtc) -> SelectField {
         SelectField::Field(Field::new(&value.table(),&value.name(), None, value.alias(),value.is_encrypted()))
     }
 }
@@ -1288,6 +1329,21 @@ fn construct_upsert_fields_values(columns:&Vec<SqlColumn>, insert_fields: &mut V
                 if let Some(col) = column_def {
                     if !skip_field_names.contains(&col.name()) {
                         add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S").to_string())} else {None},insert_fields,insert_values,update_fields_values,col.is_encrypted());
+                    }
+                }
+            }
+            SqlColumn::DatetimeUtc(column_def) => {
+                if let Some(col) = column_def {
+                    if !skip_field_names.contains(&col.name()) {
+                        // Utc 变体写入带 +00:00 偏移，PG timestamptz 解析不再依赖会话 TimeZone
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S%.f%:z").to_string())} else {None},insert_fields,insert_values,update_fields_values,col.is_encrypted());
+                    }
+                }
+            }
+            SqlColumn::TimestampUtc(column_def) => {
+                if let Some(col) = column_def {
+                    if !skip_field_names.contains(&col.name()) {
+                        add_text_upsert_fields_values(col.name(),if let Some(value) = col.value() { Some(value.format("%Y-%m-%d %H:%M:%S%.f%:z").to_string())} else {None},insert_fields,insert_values,update_fields_values,col.is_encrypted());
                     }
                 }
             }

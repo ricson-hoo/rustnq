@@ -21,7 +21,7 @@ pub fn set_datetime_utc(enabled: bool) {
     DATETIME_UTC.store(enabled, std::sync::atomic::Ordering::SeqCst);
 }
 
-fn datetime_utc() -> bool {
+pub(crate) fn datetime_utc() -> bool {
     DATETIME_UTC.load(std::sync::atomic::Ordering::SeqCst)
 }
 
@@ -56,25 +56,7 @@ pub struct EntityGenerateConfig{
 }
 
 impl EntityGenerateConfig{
-    pub fn new(output_dir:String, field_naming_convention: NamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>, partial_eq_tables: HashSet<String>) ->Self{
-        EntityGenerateConfig{
-            output_dir,
-            naming_convention: field_naming_convention,
-            boolean_columns,
-            trait_for_enum_types,
-            partial_eq_tables,
-            datetime_utc: false,
-        }
-    }
-
-    /// 时间列改用 `DateTime<Utc>`（TIMESTAMPTZ + 固定 UTC timesystem 的推荐配置）
-    pub fn with_datetime_utc(mut self) -> Self {
-        self.datetime_utc = true;
-        self
-    }
-
-    #[allow(dead_code)]
-    fn new_full(output_dir:String, field_naming_convention: NamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>, partial_eq_tables: HashSet<String>, datetime_utc: bool) ->Self{
+    pub fn new(output_dir:String, field_naming_convention: NamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>, partial_eq_tables: HashSet<String>, datetime_utc: bool) ->Self{
         EntityGenerateConfig{
             output_dir,
             naming_convention: field_naming_convention,
@@ -91,6 +73,7 @@ impl EntityGenerateConfig{
             boolean_columns:HashMap::new(),
             trait_for_enum_types:HashMap::new(),
             partial_eq_tables: HashSet::new(),
+            datetime_utc: false,
         }
     }
 
@@ -101,6 +84,7 @@ impl EntityGenerateConfig{
             boolean_columns:HashMap::new(),
             trait_for_enum_types:HashMap::new(),
             partial_eq_tables: HashSet::new(),
+            datetime_utc: false,
         }
     }
 }
@@ -536,6 +520,18 @@ impl SqlColumn {
             },
             SqlColumn::Timestamp(_) => MysqlDataTypeProp {
                 rust_type: if datetime_utc() { RustDataType::chronoDateTimeUtc } else { RustDataType::chronoDateTimeLocal },
+                is_conditional_type: false,
+                container_type: None,
+                import:vec!["chrono".to_string(),"chrono::Utc".to_string()]
+            },
+            SqlColumn::DatetimeUtc(_) => MysqlDataTypeProp {
+                rust_type: RustDataType::chronoDateTimeUtc,
+                is_conditional_type: false,
+                container_type: None,
+                import:vec!["chrono".to_string(),"chrono::Utc".to_string()]
+            },
+            SqlColumn::TimestampUtc(_) => MysqlDataTypeProp {
+                rust_type: RustDataType::chronoDateTimeUtc,
                 is_conditional_type: false,
                 container_type: None,
                 import:vec!["chrono".to_string(),"chrono::Utc".to_string()]

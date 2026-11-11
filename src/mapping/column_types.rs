@@ -1,7 +1,7 @@
 use crate::mapping::description::{Holding, Column, MappedEnum, SqlColumn};
 use crate::query::builder::{Condition, Field, FieldValue, QueryBuilder, SelectField};
 use crate::query::dialect::DbDialect;
-use chrono::{Local, NaiveDate, NaiveTime};
+use chrono::{NaiveDate, NaiveTime, Utc};
 use serde::{Serialize,Deserialize};
 use std::fmt;
 use std::str::FromStr;
@@ -3372,10 +3372,12 @@ impl Column for crate::mapping::column_types::Time {
     }
 }
 
+/// `DATETIME` 列（MySQL / naive timestamp）：值类型为 `DateTime<Local>`，保持历史行为。
+/// 需要 UTC 语义的列请使用 `DatetimeUtc`。
 #[derive(Clone,Debug)]
 pub struct Datetime{
     table: Option<String>,
-    pub value: Option<chrono::DateTime<Local>>,
+    pub value: Option<chrono::DateTime<chrono::Local>>,
     pub name: String,
     alias:Option<String>,
     target:Option<String>,
@@ -3390,11 +3392,11 @@ impl crate::mapping::column_types::Datetime {
         crate::mapping::column_types::Datetime { name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
-    fn with_value(value: Option<chrono::DateTime<Local>>) -> Self {
+    fn with_value(value: Option<chrono::DateTime<chrono::Local>>) -> Self {
         crate::mapping::column_types::Datetime { value:value, name:"".to_string() ,target: None, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
-    pub fn with_name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
+    pub fn with_name_value(name: String, value: Option<chrono::DateTime<chrono::Local>>) -> Self {
         crate::mapping::column_types::Datetime { name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
@@ -3402,11 +3404,11 @@ impl crate::mapping::column_types::Datetime {
         Datetime {table:Some(table), name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
-    pub fn with_qualified_name_value(table:String, name: String, value: Option<chrono::DateTime<Local>>) -> Self {
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<chrono::DateTime<chrono::Local>>) -> Self {
         Datetime {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
-    pub fn value(&self) -> Option<chrono::DateTime<Local>> {
+    pub fn value(&self) -> Option<chrono::DateTime<chrono::Local>> {
         self.value.clone()
     }
 
@@ -3492,7 +3494,7 @@ impl Column for crate::mapping::column_types::Datetime {
 #[derive(Clone,Debug)]
 pub struct Timestamp{
     table: Option<String>,
-    value: Option<chrono::DateTime<Local>>,
+    value: Option<chrono::DateTime<chrono::Local>>,
     name: String,
     alias:Option<String>,
     target:Option<String>,
@@ -3506,11 +3508,11 @@ impl crate::mapping::column_types::Timestamp {
         crate::mapping::column_types::Timestamp { name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
-    pub fn with_value(value: Option<chrono::DateTime<Local>>) -> Self {
+    pub fn with_value(value: Option<chrono::DateTime<chrono::Local>>) -> Self {
         crate::mapping::column_types::Timestamp { value:value, name:"".to_string() ,target: None, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
-    pub fn with_name_value(name: String, value: Option<chrono::DateTime<Local>>) -> Self {
+    pub fn with_name_value(name: String, value: Option<chrono::DateTime<chrono::Local>>) -> Self {
         crate::mapping::column_types::Timestamp { name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
     }
 
@@ -3518,11 +3520,11 @@ impl crate::mapping::column_types::Timestamp {
         Timestamp {table:Some(table), name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
     }
 
-    pub fn with_qualified_name_value(table:String, name: String, value: Option<chrono::DateTime<Local>>) -> Self {
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<chrono::DateTime<chrono::Local>>) -> Self {
         Timestamp {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
     }
 
-    pub fn value(&self) -> Option<chrono::DateTime<Local>> {
+    pub fn value(&self) -> Option<chrono::DateTime<chrono::Local>> {
         self.value.clone()
     }
 
@@ -3643,6 +3645,292 @@ impl Column for crate::mapping::column_types::Timestamp {
     fn qualified_name(&self) -> String {
         // 表名/字段名可能是数据库关键字（如 PostgreSQL 的 user），按当前方言包裹
         crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
+    }
+}
+
+/// `TIMESTAMPTZ` 列（PostgreSQL）：值类型为 `DateTime<Utc>`。
+/// 与 `Datetime`（`DateTime<Local>`）并存，互不影响：MySQL 等以本地时间语义写库的项目继续用 `Datetime`。
+#[derive(Clone,Debug)]
+pub struct DatetimeUtc{
+    table: Option<String>,
+    pub value: Option<chrono::DateTime<Utc>>,
+    pub name: String,
+    alias:Option<String>,
+    target:Option<String>,
+    sub_query: Option<QueryBuilder>,
+    pub holding: Holding,
+    is_encrypted:bool
+}
+
+impl crate::mapping::column_types::DatetimeUtc {
+    pub fn with_name(name: String) -> Self {
+        crate::mapping::column_types::DatetimeUtc { name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_value(value: Option<chrono::DateTime<Utc>>) -> Self {
+        crate::mapping::column_types::DatetimeUtc { value:value, name:"".to_string() ,target: None, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_name_value(name: String, value: Option<chrono::DateTime<Utc>>) -> Self {
+        crate::mapping::column_types::DatetimeUtc { name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        DatetimeUtc {table:Some(table), name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<chrono::DateTime<Utc>>) -> Self {
+        DatetimeUtc {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn value(&self) -> Option<chrono::DateTime<Utc>> {
+        self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
+    }
+
+    pub fn as_(&mut self, alias:&str) -> Self {
+        self.alias = Some(alias.to_string());
+        self.clone()
+    }
+
+    pub fn target(&mut self, target:&str) -> Self {
+        self.target = Some(target.to_string());
+        self.clone()
+    }
+
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn gt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn le<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+
+    pub fn cast_as<T: From<DatetimeUtc> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
+    }
+}
+
+impl Column for crate::mapping::column_types::DatetimeUtc {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
+    }
+}
+
+impl From<DatetimeUtc> for Varchar {
+    fn from(i: DatetimeUtc) -> Self {
+        Varchar{
+            table: i.table.clone(),
+            name: i.name.clone(),
+            alias: i.alias.clone(),
+            target: i.target.clone(),
+            value: i.value().clone().map(|v| v.to_string()),
+            sub_query: i.sub_query.clone(),
+            holding: i.holding.clone(),
+            is_encrypted: i.is_encrypted,
+            cast_type: None,
+        }
+    }
+}
+
+/// `TIMESTAMPTZ` 列（PostgreSQL）的 UTC 版本，配合需要 `DateTime<Utc>` 实体字段的项目。
+#[derive(Clone,Debug)]
+pub struct TimestampUtc{
+    table: Option<String>,
+    value: Option<chrono::DateTime<Utc>>,
+    name: String,
+    alias:Option<String>,
+    target:Option<String>,
+    sub_query: Option<QueryBuilder>,
+    holding: Holding,
+    is_encrypted:bool
+}
+
+impl crate::mapping::column_types::TimestampUtc {
+    pub fn with_name(name: String) -> Self {
+        crate::mapping::column_types::TimestampUtc { name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_value(value: Option<chrono::DateTime<Utc>>) -> Self {
+        crate::mapping::column_types::TimestampUtc { value:value, name:"".to_string() ,target: None, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_name_value(name: String, value: Option<chrono::DateTime<Utc>>) -> Self {
+        crate::mapping::column_types::TimestampUtc { name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None, is_encrypted:false,table:None }
+    }
+
+    pub fn with_qualified_name(table:String, name: String) -> Self {
+        TimestampUtc {table:Some(table), name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn with_qualified_name_value(table:String, name: String, value: Option<chrono::DateTime<Utc>>) -> Self {
+        TimestampUtc {table:Some(table), name:name, value:value, target: None, holding: Holding::Value, sub_query:None, alias: None,is_encrypted:false }
+    }
+
+    pub fn value(&self) -> Option<chrono::DateTime<Utc>> {
+        self.value.clone()
+    }
+
+    pub fn set_encrypted(mut self, is_encrypted:bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
+    }
+
+    pub fn as_(&mut self, alias:&str) -> Self {
+        self.alias = Some(alias.to_string());
+        self.clone()
+    }
+
+    pub fn target(&mut self, target:&str) -> Self {
+        self.target = Some(target.to_string());
+        self.clone()
+    }
+
+    pub fn in_date(&self, input: NaiveDate) -> Condition
+    {
+        let timestamp_begin = NaiveDateTime::new(input, NaiveTime::from_hms(0, 0, 0));
+        let timestamp_end = NaiveDateTime::new(input, NaiveTime::from_hms(23, 59, 59));
+
+        Condition::new(format!(
+            "{} BETWEEN '{}' AND '{}'",
+            self.qualified_name(),
+            timestamp_begin.to_string(),
+            timestamp_end.to_string()
+        ))
+    }
+
+    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn gt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn le<T: ToString>(&self, value: T) -> Condition
+    {
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+    }
+
+    pub fn is_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NULL", self.qualified_name()))
+    }
+
+    pub fn is_not_null(&self) -> Condition
+    {
+        Condition::new(format!("{} IS NOT NULL", self.qualified_name()))
+    }
+
+    pub fn asc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} asc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn desc(&self) -> SelectField{
+        SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
+    }
+
+    pub fn holding(&self) -> Holding {
+        self.holding.clone()
+    }
+
+    pub fn sub_query(&self) -> Option<QueryBuilder> {
+        self.sub_query.clone()
+    }
+
+    pub fn cast_as<T: From<TimestampUtc> + Casted>(&self, cast_type: CastType) -> T {
+        T::from(self.clone()).casted(cast_type)
+    }
+}
+
+impl Column for crate::mapping::column_types::TimestampUtc {
+    fn table(&self) -> String {
+        self.table.clone().unwrap_or_default()
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+    fn qualified_name(&self) -> String {
+        crate::query::dialect::DbDialect::current().wrap_qualified_name(self.table.as_deref(), &self.name)
+    }
+}
+
+impl From<TimestampUtc> for Varchar {
+    fn from(i: TimestampUtc) -> Self {
+        Varchar{
+            table: i.table.clone(),
+            name: i.name.clone(),
+            alias: i.alias.clone(),
+            target: i.target.clone(),
+            value: i.value().clone().map(|v| v.to_string()),
+            sub_query: i.sub_query.clone(),
+            holding: i.holding.clone(),
+            is_encrypted: i.is_encrypted,
+            cast_type: None,
+        }
     }
 }
 

@@ -439,14 +439,33 @@ pub fn get_construct_info_from_column_definition(table_name:&str, mysql_col_defi
                     import_statements.push(enumType);
                 },
                 SqlColumn::Datetime(_) => {
-                    field_type = "Datetime".to_string();
-                    name_only_default_value = format!("Datetime::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
-                    name_and_value_from_entity_default_value = format!("Datetime::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    // 实体时间字段为 DateTime<Utc> 时使用 DatetimeUtc，否则保持历史的 DateTime<Local> 版本
+                    let dt_type = if crate::codegen::entity::datetime_utc() { "DatetimeUtc" } else { "Datetime" };
+                    if dt_type == "DatetimeUtc" {
+                        sql_column_type = Some(SqlColumn::DatetimeUtc(None));
+                    }
+                    field_type = dt_type.to_string();
+                    name_only_default_value = format!("{}::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", dt_type, mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("{}::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", dt_type, mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Timestamp(_) => {
-                    field_type = "Timestamp".to_string();
-                    name_only_default_value = format!("Timestamp::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
-                    name_and_value_from_entity_default_value = format!("Timestamp::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    let ts_type = if crate::codegen::entity::datetime_utc() { "TimestampUtc" } else { "Timestamp" };
+                    if ts_type == "TimestampUtc" {
+                        sql_column_type = Some(SqlColumn::TimestampUtc(None));
+                    }
+                    field_type = ts_type.to_string();
+                    name_only_default_value = format!("{}::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", ts_type, mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("{}::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", ts_type, mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
+                },
+                SqlColumn::DatetimeUtc(_) => {
+                    field_type = "DatetimeUtc".to_string();
+                    name_only_default_value = format!("DatetimeUtc::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("DatetimeUtc::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
+                },
+                SqlColumn::TimestampUtc(_) => {
+                    field_type = "TimestampUtc".to_string();
+                    name_only_default_value = format!("TimestampUtc::with_qualified_name(table_name.to_string(),\"{}\".to_string()){}", mysql_col_definition.name_unmodified, if is_encrypted { ".set_encrypted(true)" } else {""});
+                    name_and_value_from_entity_default_value = format!("TimestampUtc::with_qualified_name_value(table_name.to_string(),\"{}\".to_string(), entity.{}){}", mysql_col_definition.name_unmodified, &entity_field_name, if is_encrypted { ".set_encrypted(true)" } else {""});
                 },
                 SqlColumn::Tinyint(_) => {
                     if col_len == "1".to_string() || (boolean_columns.contains_key(table_name) && boolean_columns[table_name].contains(&column_name.to_string())) {
