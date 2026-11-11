@@ -117,6 +117,7 @@ pub enum RustDataType {
     chronoNaiveDate,
     chronoNaiveTime,
     chronoDateTimeLocal,
+    chronoDateTimeUtc,
 }
 
 pub trait Column {

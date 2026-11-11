@@ -2444,6 +2444,17 @@ impl Bigint {
     pub fn desc(&self) -> SelectField{
         SelectField::Field(Field::new(&*self.table(), &format!("{} desc", &*self.name().to_string()), self.target.clone(), self.alias(), self.is_encrypted()))
     }
+    /// 生成字段自增表达式 `字段名 + value`，用于 UPDATE SET 右侧（不带表名限定）
+    pub fn plus<T: ToString>(&self, value: T) -> FieldValue
+    {
+        FieldValue::Raw(format!("{} + {}", self.name, value.to_string()))
+    }
+
+    /// 生成字段自减表达式 `字段名 - value`，用于 UPDATE SET 右侧（不带表名限定）
+    pub fn minus<T: ToString>(&self, value: T) -> FieldValue
+    {
+        FieldValue::Raw(format!("{} - {}", self.name, value.to_string()))
+    }
 }
 
 impl Column for Bigint {
@@ -2835,6 +2846,18 @@ impl crate::mapping::column_types::Double {
     pub fn equal<T: ToString>(&self, value: T) -> Condition
     {
         Condition::new(format!("{} = ({})", self.qualified_name(), value.to_string()))
+    }
+
+    /// 生成字段自增表达式 `字段名 + value`，用于 UPDATE SET 右侧（不带表名限定）
+    pub fn plus<T: ToString>(&self, value: T) -> FieldValue
+    {
+        FieldValue::Raw(format!("{} + {}", self.name, value.to_string()))
+    }
+
+    /// 生成字段自减表达式 `字段名 - value`，用于 UPDATE SET 右侧（不带表名限定）
+    pub fn minus<T: ToString>(&self, value: T) -> FieldValue
+    {
+        FieldValue::Raw(format!("{} - {}", self.name, value.to_string()))
     }
 }
 

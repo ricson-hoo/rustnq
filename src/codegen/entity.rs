@@ -12,6 +12,19 @@ use serde::{Serialize, Deserialize};
 use crate::mapping::description::{RustDataType, SqlColumn};
 use crate::query::builder::Condition;
 
+/// 实体时间字段时区类型（codegen 进程级配置）。
+/// `Local`（默认，历史行为）生成 `Option<chrono::DateTime<Local>>`；
+/// `Utc` 生成 `Option<chrono::DateTime<Utc>>`，配合 TIMESTAMPTZ 列与固定 UTC 的 timesystem。
+static DATETIME_UTC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_datetime_utc(enabled: bool) {
+    DATETIME_UTC.store(enabled, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn datetime_utc() -> bool {
+    DATETIME_UTC.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 struct StructFieldType {
     qualified_name: String,
     is_primitive_type: bool,
@@ -38,6 +51,8 @@ pub struct EntityGenerateConfig{
     pub boolean_columns: HashMap<String, Vec<String>>,
     pub trait_for_enum_types: HashMap<String, String>,
     pub partial_eq_tables: HashSet<String>,
+    /// 时间列生成 `Option<chrono::DateTime<Utc>>`（默认 false 生成 Local）
+    pub datetime_utc: bool,
 }
 
 impl EntityGenerateConfig{
@@ -48,6 +63,25 @@ impl EntityGenerateConfig{
             boolean_columns,
             trait_for_enum_types,
             partial_eq_tables,
+            datetime_utc: false,
+        }
+    }
+
+    /// 时间列改用 `DateTime<Utc>`（TIMESTAMPTZ + 固定 UTC timesystem 的推荐配置）
+    pub fn with_datetime_utc(mut self) -> Self {
+        self.datetime_utc = true;
+        self
+    }
+
+    #[allow(dead_code)]
+    fn new_full(output_dir:String, field_naming_convention: NamingConvention, boolean_columns: HashMap<String, Vec<String>>, trait_for_enum_types: HashMap<String, String>, partial_eq_tables: HashSet<String>, datetime_utc: bool) ->Self{
+        EntityGenerateConfig{
+            output_dir,
+            naming_convention: field_naming_convention,
+            boolean_columns,
+            trait_for_enum_types,
+            partial_eq_tables,
+            datetime_utc,
         }
     }
     pub fn default()->Self{
@@ -74,6 +108,7 @@ impl EntityGenerateConfig{
 
 //generate entities according to db & table definitions
 pub async fn generate_entities(conn: &impl TableIntrospector, db_name:&str, config:EntityGenerateConfig) {/*entity_out_dir:&str, boolean_columns: &HashMap<String, HashSet<String>>, trait_for_enum_types: &HashMap<&str, &str>*/
+    set_datetime_utc(config.datetime_utc);
     let entity_out_dir = config.output_dir.clone();
     let boolean_columns = config.boolean_columns.clone();
     let mut trait_for_enum_types = config.trait_for_enum_types.clone();
@@ -215,7 +250,10 @@ async fn generate_entity(conn: &impl TableIntrospector, table: TableRow, output_
                     struct_fields_init.push(format!("{}_:{},",&it.name, if field_type_qualified_name.starts_with("Vec") {"vec![]"} else {"None"}));
                 }else {
 
-                    if field_type_qualified_name.clone().contains("DateTime<Local>"){
+                    if field_type_qualified_name.clone().contains("DateTime<Utc>"){
+                        struct_fields.push("#[serde(default, deserialize_with = \"crate::serde::deserialize_datetime_utc\")]".to_string()); //note:this is a temp solution
+                        struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime_utc\")]".to_string()); //note:this is a temp solution
+                    }else if field_type_qualified_name.clone().contains("DateTime<Local>"){
                         struct_fields.push("#[serde(default, deserialize_with = \"crate::serde::deserialize_datetime_local\")]".to_string()); //note:this is a temp solution
                         struct_fields.push("#[serde(serialize_with = \"crate::serde::serialize_datetime_local\")]".to_string()); //note:this is a temp solution
                     }else if field_type_qualified_name.clone().contains("NaiveDateTime"){
@@ -343,6 +381,7 @@ impl RustDataType {
             RustDataType::chronoNaiveDate => "Option<chrono::NaiveDate>",
             RustDataType::chronoNaiveTime => "Option<chrono::NaiveTime>",
             RustDataType::chronoDateTimeLocal => "Option<chrono::DateTime<Local>>",
+            RustDataType::chronoDateTimeUtc => "Option<chrono::DateTime<Utc>>",
         };
         /*match containerType {
             Some(RustDataType::Vec)  => format!("Vec<{}>",type_str),
@@ -490,16 +529,16 @@ impl SqlColumn {
                 import:vec!["chrono".to_string()]
             },
             SqlColumn::Datetime(_) => MysqlDataTypeProp {
-                rust_type: RustDataType::chronoDateTimeLocal,
+                rust_type: if datetime_utc() { RustDataType::chronoDateTimeUtc } else { RustDataType::chronoDateTimeLocal },
                 is_conditional_type: false,
                 container_type: None,
-                import:vec!["chrono".to_string(),"chrono::Local".to_string()]
+                import:vec!["chrono".to_string(),"chrono::Utc".to_string()]
             },
             SqlColumn::Timestamp(_) => MysqlDataTypeProp {
-                rust_type: RustDataType::chronoDateTimeLocal,
+                rust_type: if datetime_utc() { RustDataType::chronoDateTimeUtc } else { RustDataType::chronoDateTimeLocal },
                 is_conditional_type: false,
                 container_type: None,
-                import:vec!["chrono".to_string(),"chrono::Local".to_string()]
+                import:vec!["chrono".to_string(),"chrono::Utc".to_string()]
             },
             SqlColumn::Year(_) => MysqlDataTypeProp {
                 rust_type: RustDataType::i32,

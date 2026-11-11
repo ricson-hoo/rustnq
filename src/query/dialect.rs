@@ -187,6 +187,14 @@ impl DbDialect {
         }
     }
 
+    /// 秒级时间戳差：field 距当前时间经过的秒数（PG: EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - field))::bigint）
+    pub fn timestamp_diff_seconds(&self, field: &str) -> String {
+        match self {
+            DbDialect::Postgres => format!("EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - {}))::bigint", field),
+            DbDialect::MySql => format!("TIMESTAMPDIFF(SECOND, {}, NOW())", field),
+        }
+    }
+
     /// 取年份
     pub fn year(&self, field: &str) -> String {
         match self {

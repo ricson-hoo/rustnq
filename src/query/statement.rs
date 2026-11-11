@@ -103,6 +103,11 @@ pub fn timestamp_diff<T: Into<SelectField>>(date: T, unit: DateSubUnit) -> Int{
     Int::with_name(DbDialect::current().timestamp_diff(&unit.to_string(), &date.into().to_string()))
 }
 
+/// 秒级时间戳差（field 距当前时间经过的秒数）
+pub fn timestamp_diff_seconds<T: Into<SelectField>>(field: T) -> Bigint{
+    Bigint::with_name(DbDialect::current().timestamp_diff_seconds(&field.into().to_string()))
+}
+
 pub fn curdate() -> Date{
     Date::with_name(DbDialect::current().curdate().to_string())
 }
