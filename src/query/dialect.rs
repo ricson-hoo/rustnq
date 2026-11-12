@@ -14,14 +14,48 @@ pub enum DbDialect {
     Postgres,
 }
 
+/// 数据库执行上下文：方言 + 会话时区，统一通过 thread-local 传递，
+/// 供行 → JSON 转换（TIMESTAMP 列按会话时区还原）与 SQL 构造共享。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DbContext {
+    pub dialect: DbDialect,
+    pub timezone: Option<i8>,
+}
+
 thread_local! {
-    static CURRENT_DIALECT: std::cell::RefCell<Option<DbDialect>> = std::cell::RefCell::new(None);
+    static CURRENT_CONTEXT: std::cell::RefCell<Option<DbContext>> = std::cell::RefCell::new(None);
 }
 
 /// 进程级默认方言。连接池初始化时根据第一个池的方言设置，
 /// 避免查询构造阶段（`select().from().where_()` / `build()`）在
 /// `_execute_*` 设置线程方言之前就用到了错误的后端语法。
 static DEFAULT_DIALECT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// 当前线程执行上下文：优先取线程级设置，否则回退到进程级默认
+/// （方言用默认方言，时区回退 +08:00）。
+pub fn current_context() -> DbContext {
+    CURRENT_CONTEXT.with(|c| {
+        c.borrow().unwrap_or_else(|| DbContext {
+            dialect: DbDialect::from_discriminant(DEFAULT_DIALECT.load(std::sync::atomic::Ordering::SeqCst)),
+            timezone: Some(8),
+        })
+    })
+}
+
+/// 当前线程会话时区（未设置时回退 +08:00）。
+pub fn current_timezone() -> Option<i8> {
+    current_context().timezone
+}
+
+/// 在当前线程设置执行上下文（方言 + 时区），返回 guard，离开作用域时自动恢复。
+pub fn set_context(dialect: DbDialect, timezone: Option<i8>) -> ContextGuard {
+    let ctx = DbContext { dialect, timezone };
+    let prev = CURRENT_CONTEXT.with(|c| c.borrow_mut().replace(ctx));
+    ContextGuard {
+        prev,
+        _no_send_sync: std::marker::PhantomData,
+    }
+}
 
 impl DbDialect {
     fn from_discriminant(v: u8) -> DbDialect {
@@ -43,22 +77,14 @@ impl DbDialect {
         DEFAULT_DIALECT.store(dialect.to_discriminant(), std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// 当前线程方言：优先取线程级设置，否则回退到进程级默认方言
+    /// 当前线程方言：优先取线程级上下文，否则回退到进程级默认方言
     pub fn current() -> DbDialect {
-        CURRENT_DIALECT.with(|d| {
-            d.borrow().unwrap_or_else(|| {
-                Self::from_discriminant(DEFAULT_DIALECT.load(std::sync::atomic::Ordering::SeqCst))
-            })
-        })
+        current_context().dialect
     }
 
-    /// 在当前线程设置方言，返回一个 guard，离开作用域时自动恢复
-    pub fn set_current(dialect: DbDialect) -> DialectGuard {
-        let prev = CURRENT_DIALECT.with(|d| d.borrow_mut().replace(dialect));
-        DialectGuard {
-            prev,
-            _no_send_sync: std::marker::PhantomData,
-        }
+    /// 在当前线程设置方言（时区沿用当前上下文），返回 guard，离开作用域时自动恢复
+    pub fn set_current(dialect: DbDialect) -> ContextGuard {
+        set_context(dialect, current_timezone())
     }
 
     pub fn is_mysql(&self) -> bool {
@@ -415,15 +441,15 @@ impl DbDialect {
     }
 }
 
-/// 方言设置守卫：离开作用域时自动恢复上一方言
-pub struct DialectGuard {
-    prev: Option<DbDialect>,
+/// 执行上下文守卫：离开作用域时自动恢复上一上下文
+pub struct ContextGuard {
+    prev: Option<DbContext>,
     _no_send_sync: std::marker::PhantomData<fn()>,
 }
 
-impl Drop for DialectGuard {
+impl Drop for ContextGuard {
     fn drop(&mut self) {
-        CURRENT_DIALECT.with(|d| *d.borrow_mut() = self.prev);
+        CURRENT_CONTEXT.with(|c| *c.borrow_mut() = self.prev);
     }
 }
 

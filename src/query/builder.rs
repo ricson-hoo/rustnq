@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Column as MysqlColumn, Error, Row, TypeInfo, Value, ValueRef};
 use crate::mapping::column_types::{Boolean, Bigint, Char, Tinytext, Varchar, Date, Decimal, Double, Timestamp, TimestampUtc, Int, Datetime, DatetimeUtc, Enum, Time, Tinyint, Text, Numeric, Json, Longtext};
 use crate::query::db::{DbPool, DbQueryResult, DbRow};
-use crate::query::dialect::{DbDialect, ValueKind};
+use crate::query::dialect::{current_context, set_context, DbDialect, ValueKind};
 use crate::query::statement::CastType;
 use url::Url;
 use lazy_static::lazy_static;
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Number};
 use serde_json::Value as JsonValue;
 use std::future::Future;
-use chrono::{DateTime, NaiveTime, Utc};
+use chrono::{DateTime, NaiveTime, TimeZone, Utc};
 use uuid::Uuid;
 use rust_decimal::prelude::ToPrimitive;
 use sqlx::Executor;
@@ -1853,10 +1853,10 @@ impl QueryBuilder {
         }
         // thread-local guard：函数结束时自动清理
         let _enc_guard = set_build_encryptor(conf.encryptor());
-        let _dialect_guard = DbDialect::set_current(conf.dialect());
+        let _ctx_guard = set_context(conf.dialect(), conf.timezone());
         // 将 guard 所有权转移给调用方（通过 mem::forget 保持 alive）
         std::mem::forget(_enc_guard);
-        std::mem::forget(_dialect_guard);
+        std::mem::forget(_ctx_guard);
         Ok(pool)
     }
 
@@ -1864,7 +1864,7 @@ impl QueryBuilder {
     async fn _execute_all_json(&self, query: &str) -> Result<Vec<JsonValue>, Error> {
         if let Some(ptr) = self.tx_ptr {
             let (_, conf) = self.resolve_pool();
-            let _dialect_guard = DbDialect::set_current(conf.dialect());
+            let _ctx_guard = set_context(conf.dialect(), conf.timezone());
             if conf.dialect().is_postgres() {
                 let tx = unsafe { &mut *(ptr as *mut sqlx::Transaction<'_, sqlx::Postgres>) };
                 sqlx::query::<sqlx::Postgres>(query)
@@ -1889,7 +1889,7 @@ impl QueryBuilder {
     async fn _execute_one_json(&self, query: &str) -> Result<JsonValue, Error> {
         if let Some(ptr) = self.tx_ptr {
             let (_, conf) = self.resolve_pool();
-            let _dialect_guard = DbDialect::set_current(conf.dialect());
+            let _ctx_guard = set_context(conf.dialect(), conf.timezone());
             if conf.dialect().is_postgres() {
                 let tx = unsafe { &mut *(ptr as *mut sqlx::Transaction<'_, sqlx::Postgres>) };
                 sqlx::query::<sqlx::Postgres>(query)
@@ -1914,7 +1914,7 @@ impl QueryBuilder {
     async fn _execute_count(&self, query: &str) -> Result<i64, Error> {
         if let Some(ptr) = self.tx_ptr {
             let (_, conf) = self.resolve_pool();
-            let _dialect_guard = DbDialect::set_current(conf.dialect());
+            let _ctx_guard = set_context(conf.dialect(), conf.timezone());
             if conf.dialect().is_postgres() {
                 let tx = unsafe { &mut *(ptr as *mut sqlx::Transaction<'_, sqlx::Postgres>) };
                 sqlx::query::<sqlx::Postgres>(query)
@@ -1966,9 +1966,9 @@ impl QueryBuilder {
         if let Some(ptr) = self.tx_ptr {
             let (_, conf) = self.resolve_pool();
             let _enc_guard = set_build_encryptor(conf.encryptor());
-            let _dialect_guard = DbDialect::set_current(conf.dialect());
+            let _ctx_guard = set_context(conf.dialect(), conf.timezone());
             std::mem::forget(_enc_guard);
-            std::mem::forget(_dialect_guard);
+            std::mem::forget(_ctx_guard);
             let query_string = self.build()
                 .map_err(|e| Error::Configuration(e.message.into()))?;
             println!("query string # {}", query_string);
@@ -2731,28 +2731,49 @@ impl QueryBuilder {
             }
         }
         ValueKind::Timestamp => {
-            let value_result = try_get_from_dbrow!(&row, i, DateTime<Utc>);
-            if let Ok(value) = value_result {
-                if let Some(value) = value {
-                    let formatted = value.to_rfc3339();
-                    if obj_name.is_some() {
-                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(formatted.clone());
-                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(formatted);
-                    }else {
-                        json_obj[column_name] = serde_json::Value::String(formatted.clone());
-                        json_obj[camel_case_column_name] = serde_json::Value::String(formatted);
+            let ctx = current_context();
+            // MySQL TIMESTAMP 按会话时区返回本地时间（NaiveDateTime），
+            // 需用上下文时区还原为 UTC；PostgreSQL timestamptz 直接返回 DateTime<Utc>。
+            let formatted = if ctx.dialect.is_mysql() {
+                match try_get_from_dbrow!(&row, i, chrono::NaiveDateTime) {
+                    Ok(Some(naive)) => {
+                        let tz = ctx.timezone.unwrap_or(8);
+                        chrono::FixedOffset::east_opt(tz as i32 * 3600)
+                            .and_then(|off| off.from_local_datetime(&naive).single())
+                            .map(|dt| dt.with_timezone(&Utc).to_rfc3339())
                     }
-                }else{
-                    if obj_name.is_some() {
-                        json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
-                        json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
-                    }else {
-                        json_obj[column_name] = serde_json::Value::Null;
-                        json_obj[camel_case_column_name] = serde_json::Value::Null;
+                    Ok(None) => None,
+                    Err(err) => {
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+                        None
                     }
                 }
-            } else if let Err(err) = value_result {
-                eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+            } else {
+                match try_get_from_dbrow!(&row, i, DateTime<Utc>) {
+                    Ok(Some(value)) => Some(value.to_rfc3339()),
+                    Ok(None) => None,
+                    Err(err) => {
+                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+                        None
+                    }
+                }
+            };
+            if let Some(formatted) = formatted {
+                if obj_name.is_some() {
+                    json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::String(formatted.clone());
+                    json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::String(formatted);
+                }else {
+                    json_obj[column_name] = serde_json::Value::String(formatted.clone());
+                    json_obj[camel_case_column_name] = serde_json::Value::String(formatted);
+                }
+            }else{
+                if obj_name.is_some() {
+                    json_obj[obj_name.as_ref().unwrap()][column_name] = serde_json::Value::Null;
+                    json_obj[obj_name.as_ref().unwrap()][camel_case_column_name] = serde_json::Value::Null;
+                }else {
+                    json_obj[column_name] = serde_json::Value::Null;
+                    json_obj[camel_case_column_name] = serde_json::Value::Null;
+                }
             }
         }
         ValueKind::Date => {
