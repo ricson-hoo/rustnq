@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Number};
 use serde_json::Value as JsonValue;
 use std::future::Future;
-use chrono::{DateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use uuid::Uuid;
 use rust_decimal::prelude::ToPrimitive;
 use sqlx::Executor;
@@ -2732,30 +2732,21 @@ impl QueryBuilder {
         }
         ValueKind::Timestamp => {
             let ctx = current_context();
-            // MySQL TIMESTAMP 按会话时区返回本地时间（NaiveDateTime），
-            // 需用上下文时区还原为 UTC；PostgreSQL timestamptz 直接返回 DateTime<Utc>。
-            let formatted = if ctx.dialect.is_mysql() {
-                match try_get_from_dbrow!(&row, i, chrono::NaiveDateTime) {
-                    Ok(Some(naive)) => {
+            // MySQL TIMESTAMP 列：sqlx 把会话本地时间当作 UTC（DateTime<Utc>），
+            // 需减去会话时区偏移还原真实 UTC；PostgreSQL timestamptz 直接返回正确 UTC。
+            let formatted = match try_get_from_dbrow!(&row, i, DateTime<Utc>) {
+                Ok(Some(value)) => {
+                    if ctx.dialect.is_mysql() {
                         let tz = ctx.timezone.unwrap_or(8);
-                        chrono::FixedOffset::east_opt(tz as i32 * 3600)
-                            .and_then(|off| off.from_local_datetime(&naive).single())
-                            .map(|dt| dt.with_timezone(&Utc).to_rfc3339())
-                    }
-                    Ok(None) => None,
-                    Err(err) => {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                        None
+                        Some((value - chrono::Duration::hours(tz as i64)).to_rfc3339())
+                    } else {
+                        Some(value.to_rfc3339())
                     }
                 }
-            } else {
-                match try_get_from_dbrow!(&row, i, DateTime<Utc>) {
-                    Ok(Some(value)) => Some(value.to_rfc3339()),
-                    Ok(None) => None,
-                    Err(err) => {
-                        eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
-                        None
-                    }
+                Ok(None) => None,
+                Err(err) => {
+                    eprintln!("Error deserializing value for column '{}' (type: {}, kind: {:?}): {}", column_name, type_name, value_kind, err);
+                    None
                 }
             };
             if let Some(formatted) = formatted {
