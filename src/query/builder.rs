@@ -196,7 +196,39 @@ impl fmt::Display for Condition {
 #[derive(Debug,Clone)]
 pub enum Operation{
     Select,Insert, Update_By_PrimaryKey,
-    Update_By_Condition,Insert_Or_Update,Delete
+    Update_By_Condition,Insert_Or_Update,Insert_From_Select,Insert_Values_With_Conflict,Delete
+}
+
+/// `INSERT ... SELECT ... ON CONFLICT` 的冲突处理策略。
+///
+/// 将一条已构建好的 SELECT 结果按列位写入目标表，冲突时按策略处理：
+/// - PostgreSQL：`ON CONFLICT (conflict_columns) DO NOTHING / DO UPDATE SET`
+/// - MySQL：`INSERT IGNORE` / `ON DUPLICATE KEY UPDATE`
+#[derive(Clone, Debug)]
+pub enum InsertConflictPolicy {
+    /// 遇冲突忽略已存在行：`ON CONFLICT (conflict_columns) DO NOTHING`（MySQL 下等价 `INSERT IGNORE`）。
+    DoNothing {
+        /// 冲突判定列引用（目标表上的唯一约束列，不必是主键），如 `t.stat_date.clone().into()`。
+        conflict_columns: Vec<SelectField>,
+    },
+    /// 遇冲突用 SELECT 新值覆盖对应列：`ON CONFLICT (conflict_columns) DO UPDATE SET col = EXCLUDED.col ...`
+    /// （MySQL 下为 `ON DUPLICATE KEY UPDATE col = VALUES(col) ...`）。
+    Overwrite {
+        /// 冲突判定列引用，如 `t.stat_date.clone().into()`。
+        conflict_columns: Vec<SelectField>,
+        /// 需要覆盖的列：冲突时以该列对应的 SELECT 新值刷新，如 `t.total_requests.clone().into()`。
+        update_columns: Vec<SelectField>,
+    },
+    /// PostgreSQL 自定义冲突子句：支持部分唯一索引谓词（如 `WHERE source_key IS NOT NULL`）
+    /// 以及 `EXCLUDED` 算术更新（如 `col = col + EXCLUDED.col`）。
+    Custom {
+        /// 冲突判定列引用（部分唯一索引的键列），如 `t.source_key.clone().into()`。
+        conflict_columns: Vec<SelectField>,
+        /// `ON CONFLICT (cols)` 后的额外谓词；为 `None` 表示无谓词。
+        conflict_predicate: Option<Condition>,
+        /// `DO UPDATE SET` 赋值列表（左列 + 右侧表达式）；为 `None` 时使用 `DO NOTHING`。
+        update_sets: Option<Vec<(SelectField, FieldValue)>>,
+    },
 }
 
 #[derive(Debug,Clone)]
@@ -352,6 +384,15 @@ impl From<i64> for FieldValue {
 
 impl From<f64> for FieldValue {
     fn from(value: f64) -> Self { FieldValue::F64(value) }
+}
+
+impl From<Option<f64>> for FieldValue {
+    fn from(value: Option<f64>) -> Self {
+        match value {
+            Some(v) => FieldValue::F64(v),
+            None => FieldValue::Null,
+        }
+    }
 }
 
 impl From<Field> for FieldValue {
@@ -1080,12 +1121,24 @@ pub struct QueryBuilder {
     order_by:Vec<SelectField>,
     group_by:Vec<SelectField>,
     update_values: Vec<(SelectField, FieldValue)>, // 用于存储更新字段和值
+    insert_select_sql: Option<String>,
+    insert_columns: Vec<SelectField>,
+    insert_values: Vec<FieldValue>,
+    insert_conflict_policy: Option<InsertConflictPolicy>,
     _pool_conf: Option<Arc<dyn DbConf + Send + Sync>>,
     tx_ptr: Option<usize>,
     for_update: bool,
 }
 
 /// 包装字段名，处理SQL关键字
+/// 从列引用（SelectField）提取裸列名，供 ON CONFLICT / DO UPDATE SET / VALUES() 使用。
+fn wrap_select_field_name(sf: SelectField) -> String {
+    match sf {
+        SelectField::Field(f) => wrap_field_name(&f.name),
+        other => wrap_field_name(&other.to_string()),
+    }
+}
+
 fn wrap_field_name(field_name: &str) -> String {
     // 按当前方言包裹标识符：MySQL 反引号 / PostgreSQL 双引号（保留字）或裸名
     DbDialect::current().wrap_identifier(field_name)
@@ -1126,6 +1179,46 @@ fn render_update_set_clause(update_values: &[(SelectField, FieldValue)]) -> Vec<
         })
         .collect()
 }
+/// 渲染 PostgreSQL `ON CONFLICT ...` 子句（不含前面的列/值部分）。
+fn render_pg_on_conflict(policy: &InsertConflictPolicy) -> String {
+    let conflict_cols = |cols: &Vec<SelectField>| {
+        cols.iter()
+            .map(|c| wrap_select_field_name(c.clone()))
+            .collect::<Vec<String>>()
+            .join(", ")
+    };
+    match policy {
+        InsertConflictPolicy::DoNothing { conflict_columns } => {
+            format!("ON CONFLICT ({}) DO NOTHING", conflict_cols(conflict_columns))
+        }
+        InsertConflictPolicy::Overwrite { conflict_columns, update_columns } => {
+            let sets = update_columns
+                .iter()
+                .map(|c| format!("{} = EXCLUDED.{}", wrap_select_field_name(c.clone()), wrap_select_field_name(c.clone())))
+                .collect::<Vec<String>>()
+                .join(", ");
+            format!("ON CONFLICT ({}) DO UPDATE SET {}", conflict_cols(conflict_columns), sets)
+        }
+        InsertConflictPolicy::Custom { conflict_columns, conflict_predicate, update_sets } => {
+            let predicate = conflict_predicate
+                .as_ref()
+                .map(|p| format!(" WHERE {}", p.query))
+                .unwrap_or_default();
+            match update_sets {
+                None => format!("ON CONFLICT ({}){} DO NOTHING", conflict_cols(conflict_columns), predicate),
+                Some(sets) => {
+                    let sets_str = sets
+                        .iter()
+                        .map(|(f, v)| format!("{} = {}", wrap_select_field_name(f.clone()), v.to_string()))
+                        .collect::<Vec<String>>()
+                        .join(", ");
+                    format!("ON CONFLICT ({}){} DO UPDATE SET {}", conflict_cols(conflict_columns), predicate, sets_str)
+                }
+            }
+        }
+    }
+}
+
 fn add_text_upsert_fields_values(name:String, value:Option<String>, insert_fields: &mut Vec<String>, insert_values: &mut Vec<String>, update_fields_values: &mut Vec<String>, is_encrypted:bool){
     let wrapped_name = wrap_field_name(&name);
     if(!insert_fields.contains(&wrapped_name)){
@@ -1526,53 +1619,127 @@ fn build_primary_key_where_conditions(columns: &[SqlColumn]) -> Vec<String> {
 impl QueryBuilder {
 
     pub fn select_all_fields() -> QueryBuilder {
-        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None,count_all:None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Select, is_select_all: Some(true), distinct: None,count_all:None, target_table:None, select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn init_with_select_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, count_all:None,target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: None, count_all:None,target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn init_with_select_all_fields<A>(table: & A) -> QueryBuilder where A : Table {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Select, is_select_all:Some(true), distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn init_with_select_distinct_fields(fields: Vec<SelectField>) -> QueryBuilder {
         //let fields_strs = fields.iter().map(|field| field.name()).collect();
-        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), count_all:None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Select, is_select_all:None, distinct: Some(true), count_all:None, target_table:None, select_fields:fields, pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn insert_into_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.insert_query_builder()
-        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Insert, is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn update<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update_By_Condition,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Update_By_Condition,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn update_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
         //table.update_query_builder()
-        QueryBuilder { operation:Operation::Update_By_PrimaryKey,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Update_By_PrimaryKey,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn upsert_table_with_value<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Insert_Or_Update,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![],*/ limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
+    }
+
+    /// 构建 `INSERT INTO target (col...) SELECT ... [ON CONFLICT ...]` 语句。
+    ///
+    /// `target_table` 的全列按序作为写入列，SELECT 投影列必须与目标表列列位一一对应；
+    /// 冲突判定/覆盖列由 `policy`（`InsertConflictPolicy`）给出。
+    pub fn init_with_insert_from_select<A>(
+        table: &A,
+        insert_columns: Vec<SelectField>,
+        select_sql: String,
+        policy: InsertConflictPolicy,
+    ) -> QueryBuilder
+    where
+        A: Table,
+    {
+        QueryBuilder {
+            operation: Operation::Insert_From_Select,
+            is_select_all: None,
+            distinct: None,
+            count_all: None,
+            target_table: Some(TargetTable::new(table)),
+            select_fields: vec![],
+            pending_join: None,
+            joins: vec![],
+            conditions: vec![],
+            limit: None,
+            order_by: vec![],
+            group_by: vec![],
+            update_values: vec![],
+            insert_select_sql: Some(select_sql),
+            insert_columns,
+            insert_values: vec![],
+            insert_conflict_policy: Some(policy),
+            _pool_conf: None,
+            tx_ptr: None,
+            for_update: false,
+        }
+    }
+
+    /// 构建 `INSERT INTO target (col...) VALUES (val...) [ON CONFLICT ...]` 语句。
+    ///
+    /// `insert_columns` 与 `insert_values` 按位一一对应；冲突判定/处理由 `policy` 给出。
+    /// 仅用于需要显式控制写入列（跳过数据库默认列）或 `EXCLUDED` 算术更新的场景。
+    pub fn init_with_insert_values_on_conflict<A>(
+        table: &A,
+        insert_columns: Vec<SelectField>,
+        insert_values: Vec<FieldValue>,
+        policy: InsertConflictPolicy,
+    ) -> QueryBuilder
+    where
+        A: Table,
+    {
+        QueryBuilder {
+            operation: Operation::Insert_Values_With_Conflict,
+            is_select_all: None,
+            distinct: None,
+            count_all: None,
+            target_table: Some(TargetTable::new(table)),
+            select_fields: vec![],
+            pending_join: None,
+            joins: vec![],
+            conditions: vec![],
+            limit: None,
+            order_by: vec![],
+            group_by: vec![],
+            update_values: vec![],
+            insert_select_sql: None,
+            insert_columns,
+            insert_values,
+            insert_conflict_policy: Some(policy),
+            _pool_conf: None,
+            tx_ptr: None,
+            for_update: false,
+        }
     }
 
     pub fn delete_one_from<A>(table:& A) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn delete_one_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: Some(Limit::new(0, 1)), order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn delete_all_where<A>(table:& A,condition: Condition) -> QueryBuilder where A : Table{
-        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], _pool_conf: None, tx_ptr: None, for_update: false }
+        QueryBuilder { operation:Operation::Delete,is_select_all:None, distinct: None, count_all:None, target_table:Some(TargetTable::new(table)), select_fields:vec![], pending_join: None, joins: vec![], conditions: vec![condition],/* upsert_values: vec![], */limit: None, order_by: vec![], group_by: vec![], update_values: vec![], insert_select_sql: None, insert_columns: vec![], insert_values: vec![], insert_conflict_policy: None, _pool_conf: None, tx_ptr: None, for_update: false }
     }
 
     pub fn from<A>(mut self, table:& A) -> QueryBuilder where A : Table{
@@ -2005,6 +2172,13 @@ impl QueryBuilder {
                     .join(", ");
                 let query_string = format!("{} RETURNING {}", query_string.trim_end_matches(';'), returning_sql);
                 println!("query string # {}", query_string);
+                if let Some(ptr) = self.tx_ptr {
+                    let tx = unsafe { &mut *(ptr as *mut sqlx::Transaction<'_ , sqlx::Postgres>) };
+                    return sqlx::query::<sqlx::Postgres>(&query_string)
+                        .fetch_optional(&mut **tx)
+                        .await
+                        .map(|opt| opt.map(DbRow::Postgres));
+                }
                 return self._db_fetch_optional_row(&pool, &query_string).await;
             }
             DbDialect::MySql => {
@@ -2220,44 +2394,8 @@ impl QueryBuilder {
 
         match query_result {
         Ok(result)=>{
-            let colums_count = self.select_fields.len();
-            // 单列标量分支
-            if colums_count == 1 {
-                // 处理单列的查询
-                let json_obj = result.as_object();
-                match json_obj {
-                    Some(obj) => {
-                        // 用 row 拿到第一列列名
-                        let first_col_name = obj.keys().next().map(|k| k.to_string());
-                        match first_col_name {
-                            Some(col_name) => {
-                                match obj.get(&col_name) {
-                                    Some(v) => {
-                                        match serde_json::from_value::<T>(v.clone()) {
-                                            Ok(val) => {
-                                                return Ok(Some(val));
-                                            }
-                                            Err(e) => {
-                                                return Err(Error::Decode(e.to_string().into()));
-                                            }
-                                        }
-                                    }
-                                    None => {
-                                        return Err(Error::Decode(format!("列 {} 未在 JSON 结果中找到", col_name).into()));
-                                    }
-                                }
-                            }
-                            None => {
-                                return Err(Error::Decode("JSON 结果不是对象".into()));
-                            }
-                        }
-                    }
-                    None => {
-                        return Err(Error::Decode("JSON 结果不是对象".into()));
-                    }
-                }
-            }
-
+            // 整行反序列化：单列查询若用单字段结构体接收，JSON 对象可直接反序列化为该结构体。
+            // 需要取单列标量请改用 fetch_scalar()。
             let json_parse_result = serde_json::from_value(result);
             match json_parse_result {
                 Ok(json)=>{
@@ -2280,6 +2418,55 @@ impl QueryBuilder {
         }
         }
     }
+
+    /// 取单列标量值。要求查询恰好 select 一列，否则返回 Configuration 错误。
+    /// 与 fetch_one 的区别：fetch_one 反序列化整行（结构体），fetch_scalar 取第一列的值反序列化为 T。
+    pub async fn fetch_scalar<T: Serialize + for<'de> serde::Deserialize<'de>>(&mut self) -> Result<Option<T>,Error> {
+        let colums_count = self.select_fields.len();
+        if colums_count != 1 {
+            return Err(Error::Configuration(
+                format!("fetch_scalar 要求恰好 select 1 列，当前为 {} 列", colums_count).into()
+            ));
+        }
+        self.limit = Some(Limit::new(0, 1));
+        let query_string = self.build()
+        .map_err(|e| Error::Encode(e.message.into()))?;
+
+        let query_result = self._execute_one_json(&query_string).await;
+
+        match query_result {
+        Ok(result)=>{
+            let json_obj = result.as_object();
+            match json_obj {
+                Some(obj) => {
+                    let first_col_name = obj.keys().next().map(|k| k.to_string());
+                    match first_col_name {
+                        Some(col_name) => {
+                            match obj.get(&col_name) {
+                                Some(v) => {
+                                    match serde_json::from_value::<T>(v.clone()) {
+                                        Ok(val) => Ok(Some(val)),
+                                        Err(e) => Err(Error::Decode(e.to_string().into())),
+                                    }
+                                }
+                                None => Err(Error::Decode(format!("列 {} 未在 JSON 结果中找到", col_name).into())),
+                            }
+                        }
+                        None => Err(Error::Decode("JSON 结果不是对象".into())),
+                    }
+                }
+                None => Err(Error::Decode("JSON 结果不是对象".into())),
+            }
+        },
+        Err(e) => {
+            match e {
+                Error::RowNotFound => Ok(None),
+                _ => Err(e),
+            }
+        }
+        }
+    }
+
     pub async fn fetch_count(&self) -> Result<i64, Error> {
         let query_string = self.build()
         .map_err(|e| Error::Configuration(e.message.into()))?;
@@ -3120,6 +3307,60 @@ impl QueryBuilder {
             .map(|condition| condition.query.clone())
             .collect::<Vec<String>>()
             .join(" AND "));
+        },
+        Operation::Insert_From_Select => {
+        let target_table = self.target_table.clone().ok_or_else(|| QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for insert-from-select operation".to_string()))?;
+        let select_sql = self.insert_select_sql.clone().ok_or_else(|| QueryBuildError::new(BuildErrorType::MissingValues, "please provide select statement for insert-from-select operation".to_string()))?;
+        let policy = self.insert_conflict_policy.clone().ok_or_else(|| QueryBuildError::new(BuildErrorType::MissingOperation, "please provide conflict policy for insert-from-select operation".to_string()))?;
+        // 显式写入列（由调用方给定，与 SELECT 投影列位一一对应）
+        let insert_columns: Vec<String> = self.insert_columns.iter()
+            .map(|c| wrap_select_field_name(c.clone()))
+            .collect();
+        let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
+        queryString = match DbDialect::current() {
+            DbDialect::MySql => match policy {
+                InsertConflictPolicy::DoNothing { .. } =>
+                    format!("INSERT IGNORE INTO {} ({}) {};", table_name, insert_columns.join(", "), select_sql),
+                InsertConflictPolicy::Overwrite { update_columns, .. } => {
+                    let sets = update_columns.into_iter()
+                        .map(|c| format!("{} = VALUES({})", wrap_select_field_name(c.clone()), wrap_select_field_name(c)))
+                        .collect::<Vec<String>>().join(", ");
+                    format!("INSERT INTO {} ({}) {} ON DUPLICATE KEY UPDATE {};", table_name, insert_columns.join(", "), select_sql, sets)
+                }
+                InsertConflictPolicy::Custom { .. } =>
+                    return Err(QueryBuildError::new(BuildErrorType::MissingOperation, "Custom conflict policy is only supported on PostgreSQL".to_string())),
+            },
+            DbDialect::Postgres => format!("INSERT INTO {} ({}) {} {};", table_name, insert_columns.join(", "), select_sql, render_pg_on_conflict(&policy)),
+        };
+        },
+        Operation::Insert_Values_With_Conflict => {
+        let target_table = self.target_table.clone().ok_or_else(|| QueryBuildError::new(BuildErrorType::MissingTargetTable, "please provide table name for insert-with-conflict operation".to_string()))?;
+        let policy = self.insert_conflict_policy.clone().ok_or_else(|| QueryBuildError::new(BuildErrorType::MissingOperation, "please provide conflict policy for insert-with-conflict operation".to_string()))?;
+        if self.insert_columns.is_empty() || self.insert_values.is_empty() {
+            return Err(QueryBuildError::new(BuildErrorType::MissingValues, "please provide insert columns and values for insert-with-conflict operation".to_string()));
+        }
+        let insert_columns: Vec<String> = self.insert_columns.iter()
+            .map(|c| wrap_select_field_name(c.clone()))
+            .collect();
+        let insert_values: Vec<String> = self.insert_values.iter()
+            .map(|v| v.to_string())
+            .collect();
+        let table_name = DbDialect::current().wrap_table_reference(&target_table.name);
+        queryString = match DbDialect::current() {
+            DbDialect::MySql => match policy {
+                InsertConflictPolicy::DoNothing { .. } =>
+                    format!("INSERT IGNORE INTO {} ({}) VALUES ({});", table_name, insert_columns.join(", "), insert_values.join(", ")),
+                InsertConflictPolicy::Overwrite { update_columns, .. } => {
+                    let sets = update_columns.into_iter()
+                        .map(|c| format!("{} = VALUES({})", wrap_select_field_name(c.clone()), wrap_select_field_name(c)))
+                        .collect::<Vec<String>>().join(", ");
+                    format!("INSERT INTO {} ({}) VALUES ({}) ON DUPLICATE KEY UPDATE {};", table_name, insert_columns.join(", "), insert_values.join(", "), sets)
+                }
+                InsertConflictPolicy::Custom { .. } =>
+                    return Err(QueryBuildError::new(BuildErrorType::MissingOperation, "Custom conflict policy is only supported on PostgreSQL".to_string())),
+            },
+            DbDialect::Postgres => format!("INSERT INTO {} ({}) VALUES ({}) {};", table_name, insert_columns.join(", "), insert_values.join(", "), render_pg_on_conflict(&policy)),
+        };
         },
         _ => {
         return Err(QueryBuildError::new(BuildErrorType::MissingOperation,"please provide one of these operation Select, Insert, Update, Delete, Insert_Or_Update".to_string()));

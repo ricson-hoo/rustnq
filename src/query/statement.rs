@@ -3,7 +3,8 @@ use uuid::uuid;
 use crate::mapping::description::{Column, SqlColumn};
 use crate::mapping::description::Table;
 use crate::mapping::column_types::{Bigint, Date, Int, Varchar};
-use crate::query::builder::{Condition, InnerTable, QueryBuilder, SelectField, TargetTable};
+use crate::query::builder::{Condition, FieldValue, InnerTable, QueryBuilder, SelectField, TargetTable};
+pub use crate::query::builder::InsertConflictPolicy;
 use serde::Serialize;
 use sqlx::Error;
 use sqlx::Row;
@@ -283,6 +284,52 @@ pub fn group_concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
 pub fn concat<T: Into<SelectField>>(fields: Vec<T>) -> Varchar{
     let fields_str = fields.into_iter().map(|field| field.into().to_string()).collect::<Vec<String>>().join(",");
     Varchar::with_name(DbDialect::current().concat(&fields_str))
+}
+
+/// 将一条已构建好的 SELECT（含聚合/分组）结果按列位写入目标表，并按 `policy` 处理冲突。
+///
+/// 典型场景：`INSERT INTO target (col...) SELECT 聚合列... FROM src GROUP BY ... ON CONFLICT ... DO UPDATE SET ...`
+/// 目标表全列按序作为写入列，`select_statement` 的投影列必须与其列位一一对应（数量、顺序一致）。
+/// 返回带 `Operation::Insert_From_Select` 的构建器，交由 `.execute()` 执行并返回受影响行数。
+pub fn insert_from_select<A>(
+    target_table: &A,
+    target_columns: Vec<SelectField>,
+    select_statement: QueryBuilder,
+    policy: InsertConflictPolicy,
+) -> Result<QueryBuilder, Error>
+where
+    A: Table,
+{
+    let select_sql = select_statement
+        .build()
+        .map_err(|e| Error::Configuration(e.message.into()))?;
+    Ok(QueryBuilder::init_with_insert_from_select(
+        target_table,
+        target_columns,
+        select_sql,
+        policy,
+    ))
+}
+
+/// 构建 `INSERT INTO target (col...) VALUES (val...) [ON CONFLICT ...]` 语句。
+///
+/// `target_columns` 与 `values` 按位一一对应；冲突判定/处理由 `policy` 给出。
+/// 用于需要显式控制写入列（跳过数据库默认列）或 `EXCLUDED` 算术更新的场景。
+pub fn insert_values_on_conflict<A>(
+    target_table: &A,
+    target_columns: Vec<SelectField>,
+    values: Vec<FieldValue>,
+    policy: InsertConflictPolicy,
+) -> QueryBuilder
+where
+    A: Table,
+{
+    QueryBuilder::init_with_insert_values_on_conflict(
+        target_table,
+        target_columns,
+        values,
+        policy,
+    )
 }
 
 pub async fn insert_or_update<A,T: Serialize + for<'de> serde::Deserialize<'de>>(table_with_value: &mut A) -> Result<T,Error> where A : Table{

@@ -3793,6 +3793,74 @@ pub struct TimestampUtc{
     is_encrypted:bool
 }
 
+/// 时间列比较右值：根据 Rust 类型与数据库方言自动决定 SQL 字面量写法。
+///
+/// - `chrono::DateTime<Utc>` → 加单引号，PostgreSQL 补 `::timestamptz`，MySQL 仅单引号
+/// - `chrono::NaiveDateTime` → PostgreSQL 补 `::timestamp`
+/// - `chrono::NaiveDate` → PostgreSQL 补 `::date`
+/// - `&str` / `String` → 视为已写好的 SQL 表达式（`CURRENT_TIMESTAMP`、`NOW()` 等）原样透传
+pub trait TimestampLiteral {
+    fn to_sql_literal(&self) -> String;
+}
+
+/// 按方言包裹时间字面量：`'value'`（MySQL）或 `'value'::pg_cast`（PostgreSQL），并转义单引号。
+fn quote_temporal_literal(value: &str, pg_cast: &str) -> String {
+    let escaped = value.replace('\'', "''");
+    if DbDialect::current().is_postgres() {
+        format!("'{}'::{}", escaped, pg_cast)
+    } else {
+        format!("'{}'", escaped)
+    }
+}
+
+impl TimestampLiteral for chrono::DateTime<Utc> {
+    fn to_sql_literal(&self) -> String {
+        quote_temporal_literal(
+            &self.format("%Y-%m-%d %H:%M:%S%.f%:z").to_string(),
+            "timestamptz",
+        )
+    }
+}
+
+impl TimestampLiteral for chrono::DateTime<chrono::Local> {
+    fn to_sql_literal(&self) -> String {
+        self.with_timezone(&Utc).to_sql_literal()
+    }
+}
+
+impl TimestampLiteral for chrono::NaiveDateTime {
+    fn to_sql_literal(&self) -> String {
+        quote_temporal_literal(
+            &self.format("%Y-%m-%d %H:%M:%S%.f").to_string(),
+            "timestamp",
+        )
+    }
+}
+
+impl TimestampLiteral for chrono::NaiveDate {
+    fn to_sql_literal(&self) -> String {
+        quote_temporal_literal(&self.format("%Y-%m-%d").to_string(), "date")
+    }
+}
+
+impl TimestampLiteral for str {
+    fn to_sql_literal(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl TimestampLiteral for String {
+    fn to_sql_literal(&self) -> String {
+        self.clone()
+    }
+}
+
+impl<T: TimestampLiteral + ?Sized> TimestampLiteral for &T {
+    fn to_sql_literal(&self) -> String {
+        <T as TimestampLiteral>::to_sql_literal(*self)
+    }
+}
+
 impl crate::mapping::column_types::TimestampUtc {
     pub fn with_name(name: String) -> Self {
         crate::mapping::column_types::TimestampUtc { name:name, value: None ,target: None, holding: Holding::Name, sub_query:None, alias: None, is_encrypted:false,table:None }
@@ -3846,24 +3914,24 @@ impl crate::mapping::column_types::TimestampUtc {
         ))
     }
 
-    pub fn ge<T: ToString>(&self, value: T) -> Condition
+    pub fn ge<T: TimestampLiteral>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_string()))
+        Condition::new(format!("{} >= ({})", self.qualified_name(), value.to_sql_literal()))
     }
 
-    pub fn gt<T: ToString>(&self, value: T) -> Condition
+    pub fn gt<T: TimestampLiteral>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_string()))
+        Condition::new(format!("{} > ({})", self.qualified_name(), value.to_sql_literal()))
     }
 
-    pub fn lt<T: ToString>(&self, value: T) -> Condition
+    pub fn lt<T: TimestampLiteral>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_string()))
+        Condition::new(format!("{} < ({})", self.qualified_name(), value.to_sql_literal()))
     }
 
-    pub fn le<T: ToString>(&self, value: T) -> Condition
+    pub fn le<T: TimestampLiteral>(&self, value: T) -> Condition
     {
-        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_string()))
+        Condition::new(format!("{} <= ({})", self.qualified_name(), value.to_sql_literal()))
     }
 
     pub fn is_null(&self) -> Condition
