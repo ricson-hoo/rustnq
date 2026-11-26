@@ -167,7 +167,7 @@ impl Condition {
                 c == ':' || c== '!' ||
                 c == '[' || c == ']' ||
                 c == '/' || c== '*' ||
-                c == '%' || c== '+' ||
+                c == '%' || c== '+' || c == '@' ||
                 c == '（' || c == '）' ||
                 c == '，' || c == '。' ||
             c.is_digit(10) ||  // 允许数字
@@ -360,6 +360,8 @@ pub enum FieldValue {
 
 impl FieldValue {
     pub fn null() -> Self { FieldValue::Null }
+
+    pub fn current_timestamp() -> Self { FieldValue::Raw("CURRENT_TIMESTAMP".to_string()) }
 }
 
 impl From<String> for FieldValue {
