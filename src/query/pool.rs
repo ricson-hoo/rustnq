@@ -30,21 +30,27 @@ lazy_static! {
     static ref POOLS: Mutex<Vec<PoolEntry>> = Mutex::new(Vec::new());
 }
 
+// 从 PoisonError 中恢复锁，避免某个持锁线程 panic 后污染全局池，
+// 导致后续所有数据库操作连锁 panic。
+fn lock_pools() -> std::sync::MutexGuard<'static, Vec<PoolEntry>> {
+    POOLS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub async fn init_pools<P: DbConf>(configs: Vec<P>) {
     for conf in configs {
         let url = conf.url().to_string();
         {
-            let pools = POOLS.lock().unwrap();
-            if pools.iter().any(|e| e.conf.url() == url) {
+            let pools = lock_pools();
+            if pools.iter().any(|e| e.conf.url() == url && e.conf.pool_key() == conf.pool_key()) {
                 continue;
             }
         }
         let pool = build_pool(conf.url(), conf.dialect(), conf.timezone(), conf.max_connections(), conf.is_readonly()).await;
-        let mut pools = POOLS.lock().unwrap();
+        let mut pools = lock_pools();
         pools.push(PoolEntry { conf: Arc::new(conf), pool });
     }
     // 根据第一个池的方言设置进程级默认方言，确保查询构造阶段使用正确的后端语法
-    if let Some(entry) = POOLS.lock().unwrap().first() {
+    if let Some(entry) = lock_pools().first() {
         DbDialect::set_default(entry.conf.dialect());
     }
 }
@@ -52,10 +58,10 @@ pub async fn init_pools<P: DbConf>(configs: Vec<P>) {
 pub(crate) fn resolve_pool(
     conf: Option<&(dyn DbConf + Send + Sync)>,
 ) -> (DbPool, std::sync::Arc<dyn DbConf>) {
-    let pools = POOLS.lock().unwrap();
+    let pools = lock_pools();
     let entry = if let Some(c) = conf {
         pools.iter()
-            .find(|e| e.conf.url() == c.url())
+            .find(|e| e.conf.pool_key() == c.pool_key())
             .expect("pool not registered")
     } else {
         pools.first().expect("no pool configured")
@@ -121,7 +127,7 @@ async fn build_pool(url: &str, dialect: DbDialect, timezone: Option<i8>, max_con
 }
 
 pub fn get_db(url: &str) -> DbPool {
-    POOLS.lock().unwrap()
+    lock_pools()
         .iter()
         .find(|e| e.conf.url() == url)
         .map(|e| e.pool.clone())
@@ -129,14 +135,14 @@ pub fn get_db(url: &str) -> DbPool {
 }
 
 pub fn default_db() -> DbPool {
-    POOLS.lock().unwrap()
+    lock_pools()
         .first()
         .map(|e| e.pool.clone())
         .expect("no pool configured")
 }
 
 pub fn pool_by_key(key: &str) -> DbPool {
-    POOLS.lock().unwrap()
+    lock_pools()
         .iter()
         .find(|e| e.conf.pool_key() == key)
         .map(|e| e.pool.clone())
@@ -148,7 +154,7 @@ pub fn pool_of(k: impl DbKey) -> DbPool {
 }
 
 pub(crate) fn resolve_conf_by_key(key: &str) -> Arc<dyn DbConf + Send + Sync> {
-    POOLS.lock().unwrap()
+    lock_pools()
         .iter()
         .find(|e| e.conf.pool_key() == key)
         .map(|e| e.conf.clone())
