@@ -45,6 +45,30 @@ pub fn count_distinct<T: Into<SelectField>>(field:T) -> Bigint{
     Bigint::with_name(format!("count(distinct {})", field.into().to_string()))
 }
 
+/// COUNT(expr) FILTER (WHERE condition) — PostgreSQL 聚合过滤（不匹配的行不参与聚合）。
+/// MySQL 不支持该语法，仅应在 Postgres 后端使用。
+pub fn count_filter<T: Into<SelectField>>(field: T, condition: Condition) -> Bigint {
+    Bigint::with_name(format!(
+        "count({}) FILTER (WHERE {})",
+        field.into().to_string(),
+        condition
+    ))
+}
+
+/// COUNT(*) FILTER (WHERE condition) — PostgreSQL 聚合过滤。
+pub fn count_all_filter(condition: Condition) -> Bigint {
+    Bigint::with_name(format!("count(*) FILTER (WHERE {})", condition))
+}
+
+/// SUM(expr) FILTER (WHERE condition) — PostgreSQL 聚合过滤。
+pub fn sum_filter<T: Into<SelectField>>(field: T, condition: Condition) -> Bigint {
+    Bigint::with_name(format!(
+        "sum({}) FILTER (WHERE {})",
+        field.into().to_string(),
+        condition
+    ))
+}
+
 pub fn case_when<T: Into<SelectField>>(cases: Vec<(Condition, Option<T>)>, else_value: Option<T>) -> SelectField {
     let mut case = "CASE".to_string();
 
