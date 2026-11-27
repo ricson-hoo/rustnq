@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use uuid::uuid;
 use crate::mapping::description::{Column, SqlColumn};
 use crate::mapping::description::Table;
-use crate::mapping::column_types::{Bigint, Date, Int, Varchar};
+use crate::mapping::column_types::{Bigint, Date, Double, Int, Varchar};
 use crate::query::builder::{Condition, FieldValue, InnerTable, QueryBuilder, SelectField, TargetTable};
 pub use crate::query::builder::InsertConflictPolicy;
 use serde::Serialize;
@@ -31,6 +31,16 @@ pub fn select_distinct<T: Into<SelectField>>(fields: Vec<T>) -> QueryBuilder{
 
 pub fn sum<T: Into<SelectField>>(field:T) -> Bigint{
    Bigint::with_name(format!("sum({})", field.into().to_string()))
+}
+
+/// AVG(expr) - numerical mean aggregate
+pub fn avg<T: Into<SelectField>>(field: T) -> Double {
+    Double::with_name(format!("avg({})", field.into().to_string()))
+}
+
+/// STDDEV_SAMP(expr) - sample standard deviation aggregate (same name in MySQL/PostgreSQL)
+pub fn stddev_samp<T: Into<SelectField>>(field: T) -> Double {
+    Double::with_name(format!("stddev_samp({})", field.into().to_string()))
 }
 
 pub fn count<T: Into<SelectField>>(field:T) -> Bigint{
