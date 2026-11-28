@@ -3267,9 +3267,27 @@ impl QueryBuilder {
             .join(" AND ");
                 
         let table_name = DbDialect::current().wrap_table_reference(&self.target_table.clone().unwrap().name);
-        queryString = format!("update {} set {} where {}", 
-            table_name, 
-            update_fields_values.join(", "), 
+        // 多表 UPDATE（MySQL 语法）：`UPDATE t [JOIN ... ON ...] SET ... WHERE ...`。
+        // update 支持链式 inner_join/left_join/on，此处按顺序拼出 JOIN 子句；
+        // 未使用 JOIN 时保持原有单表 UPDATE 输出不变。
+        let mut table_ref = table_name;
+        if !self.joins.is_empty() {
+            for join in self.joins.iter() {
+                let join_keyword = if DbDialect::current().is_postgres() && matches!(join.join_type, JoinType::STRAIGHT) {
+                    "INNER JOIN".to_string()
+                } else {
+                    join.join_type.to_string()
+                };
+                let join_table_name = DbDialect::current().wrap_table_reference(&join.target_table.name);
+                let on_cond = join.clone().condition
+                    .map(|c| c.query)
+                    .unwrap_or_else(|| "1=1".to_string());
+                table_ref = format!("{} {} {} ON {}", table_ref, join_keyword, join_table_name, on_cond);
+            }
+        }
+        queryString = format!("update {} set {} where {}",
+            table_ref,
+            update_fields_values.join(", "),
             where_conditions);
         },
         Operation::Insert_Or_Update => {
